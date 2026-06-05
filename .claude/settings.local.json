@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm *)",
+      "Bash(cmd.exe /c \"cd /d C:\\\\Users\\\\Rosario\\\\Documents\\\\my-workout && node --version && npm --version\")",
+      "PowerShell(Get-Command *)",
+      "PowerShell(winget install *)",
+      "PowerShell(cmd /c \"where /r C:\\\\ node.exe 2>nul\" 2>&1 | Select-Object -First 5)",
+      "PowerShell(winget list *)"
+    ]
+  }
+}

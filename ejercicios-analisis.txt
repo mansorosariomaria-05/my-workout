@@ -1,0 +1,91 @@
+====================================================================
+  ANÁLISIS DE BIBLIOTECA DE EJERCICIOS — my-workout
+  Fuente: src/data/exercises.js
+  Total de ejercicios en la biblioteca: 89
+====================================================================
+
+
+────────────────────────────────────────────────────────────────────
+LISTADO 1 — EJERCICIOS SIN ALTERNATIVA ASIGNADA O CON CAMPO VACÍO
+────────────────────────────────────────────────────────────────────
+
+1A. CAMPO "alt" VACÍO O AUSENTE
+────────────────────────────────
+Ningún ejercicio tiene el campo "alt" vacío ('') ni ausente.
+Todos los ejercicios de la biblioteca tienen algún texto en el
+campo "alt".
+
+
+1B. CAMPO "alt" IGUAL AL NOMBRE DEL EJERCICIO
+ (sin alternativa real — referencia circular)
+──────────────────────────────────────────────
+Estos 7 ejercicios tienen el "alt" idéntico a su propio nombre,
+lo que significa que no tienen una alternativa distinta asignada:
+
+  ID                 NOMBRE                       ALT ASIGNADO
+  ─────────────────────────────────────────────────────────────
+  glut_07            Puente de Glúteo             Puente de Glúteo
+  cua_07             Sentadilla isométrica         Sentadilla isométrica
+  esp_05             Remo con Mancuerna            Remo con Mancuerna
+  abs_02             Plancha con flexión           Plancha con flexión
+  abs_03             Crunch                        Crunch
+  abs_05             One arm toe touch             One arm toe touch
+  abi_03             Reverse Crunch                Reverse Crunch
+
+Nota: estos ejercicios aparecen en la categoría "Abdomen Superior",
+"Abdomen Inferior" y otros. Son candidatos para asignarles una
+alternativa real sin equipamiento o de menor dificultad.
+
+
+────────────────────────────────────────────────────────────────────
+LISTADO 2 — EJERCICIOS DE ABDOMINALES Y CORE
+────────────────────────────────────────────────────────────────────
+Categorías incluidas: Abdomen Superior · Abdomen Inferior ·
+                      Oblicuos · Core & Estabilidad
+Total: 18 ejercicios
+
+──────────────────────────────
+ABDOMEN SUPERIOR  (5 ejercicios)
+──────────────────────────────
+  ID       NOMBRE                   NIVEL
+  ──────────────────────────────────────────
+  abs_01   Rueda abdominal          B
+  abs_02   Plancha con flexión      B
+  abs_03   Crunch                   C
+  abs_04   Bicycle Crunch           C
+  abs_05   One arm toe touch        C
+
+──────────────────────────────
+ABDOMEN INFERIOR  (4 ejercicios)
+──────────────────────────────
+  ID       NOMBRE                          NIVEL
+  ───────────────────────────────────────────────
+  abi_01   Mountain Climber                B
+  abi_02   Elevación de piernas colgado    B
+  abi_03   Reverse Crunch                  C
+  abi_04   Scissors Abs                    C
+
+──────────────────────────────
+OBLICUOS  (4 ejercicios)
+──────────────────────────────
+  ID       NOMBRE                NIVEL
+  ─────────────────────────────────────
+  obl_01   Giros rusos           C
+  obl_02   Rolling Plank         C
+  obl_03   Plancha lateral       C
+  obl_04   Dead Bug              D
+
+──────────────────────────────
+CORE & ESTABILIDAD  (5 ejercicios)
+──────────────────────────────
+  ID                        NOMBRE                              NIVEL
+  ─────────────────────────────────────────────────────────────────────
+  cor_01                    La Plancha                          D
+  cor_02                    Press Pallof                        D
+  cor_03                    Bird Dog                            D
+  cor_04                    Hollow Body Hold                    D
+  plancha-arrastre-mancuerna  Plancha con Arrastre de Mancuerna  D
+
+====================================================================
+  FIN DEL ANÁLISIS
+====================================================================

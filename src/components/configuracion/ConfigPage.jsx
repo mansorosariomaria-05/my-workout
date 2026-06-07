@@ -246,7 +246,13 @@ export default function ConfigPage() {
           <Toggle
             label="Semana de descarga"
             value={settings?.deloadActive ?? false}
-            onChange={(v) => updateSettings({ deloadActive: v })}
+            onChange={(v) => {
+              if (!v && settings?.deloadActive) {
+                updateSettings({ deloadActive: false, deloadsCompleted: (settings.deloadsCompleted ?? 0) + 1 })
+              } else {
+                updateSettings({ deloadActive: v })
+              }
+            }}
           />
           {settings?.deloadActive && (
             <div className="mt-3 pt-3 border-t border-white/5 space-y-1">

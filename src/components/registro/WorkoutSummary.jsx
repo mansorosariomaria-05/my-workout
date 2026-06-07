@@ -96,7 +96,7 @@ function detectPRs(workout, workouts) {
   return prs
 }
 
-export default function WorkoutSummary({ workout, onDone, workouts = [] }) {
+export default function WorkoutSummary({ workout, onDone, workouts = [], newAchievements = [] }) {
   const [visible, setVisible]         = useState(true)
   const [secondsLeft, setSecondsLeft] = useState(5)
   const navigate   = useNavigate()
@@ -201,6 +201,17 @@ export default function WorkoutSummary({ workout, onDone, workouts = [] }) {
             <p className="text-app-purple-light text-sm font-medium">
               ¡{milestone} entrenamientos completados! 💎
             </p>
+          </div>
+        )}
+
+        {newAchievements.length > 0 && (
+          <div className="bg-app-purple/10 border border-app-purple/20 rounded-xl px-4 py-3 mb-3">
+            <p className="text-app-purple-light text-xs font-semibold uppercase tracking-wide mb-2">
+              ¡Logros desbloqueados! 🏅
+            </p>
+            {newAchievements.map(a => (
+              <p key={a.key} className="text-app-text text-sm font-medium">{a.label}</p>
+            ))}
           </div>
         )}
 

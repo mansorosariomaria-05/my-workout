@@ -180,6 +180,11 @@ export const saveTabataRecord = async (uid, tabataId, tabataName) => {
   })
 }
 
+export const getTabataRecordCount = async (uid) => {
+  const snap = await getDocs(collection(db, 'users', uid, 'tabataRecords'))
+  return snap.size
+}
+
 export const getTabataSettings = async (uid, tabataId) => {
   const snap = await getDoc(doc(db, 'users', uid, 'tabataSettings', tabataId))
   return snap.exists() ? snap.data() : null

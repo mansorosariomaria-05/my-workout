@@ -10,6 +10,7 @@ import ClaseFlow from './ClaseFlow'
 import WorkoutSummary from './WorkoutSummary'
 import Button from '../ui/Button'
 import { todayStr } from '../../utils/dates'
+import { runAchievementCheck, ACHIEVEMENTS_META } from '../../utils/achievements'
 
 const SESSION_TIMER_KEY = 'workout_start_ts'
 
@@ -55,6 +56,7 @@ export default function WorkoutWizard({ initialType }) {
   const [saving, setSaving]     = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saved, setSaved]       = useState(null)
+  const [newAchievements, setNewAchievements] = useState([])
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [startTime, setStartTime] = useState(() => {
     const stored = localStorage.getItem(SESSION_TIMER_KEY)
@@ -137,6 +139,9 @@ export default function WorkoutWizard({ initialType }) {
       clearDraft()
       localStorage.removeItem(SESSION_TIMER_KEY)
       setSaved(workout)
+      runAchievementCheck(user.uid, [workout, ...workoutsHook.workouts], profile, settings)
+        .then(keys => setNewAchievements(ACHIEVEMENTS_META.filter(a => keys.includes(a.key))))
+        .catch(() => {})
     } catch (error) {
       setSaveError('No se pudo guardar. Revisá tu conexión e intentá de nuevo.')
     } finally {
@@ -144,7 +149,7 @@ export default function WorkoutWizard({ initialType }) {
     }
   }
 
-  if (saved) return <WorkoutSummary workout={saved} onDone={() => setSaved(null)} workouts={workoutsHook.workouts} />
+  if (saved) return <WorkoutSummary workout={saved} onDone={() => setSaved(null)} workouts={workoutsHook.workouts} newAchievements={newAchievements} />
 
   return (
     <div className="min-h-screen bg-app-bg flex flex-col">

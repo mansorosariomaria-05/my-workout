@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { logout } from '../../services/auth'
-import { getWorkouts } from '../../services/db'
+import { getWorkouts, saveWorkout } from '../../services/db'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 
@@ -42,7 +42,8 @@ export default function ConfigPage() {
 
   const [editingProfile, setEditingProfile] = useState(false)
   const [draft, setDraft] = useState({ ...profile })
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving]     = useState(false)
+  const [importing, setImporting] = useState(false)
   const [msg, setMsg] = useState('')
 
   const showMsg = (text) => { setMsg(text); setTimeout(() => setMsg(''), 2000) }
@@ -75,12 +76,25 @@ export default function ConfigPage() {
     const file = e.target.files[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const data = JSON.parse(ev.target.result)
-        if (data.profile) updateProfile(data.profile)
-        showMsg('Datos importados')
-      } catch { showMsg('Error al importar') }
+        setImporting(true)
+        if (data.profile)  await updateProfile(data.profile)
+        if (data.settings) await updateSettings(data.settings)
+        if (Array.isArray(data.workouts)) {
+          for (const w of data.workouts) {
+            const { id, createdAt, ...workoutData } = w
+            await saveWorkout(user.uid, workoutData)
+          }
+        }
+        showMsg('Datos importados correctamente')
+      } catch {
+        showMsg('Error al importar')
+      } finally {
+        setImporting(false)
+        e.target.value = ''
+      }
     }
     reader.readAsText(file)
   }
@@ -260,11 +274,11 @@ export default function ConfigPage() {
             <Button size="md" variant="secondary" onClick={exportData} className="w-full">
               Exportar datos (JSON)
             </Button>
-            <label className="block">
+            <label className={`block ${importing ? 'pointer-events-none opacity-60' : ''}`}>
               <div className="w-full py-2.5 px-4 rounded-xl bg-app-elevated text-app-muted text-sm text-center border border-white/10 cursor-pointer active:scale-95">
-                Importar datos (JSON)
+                {importing ? 'Importando...' : 'Importar datos (JSON)'}
               </div>
-              <input type="file" accept=".json" className="hidden" onChange={importData} />
+              <input type="file" accept=".json" className="hidden" onChange={importData} disabled={importing} />
             </label>
           </div>
         </Section>

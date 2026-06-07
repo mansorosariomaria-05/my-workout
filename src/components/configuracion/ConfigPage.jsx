@@ -50,7 +50,8 @@ export default function ConfigPage() {
 
   const saveProfile = async () => {
     setSaving(true)
-    await updateProfile(draft)
+    const updatedObjectives = [draft.objetivo, ...(profile.objectives?.slice(1) ?? [])]
+    await updateProfile({ ...draft, objectives: updatedObjectives })
     setSaving(false)
     setEditingProfile(false)
     showMsg('Perfil actualizado')

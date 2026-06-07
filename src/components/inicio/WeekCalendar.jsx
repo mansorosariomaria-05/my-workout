@@ -27,7 +27,7 @@ export default function WeekCalendar({ workouts }) {
   })
 
   const byDate = {}
-  workouts.forEach(w => { byDate[w.date] = w })
+  workouts.forEach(w => { if (!byDate[w.date]) byDate[w.date] = w })
 
   const sunday = days[6]
   const headerStr = monday.getDate() + ' ' + MONTH_SHORT[monday.getMonth()] +

@@ -30,6 +30,7 @@ const STEPS = [
   { id: 'nivel',           title: '¿Cuánto tiempo llevás entrenando de forma regular?', subtitle: 'Para ajustar tus sugerencias' },
   { id: 'diasSemana',      title: '¿Cuántos días por semana?',         subtitle: 'Días disponibles para entrenar' },
   { id: 'tiposPreferidos', title: '¿Qué tipos de entrenamiento preferís?', subtitle: 'Podés elegir varios' },
+  { id: 'tipoRutina',     title: '¿Cómo organizás tus sesiones de fuerza?', subtitle: 'Ayuda a calcular tu recuperación muscular' },
   { id: 'pausa',           title: '¿Hace cuánto no entrenás?',         subtitle: 'Para ajustar tus cargas iniciales' },
   { id: 'lesiones',        title: '¿Tenés lesiones o limitaciones?',   subtitle: 'Te recordamos tenerlas en cuenta' },
   { id: 'equipamiento',    title: '¿Con qué equipamiento contás?',     subtitle: 'Filtramos ejercicios según esto' },
@@ -47,7 +48,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
     genero: '', name: '', objectives: [], nivel: '', diasSemana: 4,
-    tiposPreferidos: [], pausa: '', lesiones: '', equipamiento: '', lesionesYes: false,
+    tiposPreferidos: [], tipoRutina: '', pausa: '', lesiones: '', equipamiento: '', lesionesYes: false,
   })
   const [saving, setSaving] = useState(false)
 
@@ -60,6 +61,7 @@ export default function Onboarding() {
     if (id === 'name')            return data.name.trim().length > 0
     if (id === 'objectives')      return data.objectives.length > 0
     if (id === 'tiposPreferidos') return data.tiposPreferidos.length > 0
+    if (id === 'tipoRutina')      return !!data.tipoRutina
     if (id === 'lesiones')        return true
     return !!data[id]
   }
@@ -165,6 +167,28 @@ export default function Onboarding() {
             }`}
           >
             {opt}
+          </button>
+        ))}
+      </div>
+    )
+
+    if (id === 'tipoRutina') return (
+      <div className="space-y-3">
+        {[
+          { value: 'fullbody', emoji: '💪', label: 'Full-body', desc: 'Trabajás todo el cuerpo en cada sesión' },
+          { value: 'split',    emoji: '📋', label: 'Split',     desc: 'Cada sesión tiene un grupo muscular distinto' },
+        ].map(({ value, emoji, label, desc }) => (
+          <button
+            key={value}
+            onClick={() => setData(d => ({ ...d, tipoRutina: value }))}
+            className={`w-full py-3.5 px-4 rounded-xl text-sm text-left border transition-all ${
+              data.tipoRutina === value
+                ? 'bg-app-purple border-app-purple text-white font-medium'
+                : 'bg-app-bg border-white/10 text-app-muted hover:border-white/20'
+            }`}
+          >
+            <span className="font-medium">{emoji} {label}</span>
+            <span className={`block text-xs mt-0.5 ${data.tipoRutina === value ? 'text-white/70' : 'text-app-muted/60'}`}>{desc}</span>
           </button>
         ))}
       </div>

@@ -79,9 +79,10 @@ export function useWorkouts(uid) {
     return relevant.map(w => w.fatigue ?? 5)
   }
 
-  const getTrainedMusclesLast48h = () => {
+  const getTrainedMusclesRecovery = (profile) => {
+    const hours = profile?.tipoRutina === 'fullbody' ? 48 : 72
     const cutoff = new Date()
-    cutoff.setHours(cutoff.getHours() - 72)
+    cutoff.setHours(cutoff.getHours() - hours)
     const cutoffStr = dateToLocal(cutoff)
     const muscles = new Set()
     workouts.forEach(w => {
@@ -151,7 +152,7 @@ export function useWorkouts(uid) {
   return {
     workouts, loading, saveWorkout,
     getLastWeightsForExercise, getPRForExercise,
-    getLastFatigueForExercise, getTrainedMusclesLast48h,
+    getLastFatigueForExercise, getTrainedMusclesRecovery,
     getWeekWorkouts, getCurrentStreak, reload: load,
   }
 }

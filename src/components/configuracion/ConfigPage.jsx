@@ -189,6 +189,17 @@ export default function ConfigPage() {
                 </div>
               </div>
               <div>
+                <label className="text-app-muted text-xs mb-1 block">Tipo de rutina</label>
+                <div className="flex gap-2">
+                  {[['fullbody','💪 Full-body'],['split','📋 Split']].map(([val, label]) => (
+                    <button key={val} onClick={() => setDraft(d => ({ ...d, tipoRutina: val }))}
+                      className={`flex-1 py-2 rounded-xl text-xs border transition-all ${draft.tipoRutina === val ? 'border-app-purple bg-app-purple/20 text-app-purple-light' : 'border-white/10 text-app-muted'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
                 <label className="text-app-muted text-xs mb-1 block">Equipamiento</label>
                 <select value={draft.equipamiento ?? ''} onChange={e => setDraft(d => ({ ...d, equipamiento: e.target.value }))}
                   className="w-full bg-app-bg border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none">

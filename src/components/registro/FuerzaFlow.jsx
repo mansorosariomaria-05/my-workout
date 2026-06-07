@@ -3,7 +3,7 @@ import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice } from '../../utils/progression'
 import { useAuthContext } from '../../context/AuthContext'
-import { getCustomExercises, deleteCustomExercise } from '../../services/db'
+import { getCustomExercises, deleteCustomExercise, getCustomRoutines } from '../../services/db'
 import Modal from '../ui/Modal'
 
 const TIME_EXERCISES = ['Plancha', 'Sentadilla isométrica', 'Bird Dog', 'Hollow Body Hold', 'Dead Bug', 'Press Pallof']
@@ -379,6 +379,8 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [genEquip, setGenEquip]         = useState('Gym completo')
   const [genGenerated, setGenGenerated] = useState(null)
   const [customExercises, setCustomExercises] = useState([])
+  const [routineLoading, setRoutineLoading]   = useState(false)
+  const [routineLoadError, setRoutineLoadError] = useState(null)
   const { getLastWeightsForExercise, getPRForExercise, workouts } = workoutsHook
   const { getDeloadWeight, getDeloadSets, isActive: deloadActive } = deloadHook
 
@@ -477,13 +479,41 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     setReplaceSearch('')
   }
 
-  const loadRoutine = (routineId) => {
-    const r = builtinRoutines.find(r => r.id === routineId)
-    if (!r) return
-    const exs = r.exercises.map(re => exercises.find(e => e.id === re.id)).filter(Boolean).map(buildEntry)
-    onChange({ ...data, exercises: exs, mode: 'prearmada', selectedRoutine: routineId })
-    setExpandedRoutine(null)
-    onTimerStart?.()
+  const loadRoutine = async (routineId) => {
+    setRoutineLoadError(null)
+    const builtin = builtinRoutines.find(r => r.id === routineId)
+    if (builtin) {
+      const exs = builtin.exercises.map(re => exercises.find(e => e.id === re.id)).filter(Boolean).map(buildEntry)
+      onChange({ ...data, exercises: exs, mode: 'prearmada', selectedRoutine: routineId })
+      setExpandedRoutine(null)
+      onTimerStart?.()
+      return
+    }
+    if (!user?.uid) { setRoutineLoadError('No se pudo cargar la rutina.'); return }
+    setRoutineLoading(true)
+    try {
+      const [customs, customExs] = await Promise.all([
+        getCustomRoutines(user.uid),
+        getCustomExercises(user.uid),
+      ])
+      const custom = customs.find(r => r.id === routineId)
+      if (!custom) {
+        setRoutineLoadError('No se encontró la rutina. Puede haber sido eliminada.')
+        return
+      }
+      const allExs = [...exercises, ...customExs]
+      const exs = (custom.exercises ?? [])
+        .map(re => allExs.find(e => e.id === (re.id ?? re.exerciseId)))
+        .filter(Boolean)
+        .map(buildEntry)
+      onChange({ ...data, exercises: exs, mode: 'prearmada', selectedRoutine: routineId })
+      setExpandedRoutine(null)
+      onTimerStart?.()
+    } catch {
+      setRoutineLoadError('No se pudo cargar la rutina. Intentá de nuevo.')
+    } finally {
+      setRoutineLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -594,7 +624,23 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
         </div>
       )}
 
-      {mode === 'prearmada' && exerciseList.length === 0 && (
+      {mode === 'prearmada' && exerciseList.length === 0 && routineLoading && (
+        <p className="text-app-muted text-sm text-center py-8 animate-pulse">Cargando rutina...</p>
+      )}
+
+      {mode === 'prearmada' && exerciseList.length === 0 && routineLoadError && (
+        <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-4 space-y-3">
+          <p className="text-red-400 text-sm">{routineLoadError}</p>
+          <button
+            onClick={() => setRoutineLoadError(null)}
+            className="text-app-muted text-xs underline underline-offset-2"
+          >
+            Elegir otra rutina
+          </button>
+        </div>
+      )}
+
+      {mode === 'prearmada' && exerciseList.length === 0 && !routineLoading && !routineLoadError && (
         <div>
           <p className="text-app-muted text-xs mb-3">Elegí una rutina</p>
           <div className="space-y-2">

@@ -28,11 +28,11 @@ export const saveSettings = async (uid, settings) => {
 }
 
 // ─── Workouts ─────────────────────────────────────────────────────────────────
-export const saveWorkout = async (uid, workout) => {
+export const saveWorkout = async (uid, workout, dateStr = null) => {
   try {
     const ref = await addDoc(collection(db, 'users', uid, 'workouts'), {
       ...workout,
-      createdAt: serverTimestamp(),
+      createdAt: dateStr ? Timestamp.fromDate(new Date(dateStr)) : serverTimestamp(),
     })
     return ref.id
   } catch (error) {

@@ -85,7 +85,7 @@ export default function ConfigPage() {
         if (Array.isArray(data.workouts)) {
           for (const w of data.workouts) {
             const { id, createdAt, ...workoutData } = w
-            await saveWorkout(user.uid, workoutData)
+            await saveWorkout(user.uid, workoutData, workoutData.date ?? null)
           }
         }
         showMsg('Datos importados correctamente')

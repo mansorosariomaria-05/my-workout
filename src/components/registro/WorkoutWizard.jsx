@@ -114,9 +114,11 @@ export default function WorkoutWizard({ initialType }) {
       ...(type === 'fuerza' ? {
         exercises: detail.exercises,
         cinta: detail.cintas ? {
-          tipo: detail.cintaTipo || null,
-          min:  detail.cintaMin  ? Number(detail.cintaMin)  : null,
-          kmh:  detail.cintaKmh  ? Number(detail.cintaKmh)  : null,
+          tipo:        detail.cintaTipo || null,
+          min:         detail.cintaMin        ? Number(detail.cintaMin)        : null,
+          kmh:         detail.cintaKmh        ? Number(detail.cintaKmh)        : null,
+          inclinacion: detail.cintaConInclinacion && detail.cintaInclinacion
+                         ? Number(detail.cintaInclinacion) : null,
         } : null,
       } : {}),
       ...(type === 'cardio' ? {

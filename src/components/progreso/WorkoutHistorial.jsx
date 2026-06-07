@@ -94,6 +94,21 @@ export default function WorkoutHistorial({ workouts }) {
               </div>
             ))}
 
+            {selectedWorkout.cinta && (
+              <div className="bg-app-bg rounded-xl p-3">
+                <p className="text-app-text text-sm font-medium">
+                  Cinta{selectedWorkout.cinta.tipo ? ` · ${selectedWorkout.cinta.tipo}` : ''}
+                </p>
+                <p className="text-app-muted text-xs">
+                  {[
+                    selectedWorkout.cinta.min         ? `${selectedWorkout.cinta.min} min`               : null,
+                    selectedWorkout.cinta.kmh         ? `${selectedWorkout.cinta.kmh} km/h`              : null,
+                    selectedWorkout.cinta.inclinacion ? `${selectedWorkout.cinta.inclinacion}% inclinación` : null,
+                  ].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            )}
+
             {selectedWorkout.activity && (
               <div className="bg-app-bg rounded-xl p-3">
                 <p className="text-app-text text-sm font-medium">{selectedWorkout.activity}</p>

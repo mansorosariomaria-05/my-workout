@@ -42,7 +42,7 @@ function getThisWeekCount(workouts) {
 
 function getWeekStreak(workouts) {
   const realWorkouts = workouts.filter(w => w.type !== 'descanso' && w.date)
-  if (!realWorkouts.length) return 0
+  if (!realWorkouts.length) return { current: 0, record: 0 }
 
   const getMondayOf = (date) => {
     const d = new Date(date)
@@ -59,34 +59,52 @@ function getWeekStreak(workouts) {
     return y + '-' + m + '-' + d
   }
 
-  const thisMonday = getMondayOf(new Date())
-  const lastMonday = new Date(thisMonday)
-  lastMonday.setDate(lastMonday.getDate() - 7)
+  // Build week map: monday string -> set of distinct training days
+  const weekMap = {}
+  realWorkouts.forEach(w => {
+    const monday = toLocalStr(getMondayOf(new Date(w.date + 'T12:00:00')))
+    if (!weekMap[monday]) weekMap[monday] = new Set()
+    weekMap[monday].add(w.date)
+  })
 
-  let streak = 0
-  let checkMonday = new Date(lastMonday)
+  // Qualifying weeks (3+ distinct days), sorted ascending
+  const qualifying = Object.entries(weekMap)
+    .filter(([, days]) => days.size >= 3)
+    .map(([monday]) => monday)
+    .sort()
 
-  for (let i = 0; i < 52; i++) {
-    const weekStart = toLocalStr(checkMonday)
-    const weekEndDate = new Date(checkMonday)
-    weekEndDate.setDate(weekEndDate.getDate() + 6)
-    const weekEnd = toLocalStr(weekEndDate)
-
-    const daysSet = new Set(
-      realWorkouts
-        .filter(w => w.date >= weekStart && w.date <= weekEnd)
-        .map(w => w.date)
+  // Record: longest consecutive-week run in full history
+  let record = qualifying.length > 0 ? 1 : 0
+  let runLen = 1
+  for (let i = 1; i < qualifying.length; i++) {
+    const diffDays = Math.round(
+      (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00'))
+      / (1000 * 60 * 60 * 24)
     )
+    if (diffDays === 7) {
+      runLen++
+      if (runLen > record) record = runLen
+    } else {
+      runLen = 1
+    }
+  }
 
-    if (daysSet.size >= 3) {
-      streak++
-      checkMonday.setDate(checkMonday.getDate() - 7)
+  // Current: consecutive qualifying weeks ending at lastMonday (current week excluded)
+  const lastMondayDate = getMondayOf(new Date())
+  lastMondayDate.setDate(lastMondayDate.getDate() - 7)
+  let current = 0
+  let checkDate = new Date(lastMondayDate)
+  for (let i = 0; i < 52; i++) {
+    const weekStart = toLocalStr(checkDate)
+    if (weekMap[weekStart]?.size >= 3) {
+      current++
+      checkDate.setDate(checkDate.getDate() - 7)
     } else {
       break
     }
   }
 
-  return streak
+  return { current, record: Math.max(current, record) }
 }
 
 // ─── Weekly summary modal ─────────────────────────────────────────────────────
@@ -512,7 +530,7 @@ function LastWorkoutModal({ workout }) {
 }
 
 // ─── Stats cards ─────────────────────────────────────────────────────────────
-function StatsCards({ diasSemana, semanasRacha }) {
+function StatsCards({ diasSemana, semanasRacha, rachaRecord }) {
   const clampedDays = Math.min(diasSemana, 4)
   const maxDays = 4
   const radius = 30
@@ -562,6 +580,9 @@ function StatsCards({ diasSemana, semanasRacha }) {
       <div className="flex-1 py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center" style={{ backgroundColor: '#1a1625' }}>
         <span className="text-4xl font-bold text-app-amber leading-none">{semanasRacha}</span>
         <p className="text-[10px] text-app-muted text-center mt-1">semanas seguidas ⚡</p>
+        {rachaRecord > semanasRacha && (
+          <p className="text-[9px] text-app-muted/60 text-center mt-0.5">récord: {rachaRecord}</p>
+        )}
       </div>
 
     </div>
@@ -577,8 +598,8 @@ export default function Inicio() {
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)
   const [suggestion, setSuggestion] = useState(null)
 
-  const diasSemana   = getThisWeekCount(workouts)
-  const semanasRacha = getWeekStreak(workouts)
+  const diasSemana = getThisWeekCount(workouts)
+  const { current: semanasRacha, record: rachaRecord } = getWeekStreak(workouts)
 
   useEffect(() => {
     if (loading || !workouts.length) return
@@ -625,7 +646,7 @@ export default function Inicio() {
       )}
 
       <div className="flex-1 flex flex-col mt-2 pb-2 overflow-x-hidden">
-        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} /></div>
+        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} /></div>
         <div className="mb-2"><FraseDiariaCard workouts={workouts} /></div>
         <div className="mb-3"><WeekCalendar workouts={workouts} /></div>
         <div className="mb-2"><LastAndSuggestion workouts={workouts} /></div>

@@ -6,40 +6,45 @@ import { es } from 'date-fns/locale'
 // ─── Achievement metadata (no React/icon refs) ────────────────────────────────
 export const ACHIEVEMENTS_META = [
   // CONSISTENCIA
-  { key: 'primerPaso',          label: 'Primer paso',                    desc: 'Registrá tu primer entrenamiento' },
-  { key: 'semanaActiva',        label: 'Semana activa',                  desc: 'Entrenaste 3+ días en una semana' },
-  { key: 'madrugadora',         label: 'Madrugador/a',    labelMasc: 'Madrugador',         labelFem: 'Madrugadora',         desc: '5 entrenamientos antes de las 8 AM' },
-  { key: 'finDeSeActivo',       label: 'Fin de semana activo',           desc: 'Entrenaste sábado Y domingo en la misma semana' },
-  { key: 'rachaFuego',          label: 'Racha de fuego',                 desc: '4 semanas seguidas con 3+ días cada una' },
-  { key: 'rachaElite',          label: 'Racha élite',                    desc: '12 semanas seguidas con 3+ días cada una' },
-  { key: 'cincuenta',           label: '50 entrenamientos',              desc: 'Registrá 50 entrenamientos en total' },
-  { key: 'constanciaTotal',     label: 'Constancia total',               desc: 'Registrá 100 entrenamientos en total' },
+  { key: 'primerPaso',            label: 'Primer paso',              desc: 'Registrá tu primer entrenamiento' },
+  { key: 'semanaActiva',          label: 'Semana activa',            desc: 'Entrenaste 3+ días en una semana' },
+  { key: 'madrugadora',           label: 'Madrugador/a',             labelMasc: 'Madrugador',       labelFem: 'Madrugadora',       desc: '5 entrenamientos antes de las 8 AM' },
+  { key: 'finDeSeActivo',         label: 'Fin de semana activo',     desc: 'Entrenaste sábado Y domingo en la misma semana' },
+  { key: 'rachaFuego',            label: 'Racha de fuego',           desc: '4 semanas seguidas con 3+ días cada una' },
+  { key: 'rachaElite',            label: 'Racha élite',              desc: '12 semanas seguidas con 3+ días cada una' },
+  { key: 'cincuenta',             label: '50 entrenamientos',        desc: 'Registrá 50 entrenamientos en total' },
+  { key: 'constanciaTotal',       label: 'Constancia total',         desc: 'Registrá 100 entrenamientos en total' },
+  { key: 'medioAnio',             label: 'Medio año',                desc: '180 días desde tu primer entrenamiento registrado' },
+  { key: 'cienDias',              label: '100 días entrenados',      desc: '100 días únicos con al menos un entrenamiento' },
+  { key: 'consistenciaRegistro',  label: 'Consistencia de registro', desc: 'Escribiste una nota en 20 o más entrenamientos' },
   // FUERZA
-  { key: 'primerAumento',       label: 'Primer aumento',                 desc: 'Subiste el peso por primera vez' },
-  { key: 'tresPRs',             label: 'Superaste 3 PRs',                desc: 'Récord personal en 3 ejercicios distintos' },
-  { key: 'diezPRs',             label: 'Superaste 10 PRs',               desc: 'Récord personal en 10 ejercicios distintos' },
-  { key: 'dobleProg',           label: 'Doble progresión',               desc: 'Duplicaste el peso inicial en algún ejercicio' },
-  { key: 'piernasAcero',        label: 'Piernas de acero',               desc: '4 semanas seguidas entrenando piernas' },
-  { key: 'hamburguesaMerecida', label: '¡Te merecés una hamburguesa! 🍔', desc: 'Entrenaste 4 o más días en una semana' },
-  { key: 'rachaFuerza',         label: 'En racha de fuerza 💥',          desc: 'Subiste el peso en 3+ ejercicios distintos en la misma semana' },
+  { key: 'primerAumento',         label: 'Primer aumento',           desc: 'Subiste el peso por primera vez' },
+  { key: 'primerSalto',           label: 'Primer salto',             desc: 'Subiste un 25% o más tu peso inicial en algún ejercicio' },
+  { key: 'tresPRs',               label: 'Superaste 3 PRs',          desc: 'Récord personal en 3 ejercicios distintos' },
+  { key: 'diezPRs',               label: 'Superaste 10 PRs',         desc: 'Récord personal en 10 ejercicios distintos' },
+  { key: 'dobleProg',             label: 'Doble progresión',         desc: 'Duplicaste el peso inicial en algún ejercicio' },
+  { key: 'transformacion',        label: 'Transformación',           desc: 'Duplicaste el peso inicial en 3 o más ejercicios' },
+  { key: 'piernasAcero',          label: 'Piernas de acero',         desc: '4 semanas seguidas entrenando piernas' },
+  { key: 'hamburguesaMerecida',   label: 'Hamburguesa merecida',     desc: 'Entrenaste 4 o más días en una semana' },
+  { key: 'rachaFuerza',           label: 'Racha de fuerza',          desc: 'Subiste el peso en 3+ ejercicios distintos en la misma semana' },
   // CARDIO
-  { key: 'cinco5km',            label: 'Primera vez 5km',                desc: 'Acumulaste 5km corriendo en total' },
-  { key: 'veinte20km',          label: '20km acumulados',                desc: 'Acumulaste 20km corriendo en total' },
-  { key: 'ritmoSolido',         label: 'Ritmo sólido',                   desc: 'Promedio menor a 6:00 min/km en 3 sesiones' },
-  { key: 'dobleRueda',          label: 'Doble rueda',                    desc: '20km en rollers en una sola sesión' },
-  { key: 'tabataMaster',        label: 'Tabata master ⚡',               desc: 'Completaste 10 sesiones de Tabata' },
+  { key: 'cinco5km',              label: 'Primera vez 5km',          desc: 'Acumulaste 5km corriendo en total' },
+  { key: 'veinte20km',            label: '20km acumulados',          desc: 'Acumulaste 20km corriendo en total' },
+  { key: 'ritmoSolido',           label: 'Ritmo sólido',             desc: 'Promedio menor a 6:00 min/km en 3 sesiones' },
+  { key: 'dobleRueda',            label: 'Doble rueda',              desc: '20km en rollers en una sola sesión' },
+  { key: 'tabataMaster',          label: 'Tabata master',            desc: 'Completaste 10 sesiones de Tabata' },
   // BALANCE
-  { key: 'semanaMixta',         label: 'Primera semana mixta',           desc: 'Una semana con fuerza + cardio o clase' },
-  { key: 'balancePerfecto',     label: 'Balance perfecto',               desc: '4 semanas seguidas con cardio o clase incluido' },
-  { key: 'energiaAlza',         label: 'Energía en alza',                desc: 'Tu cansancio promedio bajó más de 2 puntos' },
-  { key: 'guerreraDescanso',    label: 'Guerrer@ del descanso', labelMasc: 'Guerrero del descanso', labelFem: 'Guerrera del descanso', desc: 'Completaste 3 semanas de descarga registradas' },
-  { key: 'resiliencia',         label: 'Resiliencia',                    desc: 'Volviste a entrenar tras 7+ días sin registros' },
+  { key: 'semanaMixta',           label: 'Primera semana mixta',     desc: 'Una semana con fuerza + cardio o clase' },
+  { key: 'balancePerfecto',       label: 'Balance perfecto',         desc: '4 semanas seguidas con cardio o clase incluido' },
+  { key: 'energiaAlza',           label: 'Energía en alza',          desc: 'Tu cansancio promedio bajó más de 2 puntos' },
+  { key: 'guerreraDescanso',      label: 'Guerrer@ del descanso',    labelMasc: 'Guerrero del descanso', labelFem: 'Guerrera del descanso', desc: 'Completaste 3 semanas de descarga registradas' },
+  { key: 'resiliencia',           label: 'Resiliencia',              desc: 'Volviste a entrenar tras 7+ días sin registros' },
   // ESPECIALES
-  { key: 'aniversario',         label: 'Aniversario',                    desc: 'Un año desde tu primer entrenamiento registrado' },
-  { key: 'madrugadoraExtrema',  label: 'Madrugador/a extremo/a', labelMasc: 'Madrugador extremo', labelFem: 'Madrugadora extrema', desc: 'Entrenaste antes de las 6:30 AM' },
-  { key: 'aveNocturna',         label: 'Ave nocturna',                   desc: 'Entrenaste después de las 21:00' },
-  { key: 'dosSemanas',          label: 'Dos semanas activas',            desc: 'Entrenaste 3+ días por 2 semanas seguidas' },
-  { key: 'semanaPerfecta',      label: 'Semana perfecta 🌟',             desc: 'Entrenaste todos los días que te propusiste en una semana' },
+  { key: 'aniversario',           label: 'Aniversario',              desc: 'Un año desde tu primer entrenamiento registrado' },
+  { key: 'madrugadoraExtrema',    label: 'Madrugador/a extremo/a',   labelMasc: 'Madrugador extremo', labelFem: 'Madrugadora extrema', desc: 'Entrenaste antes de las 6:30 AM' },
+  { key: 'aveNocturna',           label: 'Ave nocturna',             desc: 'Entrenaste después de las 21:00' },
+  { key: 'dosSemanas',            label: 'Dos semanas activas',      desc: 'Entrenaste 3+ días por 2 semanas seguidas' },
+  { key: 'semanaPerfecta',        label: 'Semana perfecta',          desc: 'Entrenaste todos los días que te propusiste en una semana' },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -99,6 +104,24 @@ function computePRData(workouts) {
     }
   }
   return { prCount: prSet.size }
+}
+
+function computeWeightProgression(workouts) {
+  const sorted = [...workouts]
+    .filter(w => w.type === 'fuerza' && w.exercises?.length)
+    .sort((a, b) => a.date.localeCompare(b.date))
+  const firstW = {}, curW = {}, names = {}
+  for (const w of sorted) {
+    for (const e of (w.exercises ?? [])) {
+      if (!e.exerciseId || !e.sets?.length) continue
+      const maxW = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
+      if (!maxW) continue
+      if (firstW[e.exerciseId] == null) firstW[e.exerciseId] = maxW
+      curW[e.exerciseId] = maxW
+      names[e.exerciseId] = e.name || e.exerciseId
+    }
+  }
+  return { firstW, curW, names }
 }
 
 function getTotalRunningKm(workouts) {
@@ -291,6 +314,24 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
   if (!a.cincuenta?.unlocked       && workouts.length >= 50)  push('cincuenta',       '50 entrenamientos completados')
   if (!a.constanciaTotal?.unlocked && workouts.length >= 100) push('constanciaTotal', '100 entrenamientos completados')
 
+  if (!a.medioAnio?.unlocked && workouts.length > 0) {
+    const real = workouts.filter(w => w.type !== 'descanso')
+    if (real.length > 0) {
+      const first = new Date(real[real.length - 1].date + 'T12:00:00')
+      if ((new Date() - first) >= 180 * 24 * 3600 * 1000) push('medioAnio', 'Más de 180 días desde el primer entrenamiento')
+    }
+  }
+
+  if (!a.cienDias?.unlocked) {
+    const uniqueDates = new Set(workouts.filter(w => w.type !== 'descanso').map(w => w.date))
+    if (uniqueDates.size >= 100) push('cienDias', `${uniqueDates.size} días únicos entrenados`)
+  }
+
+  if (!a.consistenciaRegistro?.unlocked) {
+    const withNotes = workouts.filter(w => w.notes && w.notes.trim().length > 0)
+    if (withNotes.length >= 20) push('consistenciaRegistro', `${withNotes.length} entrenamientos con nota`)
+  }
+
   if (!a.primerAumento?.unlocked || !a.tresPRs?.unlocked || !a.diezPRs?.unlocked) {
     const { prCount } = computePRData(workouts)
     if (!a.primerAumento?.unlocked && prCount >= 1)  push('primerAumento', 'Primera subida de peso registrada')
@@ -298,21 +339,20 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
     if (!a.diezPRs?.unlocked       && prCount >= 10) push('diezPRs',       '10 récords personales superados')
   }
 
-  if (!a.dobleProg?.unlocked) {
-    const sorted = [...workouts].filter(w => w.type === 'fuerza' && w.exercises?.length).sort((a, b) => a.date.localeCompare(b.date))
-    const firstW = {}, curW = {}, names = {}
-    for (const w of sorted) {
-      for (const e of (w.exercises ?? [])) {
-        if (!e.exerciseId || !e.sets?.length) continue
-        const maxW = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
-        if (!maxW) continue
-        if (firstW[e.exerciseId] == null) firstW[e.exerciseId] = maxW
-        curW[e.exerciseId] = maxW
-        names[e.exerciseId] = e.name || e.exerciseId
-      }
+  if (!a.primerSalto?.unlocked || !a.dobleProg?.unlocked || !a.transformacion?.unlocked) {
+    const { firstW, curW, names } = computeWeightProgression(workouts)
+    if (!a.primerSalto?.unlocked) {
+      const jumped = Object.keys(firstW).find(id => firstW[id] > 0 && curW[id] >= firstW[id] * 1.25)
+      if (jumped) push('primerSalto', `${names[jumped]} · de ${firstW[jumped]}kg a ${curW[jumped]}kg`)
     }
-    const doubled = Object.keys(firstW).find(id => curW[id] >= firstW[id] * 2 && firstW[id] > 0)
-    if (doubled) push('dobleProg', `${names[doubled]} · de ${firstW[doubled]}kg a ${curW[doubled]}kg`)
+    if (!a.dobleProg?.unlocked) {
+      const doubled = Object.keys(firstW).find(id => firstW[id] > 0 && curW[id] >= firstW[id] * 2)
+      if (doubled) push('dobleProg', `${names[doubled]} · de ${firstW[doubled]}kg a ${curW[doubled]}kg`)
+    }
+    if (!a.transformacion?.unlocked) {
+      const doubledList = Object.keys(firstW).filter(id => firstW[id] > 0 && curW[id] >= firstW[id] * 2)
+      if (doubledList.length >= 3) push('transformacion', `${doubledList.length} ejercicios con peso duplicado`)
+    }
   }
 
   if (!a.piernasAcero?.unlocked && checkPiernasAcero(workouts)) push('piernasAcero', '4 semanas seguidas entrenando piernas')

@@ -117,7 +117,9 @@ function getLastWeekBounds() {
   currMonday.setHours(0, 0, 0, 0)
   const lastMonday = new Date(currMonday)
   lastMonday.setDate(currMonday.getDate() - 7)
-  return { start: dateToLocal(lastMonday), end: dateToLocal(new Date(currMonday.getTime() - 86400000)) }
+  const sundayD = new Date(currMonday)
+  sundayD.setDate(currMonday.getDate() - 1)
+  return { start: dateToLocal(lastMonday), end: dateToLocal(sundayD) }
 }
 
 function computeWeeklyStats(workouts) {
@@ -219,7 +221,7 @@ function FraseDiariaCard({ workouts }) {
       try { localStorage.setItem(cacheKey, JSON.stringify(fraseObj)) } catch {}
     }
   } else {
-    const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
+    const dayOfYear = Math.round((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
     fraseObj = FRASES_PRE[dayOfYear % FRASES_PRE.length]
   }
 
@@ -387,8 +389,10 @@ async function getDailySuggestion(userId) {
   }
 
   // ── PASO 2: elegir rutina de fuerza ───────────────────────────────────────
-  const yesterday  = dateToLocal(new Date(now.getTime() - 86400000))
-  const twoDaysAgo = dateToLocal(new Date(now.getTime() - 2 * 86400000))
+  const d1 = new Date(); d1.setDate(d1.getDate() - 1)
+  const d2 = new Date(); d2.setDate(d2.getDate() - 2)
+  const yesterday  = dateToLocal(d1)
+  const twoDaysAgo = dateToLocal(d2)
 
   const recentMuscles = new Set()
   real

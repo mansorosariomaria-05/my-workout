@@ -1,7 +1,11 @@
 import { startOfWeek, endOfWeek, format, differenceInDays, parseISO, isValid, eachWeekOfInterval, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns'
 import { es } from 'date-fns/locale'
 
-export const VALENCIA_DATE = new Date('2026-06-28')
+// Returns the IANA timezone of the device (e.g. "America/Buenos_Aires", "Europe/Madrid")
+export const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
+
+// Local midnight — avoids the UTC-midnight trap of new Date('YYYY-MM-DD')
+export const VALENCIA_DATE = new Date(2026, 5, 28)
 
 // Timezone-safe helpers — never use toISOString() for local dates
 export const dateToLocal = (date) =>

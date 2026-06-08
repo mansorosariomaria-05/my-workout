@@ -5,7 +5,7 @@ import {
   orderBy, limit, where, deleteDoc,
   serverTimestamp, Timestamp,
 } from 'firebase/firestore'
-import { weekKey } from '../utils/dates'
+import { weekKey, parseLocalDate, getTodayLocal } from '../utils/dates'
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 export const getUserProfile = async (uid) => {
@@ -32,7 +32,7 @@ export const saveWorkout = async (uid, workout, dateStr = null) => {
   try {
     const ref = await addDoc(collection(db, 'users', uid, 'workouts'), {
       ...workout,
-      createdAt: dateStr ? Timestamp.fromDate(new Date(dateStr)) : serverTimestamp(),
+      createdAt: dateStr ? Timestamp.fromDate(parseLocalDate(dateStr)) : serverTimestamp(),
     })
     return ref.id
   } catch (error) {
@@ -175,7 +175,7 @@ export const deleteCustomExercise = async (uid, exerciseId) => {
 export const saveTabataRecord = async (uid, tabataId, tabataName) => {
   await addDoc(collection(db, 'users', uid, 'tabataRecords'), {
     tabataId, tabataName,
-    date: new Date().toISOString().split('T')[0],
+    date: getTodayLocal(),
     createdAt: serverTimestamp(),
   })
 }

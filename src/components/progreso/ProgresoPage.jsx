@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal, dateToLocal } from '../../utils/dates'
-import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
 
@@ -50,10 +50,9 @@ function computeAll(workouts) {
     )
   }
 
-  // Unique training days
   const uniqueDays = new Set(real.map(w => w.date)).size
 
-  // Week buckets for streaks
+  // Week buckets for record streak
   const weekMap = {}
   real.forEach(w => {
     const mon = weekMonday(w.date)
@@ -62,27 +61,12 @@ function computeAll(workouts) {
   })
   const qualifying = Object.keys(weekMap).filter(k => weekMap[k].size >= 3).sort()
 
-  // Record streak (max consecutive qualifying weeks)
   let record = qualifying.length > 0 ? 1 : 0, run = 1
   for (let i = 1; i < qualifying.length; i++) {
     const diff = Math.round(
       (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00')) / 86400000
     )
     if (diff === 7) { run++; record = Math.max(record, run) } else run = 1
-  }
-
-  // Current streak (consecutive qualifying complete weeks ending at last Mon)
-  const now2    = new Date()
-  const dow2    = now2.getDay() || 7
-  const thisMon = new Date(now2)
-  thisMon.setDate(now2.getDate() - dow2 + 1)
-  thisMon.setHours(0, 0, 0, 0)
-  const lastMon = new Date(thisMon)
-  lastMon.setDate(thisMon.getDate() - 7)
-  let current = 0, checkD = new Date(lastMon)
-  for (let i = 0; i < 52; i++) {
-    const k = dateToLocal(checkD)
-    if ((weekMap[k]?.size ?? 0) >= 3) { current++; checkD.setDate(checkD.getDate() - 7) } else break
   }
 
   // Per-exercise stats: PRs, first/last weight, session count
@@ -107,26 +91,24 @@ function computeAll(workouts) {
     })
   })
 
-  // Mayor progreso % — exercise with biggest relative weight gain
-  let maxPct = -1, maxPctName = ''
+  // Mayor progreso % — biggest relative gain, split into value + name
+  let maxPct = -1, maxPctId = ''
   Object.keys(exFirst).forEach(id => {
     if (exFirst[id] > 0) {
       const pct = ((exLast[id] - exFirst[id]) / exFirst[id]) * 100
-      if (pct > maxPct) { maxPct = pct; maxPctName = exName[id] }
+      if (pct > maxPct) { maxPct = pct; maxPctId = id }
     }
   })
-  const mayorProgreso = maxPct > 0
-    ? `${maxPctName.split(' ').slice(0, 2).join(' ')} +${Math.round(maxPct)}%`
-    : '—'
+  const mayorProgresoVal  = maxPct > 0 ? `+${Math.round(maxPct)}%` : '—'
+  const mayorProgresoName = maxPctId ? exName[maxPctId] : ''
 
-  // Más trabajado — most sessions
-  let topN = 0, topName = ''
+  // Más trabajado — most sessions, split into value + name
+  let topN = 0, topId = ''
   Object.keys(exSessions).forEach(id => {
-    if (exSessions[id] > topN) { topN = exSessions[id]; topName = exName[id] }
+    if (exSessions[id] > topN) { topN = exSessions[id]; topId = id }
   })
-  const masEntrenado = topN > 0
-    ? `${topName.split(' ').slice(0, 2).join(' ')} · ${topN} ses.`
-    : '—'
+  const masEntrenadoVal  = topN > 0 ? `${topN} ses.` : '—'
+  const masEntrenadoName = topId ? exName[topId] : ''
 
   // Mejor marca — biggest absolute kg gain
   let maxDelta = 0, maxDeltaEx = ''
@@ -137,19 +119,29 @@ function computeAll(workouts) {
   const mejorMarcaVal = maxDelta > 0 ? `+${maxDelta}kg` : '—'
   const mejorMarcaSub = maxDelta > 0 ? `en ${maxDeltaEx.split(' ').slice(0, 2).join(' ')}` : ''
 
-  // This week: avg fatigue + training days
-  const today      = getTodayLocal()
+  // Historical avg fatigue (all workouts with fatigue data, minimum 3)
+  const allFatigues = workouts.filter(w => w.fatigue != null).map(w => w.fatigue)
+  const avgFatigaHistorica = allFatigues.length >= 3
+    ? allFatigues.reduce((a, b) => a + b, 0) / allFatigues.length
+    : null
+
+  // This week training days
+  const today   = getTodayLocal()
+  const now2    = new Date()
+  const dow2    = now2.getDay() || 7
+  const thisMon = new Date(now2)
+  thisMon.setDate(now2.getDate() - dow2 + 1)
+  thisMon.setHours(0, 0, 0, 0)
   const thisMonStr = dateToLocal(thisMon)
   const thisWeekW  = workouts.filter(w => w.date >= thisMonStr && w.date <= today && w.type !== 'descanso')
-  const fatigues   = thisWeekW.filter(w => w.fatigue != null).map(w => w.fatigue)
-  const avgFatiga  = fatigues.length > 0 ? fatigues.reduce((a, b) => a + b, 0) / fatigues.length : null
   const thisDays   = new Set(thisWeekW.map(w => w.date)).size
 
   return {
-    total, months, uniqueDays, record, current, totalPRs,
-    mayorProgreso, masEntrenado,
+    total, months, uniqueDays, record, totalPRs,
+    mayorProgresoVal, mayorProgresoName,
+    masEntrenadoVal, masEntrenadoName,
     mejorMarcaVal, mejorMarcaSub,
-    avgFatiga, thisDays,
+    avgFatigaHistorica, thisDays,
   }
 }
 
@@ -178,11 +170,10 @@ function computeTopExercises(workouts) {
       const first    = sorted[0].maxW
       const last     = sorted[sorted.length - 1].maxW
       return {
-        name:      ex.name,
-        first,     last,
-        sessions:  month.length,
-        isPR:      last > priorMax && priorMax > 0,
-        sparkVals: sorted.slice(-5).map(e => e.maxW),
+        name:     ex.name,
+        first,    last,
+        sessions: month.length,
+        isPR:     last > priorMax && priorMax > 0,
       }
     })
     .filter(Boolean)
@@ -208,36 +199,20 @@ function valueSize(v) {
   return '12px'
 }
 
-function Sparkline({ values, color, width = 80, height = 24 }) {
-  if (!values || values.length < 2) return <div style={{ width, height }} />
-  const min = Math.min(...values), max = Math.max(...values)
-  const rng = max - min || 1
-  const pad = 3
-  const pts = values.map((v, i) => {
-    const x = pad + (i / (values.length - 1)) * (width - pad * 2)
-    const y = (height - pad) - ((v - min) / rng) * (height - pad * 2)
-    return [x, y]
-  })
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <polyline
-        points={pts.map(p => p.join(',')).join(' ')}
-        fill="none" stroke={color} strokeWidth={1.5}
-        strokeLinecap="round" strokeLinejoin="round"
-      />
-      {pts.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={i === pts.length - 1 ? 2.5 : 1.5} fill={color} />
-      ))}
-    </svg>
-  )
-}
-
-function CaminoCard({ emoji, value, label }) {
+// CaminoCard — optional `name` prop shows exercise name below value in truncated xs text
+function CaminoCard({ emoji, value, label, name }) {
   return (
     <div className="rounded-2xl flex flex-col items-center justify-center py-4 px-2 text-center gap-1"
       style={{ backgroundColor: '#1a1625' }}>
       <span style={{ fontSize: 18 }}>{emoji}</span>
-      <span className="font-bold leading-tight" style={{ color: PURPLE, fontSize: valueSize(value) }}>{value}</span>
+      <span className="font-bold leading-tight" style={{ color: PURPLE, fontSize: name ? '22px' : valueSize(value) }}>
+        {value}
+      </span>
+      {name && (
+        <span className="w-full leading-none truncate px-1" style={{ color: '#94A3B8', fontSize: 9 }}>
+          {name}
+        </span>
+      )}
       <span className="leading-tight" style={{ color: '#6B7280', fontSize: 9 }}>{label}</span>
     </div>
   )
@@ -249,7 +224,7 @@ function VictoriaCard({ icon, value, sub, color, label }) {
       style={{ backgroundColor: '#1e1830' }}>
       {icon ? <span className="text-2xl">{icon}</span> : null}
       <span className="font-bold text-lg leading-none" style={{ color }}>{value}</span>
-      {sub ? <span className="leading-tight" style={{ color: '#6B7280', fontSize: 9 }}>{sub}</span> : null}
+      {sub ? <span className="leading-tight px-1" style={{ color: '#6B7280', fontSize: 9 }}>{sub}</span> : null}
       <span className="uppercase tracking-wider leading-tight mt-0.5" style={{ color: '#4a4560', fontSize: 8 }}>{label}</span>
     </div>
   )
@@ -287,7 +262,11 @@ function WeekRow({ workouts }) {
               ) : isToday ? (
                 <div className="animate-pulse" style={{ width: 32, height: 32, borderRadius: '50%', border: `2px dashed ${PURPLE}` }} />
               ) : (
-                <div style={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: future ? '#160f25' : '#1e1a2e' }} />
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  backgroundColor: future ? '#160f25' : '#1e1a2e',
+                  border: future ? '1px solid rgba(107,114,128,0.35)' : 'none',
+                }} />
               )}
             </div>
             <span style={{ fontSize: 8, color: '#4a4560', textAlign: 'center', lineHeight: 1.2 }}>
@@ -372,7 +351,7 @@ export default function ProgresoPage() {
   const [showAllExercises, setShowAllExercises] = useState(false)
   const [showHistorial, setShowHistorial]        = useState(false)
 
-  const data  = useMemo(() => computeAll(workouts),        [workouts])
+  const data  = useMemo(() => computeAll(workouts),          [workouts])
   const topEx = useMemo(() => computeTopExercises(workouts), [workouts])
 
   if (loading) return (
@@ -382,24 +361,32 @@ export default function ProgresoPage() {
   )
 
   const {
-    total, months, uniqueDays, record, current, totalPRs,
-    mayorProgreso, masEntrenado,
+    total, months, uniqueDays, record, totalPRs,
+    mayorProgresoVal, mayorProgresoName,
+    masEntrenadoVal, masEntrenadoName,
     mejorMarcaVal, mejorMarcaSub,
-    avgFatiga, thisDays,
+    avgFatigaHistorica, thisDays,
   } = data
 
   const diasSemana = profile?.diasSemana ?? 3
   const semanaOK   = thisDays >= diasSemana * 0.5
   const greetName  = profile?.name ?? (profile?.genero === 'masculino' ? 'campeón' : 'campeona')
 
-  const fatigaColor = avgFatiga == null ? '#6B7280'
-    : avgFatiga <= 5 ? GREEN
-    : avgFatiga <= 7 ? AMBER
+  // Fatiga histórica — color y etiquetas dinámicas
+  const fatigaColor = avgFatigaHistorica == null ? '#6B7280'
+    : avgFatigaHistorica <= 5 ? GREEN
+    : avgFatigaHistorica <= 7 ? AMBER
     : RED
-  const fatigaText = avgFatiga == null ? '—'
-    : avgFatiga <= 5 ? 'Óptima'
-    : avgFatiga <= 7 ? 'Buena'
-    : 'Alta'
+  const fatigaSub = avgFatigaHistorica == null ? null
+    : avgFatigaHistorica <= 5 ? 'Recuperación óptima 💪'
+    : avgFatigaHistorica <= 7 ? 'Carga bien gestionada'
+    : 'Entrenás al límite 🔥'
+  const fatigaLabel = avgFatigaHistorica == null ? 'sin datos aún' : 'fatiga'
+
+  // Esta semana — mensaje contextual
+  const semanaMsg = thisDays === 0
+    ? '¡arrancá hoy!'
+    : semanaOK ? '¡vas bien!' : '¡vamos!'
 
   return (
     <div className="min-h-screen bg-app-bg">
@@ -420,16 +407,16 @@ export default function ProgresoPage() {
         <div>
           <SectionTitle>Tu camino</SectionTitle>
           <div className="grid grid-cols-2 gap-2">
-            <CaminoCard emoji="🏋️" value={String(total)}      label="entrenamientos totales" />
-            <CaminoCard emoji="🔥" value={`${record} sem.`}   label="récord de racha" />
-            <CaminoCard emoji="🏆" value={String(totalPRs)}   label="PRs históricos" />
-            <CaminoCard emoji="📅" value={String(uniqueDays)} label="días únicos entrenados" />
-            <CaminoCard emoji="📈" value={mayorProgreso}       label="mayor progreso" />
-            <CaminoCard emoji="⭐" value={masEntrenado}        label="más trabajado" />
+            <CaminoCard emoji="🏋️" value={String(total)}       label="entrenamientos totales" />
+            <CaminoCard emoji="🔥" value={`${record} sem.`}    label="récord de racha" />
+            <CaminoCard emoji="🏆" value={String(totalPRs)}    label="PRs históricos" />
+            <CaminoCard emoji="📅" value={String(uniqueDays)}  label="días únicos entrenados" />
+            <CaminoCard emoji="📈" value={mayorProgresoVal} name={mayorProgresoName} label="mayor progreso" />
+            <CaminoCard emoji="⭐" value={masEntrenadoVal}  name={masEntrenadoName}  label="más trabajado" />
           </div>
         </div>
 
-        {/* Bloque 3 — Tus victorias */}
+        {/* Bloque 3 — Tus victorias (datos históricos) */}
         <div>
           <SectionTitle>Tus victorias</SectionTitle>
           <div className="flex gap-2">
@@ -442,17 +429,17 @@ export default function ProgresoPage() {
             />
             <VictoriaCard
               icon="🔥"
-              value={`${current} sem.`}
+              value={`${record} sem.`}
               sub={null}
               color={PURPLE}
-              label="racha activa"
+              label="récord de racha"
             />
             <VictoriaCard
-              icon={avgFatiga != null ? '💪' : ''}
-              value={fatigaText}
-              sub={avgFatiga != null ? `${avgFatiga.toFixed(1)}/10` : null}
+              icon={avgFatigaHistorica != null ? '💪' : ''}
+              value={avgFatigaHistorica != null ? avgFatigaHistorica.toFixed(1) : '—'}
+              sub={fatigaSub}
               color={fatigaColor}
-              label="fatiga"
+              label={fatigaLabel}
             />
           </div>
         </div>
@@ -460,8 +447,8 @@ export default function ProgresoPage() {
         {/* Bloque 4 — Esta semana */}
         <div>
           <SectionTitle aside={
-            <p className="text-xs" style={{ color: semanaOK ? GREEN : AMBER }}>
-              {thisDays} de {diasSemana} días{semanaOK ? ' · ¡vas bien!' : ' · ¡vamos!'}
+            <p className="text-xs" style={{ color: semanaOK && thisDays > 0 ? GREEN : AMBER }}>
+              {thisDays} de {diasSemana} días · {semanaMsg}
             </p>
           }>
             Esta semana
@@ -477,42 +464,44 @@ export default function ProgresoPage() {
           <Recomendaciones />
         </div>
 
-        {/* Bloque 6 — Principales progresiones */}
+        {/* Bloque 6 — Principales progresiones (formato numérico) */}
         <div>
           <SectionTitle>Principales progresiones</SectionTitle>
           <div className="rounded-2xl border border-white/[0.06]" style={{ backgroundColor: '#1a1625' }}>
             {topEx.length === 0 ? (
               <p className="text-app-muted text-sm text-center py-6 px-4">Sin entrenamientos de fuerza en el último mes</p>
             ) : topEx.map((ex, i) => {
-              const sparkColor = ex.last > ex.first ? GREEN : ex.last < ex.first ? RED : PURPLE
+              const pct      = ex.first > 0 ? Math.round(((ex.last - ex.first) / ex.first) * 100) : 0
+              const pctColor = pct > 0 ? GREEN : pct < 0 ? RED : '#94A3B8'
+              const pctText  = pct > 0 ? `↑ +${pct}%` : pct < 0 ? `↓ ${pct}%` : '→ 0%'
               return (
-                <div key={i} className={i < topEx.length - 1 ? 'border-b border-white/[0.06]' : ''}>
-                  <div className="px-4 py-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-app-text truncate flex-1 mr-2">{ex.name}</p>
-                      {ex.isPR && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: GREEN }}>PR 🏆</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Sparkline values={ex.sparkVals} color={sparkColor} width={80} height={24} />
-                      <p className="text-lg font-bold text-app-text">{ex.last}kg</p>
-                    </div>
-                  </div>
+                <div key={i}
+                  className={`flex items-center gap-2 px-4 py-3${i < topEx.length - 1 ? ' border-b border-white/[0.06]' : ''}`}>
+                  <p className="text-sm font-medium text-app-text flex-1 min-w-0 truncate">{ex.name}</p>
+                  <p className="text-sm flex-shrink-0" style={{ color: '#94A3B8' }}>{ex.last}kg</p>
+                  <p className="text-sm font-semibold flex-shrink-0" style={{ color: pctColor }}>{pctText}</p>
+                  {ex.isPR && (
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: GREEN }}>PR 🏆</span>
+                  )}
                 </div>
               )
             })}
 
+            {/* Botón con flecha rotativa */}
             <button
               onClick={() => setShowAllExercises(v => !v)}
               className="w-full flex items-center justify-center gap-1.5 py-3 border-t border-white/[0.06]"
               style={{ color: PURPLE }}
             >
-              <span className="text-sm font-medium">
-                {showAllExercises ? 'Ocultar ejercicios' : 'Ver todos los ejercicios'}
-              </span>
-              {showAllExercises ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              <span className="text-sm font-medium">Ejercicios</span>
+              <ChevronDown
+                size={14}
+                style={{
+                  transform: showAllExercises ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease',
+                }}
+              />
             </button>
 
             {showAllExercises && (
@@ -537,7 +526,13 @@ export default function ProgresoPage() {
               <span className="text-sm font-medium">
                 {showHistorial ? 'Ocultar historial' : 'Ver historial completo'}
               </span>
-              {showHistorial ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              <ChevronDown
+                size={13}
+                style={{
+                  transform: showHistorial ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease',
+                }}
+              />
             </button>
 
             {showHistorial && (

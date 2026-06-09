@@ -3,7 +3,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceL
 import { exercises } from '../../data/exercises'
 import { nextWeight } from '../../utils/weights'
 import { getSeriesSuggestion, OBJETIVO_PARAMS } from '../../utils/progression'
-import { format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
@@ -41,8 +42,9 @@ export default function ExerciseProgress({ workouts, profile }) {
       .reverse()
   }, [selected, workouts])
 
-  const pr = chartData.length ? Math.max(...chartData.map(d => d.weight)) : 0
-  const lastWeight = chartData[chartData.length - 1]?.weight ?? 0
+  const pr          = chartData.length ? Math.max(...chartData.map(d => d.weight)) : 0
+  const firstWeight = chartData[0]?.weight ?? 0
+  const lastWeight  = chartData[chartData.length - 1]?.weight ?? 0
   const next = nextWeight(lastWeight)
   const nextSuggestion = useMemo(() => {
     if (!selected || !chartData.length) return null
@@ -50,6 +52,22 @@ export default function ExerciseProgress({ workouts, profile }) {
     const relevantWorkouts = workouts.filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === selected))
     return getSeriesSuggestion(selected, 0, profile, relevantWorkouts, ex?.level)
   }, [selected, chartData, workouts, profile])
+
+  const bestSet = useMemo(() => {
+    if (!selected) return null
+    let best = null
+    workouts.forEach(workout => {
+      if (workout.type !== 'fuerza') return
+      workout.exercises?.forEach(e => {
+        if (e.exerciseId !== selected || !e.sets?.length) return
+        e.sets.forEach(s => {
+          const kg = Number(s.weight) || 0
+          if (!best || kg > best.weight) best = { weight: kg, reps: s.reps ?? 0 }
+        })
+      })
+    })
+    return best
+  }, [selected, workouts])
 
   const objetivo = profile?.objetivo ?? 'Bienestar general'
   const params = OBJETIVO_PARAMS[objetivo] ?? OBJETIVO_PARAMS['Bienestar general']
@@ -87,29 +105,35 @@ export default function ExerciseProgress({ workouts, profile }) {
         )}
       </div>
 
-      {selected && chartData.length > 0 && (
+      {selected && chartData.length >= 2 && (
         <div className="animate-fadeIn">
           <div className="flex gap-4 mb-3">
             <div>
+              <p className="text-app-muted text-[10px]">Peso inicial</p>
+              <p className="text-app-text font-bold text-sm">{firstWeight}kg</p>
+            </div>
+            <div>
               <p className="text-app-muted text-[10px]">PR histórico</p>
-              <p className="text-app-gold font-bold text-sm">{pr} kg 🏆</p>
+              <p className="font-bold text-sm" style={{ color: '#D4AF37' }}>{pr}kg 🏆</p>
             </div>
             <div>
-              <p className="text-app-muted text-[10px]">Último</p>
-              <p className="text-app-text font-bold text-sm">{lastWeight} kg</p>
-            </div>
-            <div>
-              <p className="text-app-muted text-[10px]">Próxima sesión</p>
-              <p className="text-app-green-light font-bold text-sm">
-                {nextSuggestion && nextSuggestion.suggestedWeight > 0
-                  ? `${nextSuggestion.suggestedWeight}kg × ${params.repsMin}-${params.repsMax} reps`
-                  : `${next} kg`}
+              <p className="text-app-muted text-[10px]">Mejor serie</p>
+              <p className="text-app-text font-bold text-sm">
+                {bestSet ? `${bestSet.reps}r · ${bestSet.weight}kg` : '—'}
               </p>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <XAxis dataKey="label" tick={{ fill: '#9090A8', fontSize: 9 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: '#9090A8', fontSize: 9 }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v) => {
+                  try { return format(new Date(v + 'T12:00:00'), 'd MMM', { locale: es }) } catch { return v }
+                }}
+              />
               <YAxis tick={{ fill: '#9090A8', fontSize: 10 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine y={pr} stroke="#D4AF37" strokeDasharray="3 3" strokeOpacity={0.6} />
@@ -120,6 +144,12 @@ export default function ExerciseProgress({ workouts, profile }) {
             </LineChart>
           </ResponsiveContainer>
         </div>
+      )}
+
+      {selected && chartData.length === 1 && (
+        <p className="text-app-muted text-sm text-center py-6">
+          Necesitás al menos 2 sesiones para ver la progresión
+        </p>
       )}
 
       {selected && chartData.length === 0 && (

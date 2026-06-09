@@ -143,6 +143,10 @@ export default function ConfigPage() {
                 <span className="text-app-text text-sm">{profile?.diasSemana}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-app-muted text-sm">Sesiones fuerza</span>
+                <span className="text-app-text text-sm">{profile?.sesionesFuerzaObjetivo ?? '—'} / semana</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-app-muted text-sm">Equipamiento</span>
                 <span className="text-app-text text-sm">{profile?.equipamiento}</span>
               </div>
@@ -184,6 +188,17 @@ export default function ConfigPage() {
                     <button key={d} onClick={() => setDraft(p => ({ ...p, diasSemana: d }))}
                       className={`flex-1 py-2 rounded-xl text-sm border ${draft.diasSemana === d ? 'border-app-purple bg-app-purple/20 text-app-purple-light' : 'border-white/10 text-app-muted'}`}>
                       {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-app-muted text-xs mb-1 block">Sesiones de fuerza por semana</label>
+                <div className="flex gap-2">
+                  {[2, 3, 4, 5].map(n => (
+                    <button key={n} onClick={() => setDraft(d => ({ ...d, sesionesFuerzaObjetivo: n }))}
+                      className={`flex-1 py-2 rounded-xl text-sm border transition-all ${draft.sesionesFuerzaObjetivo === n ? 'border-app-purple bg-app-purple/20 text-app-purple-light' : 'border-white/10 text-app-muted'}`}>
+                      {n}
                     </button>
                   ))}
                 </div>

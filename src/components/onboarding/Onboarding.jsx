@@ -30,8 +30,9 @@ const STEPS = [
   { id: 'nivel',           title: '¿Cuánto tiempo llevás entrenando de forma regular?', subtitle: 'Para ajustar tus sugerencias' },
   { id: 'diasSemana',      title: '¿Cuántos días por semana?',         subtitle: 'Días disponibles para entrenar' },
   { id: 'tiposPreferidos', title: '¿Qué tipos de entrenamiento preferís?', subtitle: 'Podés elegir varios' },
-  { id: 'tipoRutina',     title: '¿Cómo organizás tus sesiones de fuerza?', subtitle: 'Ayuda a calcular tu recuperación muscular' },
-  { id: 'pausa',           title: '¿Hace cuánto no entrenás?',         subtitle: 'Para ajustar tus cargas iniciales' },
+  { id: 'tipoRutina',             title: '¿Cómo organizás tus sesiones de fuerza?',              subtitle: 'Ayuda a calcular tu recuperación muscular' },
+  { id: 'sesionesFuerzaObjetivo', title: '¿Cuántas sesiones de fuerza querés hacer por semana?', subtitle: 'Para planificar tu semana ideal' },
+  { id: 'pausa',                  title: '¿Hace cuánto no entrenás?',                            subtitle: 'Para ajustar tus cargas iniciales' },
   { id: 'lesiones',        title: '¿Tenés lesiones o limitaciones?',   subtitle: 'Te recordamos tenerlas en cuenta' },
   { id: 'equipamiento',    title: '¿Con qué equipamiento contás?',     subtitle: 'Filtramos ejercicios según esto' },
 ]
@@ -48,7 +49,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
     genero: '', name: '', objectives: [], nivel: '', diasSemana: 4,
-    tiposPreferidos: [], tipoRutina: '', pausa: '', lesiones: '', equipamiento: '', lesionesYes: false,
+    tiposPreferidos: [], tipoRutina: '', sesionesFuerzaObjetivo: 3, pausa: '', lesiones: '', equipamiento: '', lesionesYes: false,
   })
   const [saving, setSaving] = useState(false)
 
@@ -61,8 +62,9 @@ export default function Onboarding() {
     if (id === 'name')            return data.name.trim().length > 0
     if (id === 'objectives')      return data.objectives.length > 0
     if (id === 'tiposPreferidos') return data.tiposPreferidos.length > 0
-    if (id === 'tipoRutina')      return !!data.tipoRutina
-    if (id === 'lesiones')        return true
+    if (id === 'tipoRutina')             return !!data.tipoRutina
+    if (id === 'sesionesFuerzaObjetivo') return data.sesionesFuerzaObjetivo != null
+    if (id === 'lesiones')               return true
     return !!data[id]
   }
 
@@ -189,6 +191,24 @@ export default function Onboarding() {
           >
             <span className="font-medium">{emoji} {label}</span>
             <span className={`block text-xs mt-0.5 ${data.tipoRutina === value ? 'text-white/70' : 'text-app-muted/60'}`}>{desc}</span>
+          </button>
+        ))}
+      </div>
+    )
+
+    if (id === 'sesionesFuerzaObjetivo') return (
+      <div className="flex gap-3 justify-center flex-wrap">
+        {[2, 3, 4, 5].map(n => (
+          <button
+            key={n}
+            onClick={() => setData(p => ({ ...p, sesionesFuerzaObjetivo: n }))}
+            className={`w-14 h-14 rounded-xl text-lg font-bold border transition-all ${
+              data.sesionesFuerzaObjetivo === n
+                ? 'bg-app-purple border-app-purple text-white'
+                : 'bg-app-bg border-white/10 text-app-muted'
+            }`}
+          >
+            {n}
           </button>
         ))}
       </div>

@@ -137,51 +137,59 @@ function computeAll(workouts) {
   }
 }
 
-// Top 3 exercises by real % weight progress (pct > 0), sorted desc
+// Top 3 most recent progress events (weight PR, reps PR, or double)
 function computeTopExercises(workouts) {
   const sorted = [...workouts]
     .filter(w => w.type === 'fuerza')
     .sort((a, b) => a.date.localeCompare(b.date))
 
-  const byEx = {}
+  const state  = {}   // id -> { maxW, maxReps }
+  const events = []   // { name, date, weight, reps, type, deltaW, deltaR }
 
   sorted.forEach(w => {
     w.exercises?.forEach(e => {
       if (!e.exerciseId || !e.sets?.length) return
-      const maxW    = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
+      const maxW = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
       if (maxW <= 0) return
-      const maxReps = Math.max(0, ...e.sets.map(s => Number(s.reps) || 0))
+      const maxReps = Math.max(0, ...e.sets
+        .filter(s => Number(s.weight) === maxW)
+        .map(s => Number(s.reps) || 0))
 
-      if (!byEx[e.exerciseId]) {
-        byEx[e.exerciseId] = {
-          name: e.name || e.exerciseId,
-          firstW: maxW,
-          lastW: maxW,
-          prW: maxW,
-          prReps: maxReps,
-          lastIsPR: false,
-        }
-      } else {
-        const ex    = byEx[e.exerciseId]
-        const wPR   = maxW > ex.prW
-        const rPR   = maxW >= ex.prW && maxReps > ex.prReps
-        ex.lastIsPR = wPR || rPR
-        if (wPR) { ex.prW = maxW; ex.prReps = maxReps }
-        else if (rPR) ex.prReps = maxReps
-        ex.lastW = maxW
+      if (!state[e.exerciseId]) {
+        state[e.exerciseId] = { maxW, maxReps }
+        return
+      }
+
+      const prev  = state[e.exerciseId]
+      const wUp   = maxW > prev.maxW
+      const rUp   = maxW === prev.maxW && maxReps > prev.maxReps
+      const dUp   = maxW > prev.maxW && maxReps > prev.maxReps
+
+      let type = null, deltaW = 0, deltaR = 0
+      if (dUp)      { type = 'double'; deltaW = maxW - prev.maxW; deltaR = maxReps - prev.maxReps }
+      else if (wUp) { type = 'weight'; deltaW = maxW - prev.maxW }
+      else if (rUp) { type = 'reps';   deltaR = maxReps - prev.maxReps }
+
+      if (type) {
+        events.push({ name: e.name || e.exerciseId, date: w.date, weight: maxW, reps: maxReps, type, deltaW, deltaR })
+        if (wUp || dUp) state[e.exerciseId] = { maxW, maxReps }
+        else state[e.exerciseId].maxReps = maxReps
       }
     })
   })
 
-  return Object.values(byEx)
-    .map(ex => {
-      const pct = ex.firstW > 0 ? Math.round(((ex.lastW - ex.firstW) / ex.firstW) * 100) : 0
-      if (pct <= 0) return null
-      return { name: ex.name, lastW: ex.lastW, pct, isPR: ex.lastIsPR }
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 3)
+  return events.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3)
+}
+
+function daysAgo(dateStr) {
+  const today = new Date(getTodayLocal() + 'T12:00:00')
+  const then  = new Date(dateStr + 'T12:00:00')
+  const days  = Math.round((today - then) / 86400000)
+  if (days === 0) return 'hoy'
+  if (days === 1) return 'hace 1 día'
+  if (days < 7)  return `hace ${days} días`
+  const weeks = Math.round(days / 7)
+  return weeks === 1 ? 'hace 1 sem.' : `hace ${weeks} sem.`
 }
 
 // ─── UI components ────────────────────────────────────────────────────────────
@@ -547,18 +555,22 @@ export default function ProgresoPage() {
               <p className="text-app-muted text-sm text-center py-6 px-4">
                 Todavía no hay progresos registrados. ¡Seguí entrenando!
               </p>
-            ) : topEx.map((ex, i) => (
-              <div key={i}
-                className={`flex items-center gap-2 px-4 py-3${i < topEx.length - 1 ? ' border-b border-white/[0.06]' : ''}`}>
-                <p className="text-sm font-medium text-app-text flex-1 min-w-0 truncate">{ex.name}</p>
-                <p className="text-sm flex-shrink-0" style={{ color: '#94A3B8' }}>{ex.lastW}kg</p>
-                <p className="text-sm font-semibold flex-shrink-0" style={{ color: GREEN }}>↑ +{ex.pct}%</p>
-                {ex.isPR && (
-                  <span className="text-xs font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: GREEN }}>PR 🏆</span>
-                )}
-              </div>
-            ))}
+            ) : topEx.map((ex, i) => {
+              const delta = ex.type === 'double'
+                ? `+${ex.deltaW}kg · +${ex.deltaR} reps`
+                : ex.type === 'weight'
+                ? `+${ex.deltaW}kg`
+                : `+${ex.deltaR} reps`
+              return (
+                <div key={i}
+                  className={`flex items-center gap-2 px-4 py-3${i < topEx.length - 1 ? ' border-b border-white/[0.06]' : ''}`}>
+                  <p className="text-sm font-medium text-app-text flex-1 min-w-0 truncate">{ex.name}</p>
+                  <p className="text-sm flex-shrink-0" style={{ color: '#94A3B8' }}>{ex.weight}kg × {ex.reps}</p>
+                  <p className="text-xs font-semibold flex-shrink-0" style={{ color: GREEN }}>({delta})</p>
+                  <p className="text-xs flex-shrink-0" style={{ color: '#6B7280' }}>{daysAgo(ex.date)}</p>
+                </div>
+              )
+            })}
 
             <button
               onClick={() => setShowAllExercises(v => !v)}

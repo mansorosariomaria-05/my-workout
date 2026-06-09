@@ -1,8 +1,10 @@
-import { useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal, dateToLocal } from '../../utils/dates'
-import { Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import ExerciseProgress from './ExerciseProgress'
+import WorkoutHistorial from './WorkoutHistorial'
 
 const GREEN  = '#22c55e'
 const RED    = '#ef4444'
@@ -151,6 +153,43 @@ function computeAll(workouts) {
   }
 }
 
+function computeTopExercises(workouts) {
+  const d = new Date(); d.setDate(d.getDate() - 30)
+  const oneMonthAgo = dateToLocal(d)
+  const byEx = {}
+
+  ;[...workouts].filter(w => w.type === 'fuerza').sort((a, b) => a.date.localeCompare(b.date)).forEach(w => {
+    w.exercises?.forEach(e => {
+      if (!e.exerciseId || !e.sets?.length) return
+      const maxW = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
+      if (!maxW) return
+      if (!byEx[e.exerciseId]) byEx[e.exerciseId] = { name: e.name || e.exerciseId, entries: [] }
+      byEx[e.exerciseId].entries.push({ date: w.date, maxW })
+    })
+  })
+
+  return Object.values(byEx)
+    .map(ex => {
+      const month = ex.entries.filter(e => e.date >= oneMonthAgo)
+      if (!month.length) return null
+      const pre      = ex.entries.filter(e => e.date < oneMonthAgo)
+      const priorMax = pre.length ? Math.max(...pre.map(e => e.maxW)) : 0
+      const sorted   = [...month].sort((a, b) => a.date.localeCompare(b.date))
+      const first    = sorted[0].maxW
+      const last     = sorted[sorted.length - 1].maxW
+      return {
+        name:      ex.name,
+        first,     last,
+        sessions:  month.length,
+        isPR:      last > priorMax && priorMax > 0,
+        sparkVals: sorted.slice(-5).map(e => e.maxW),
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.sessions - a.sessions)
+    .slice(0, 3)
+}
+
 // ─── UI components ────────────────────────────────────────────────────────────
 
 function SectionTitle({ children, aside }) {
@@ -167,6 +206,30 @@ function valueSize(v) {
   if (len <= 4) return '26px'
   if (len <= 9) return '17px'
   return '12px'
+}
+
+function Sparkline({ values, color, width = 80, height = 24 }) {
+  if (!values || values.length < 2) return <div style={{ width, height }} />
+  const min = Math.min(...values), max = Math.max(...values)
+  const rng = max - min || 1
+  const pad = 3
+  const pts = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (width - pad * 2)
+    const y = (height - pad) - ((v - min) / rng) * (height - pad * 2)
+    return [x, y]
+  })
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <polyline
+        points={pts.map(p => p.join(',')).join(' ')}
+        fill="none" stroke={color} strokeWidth={1.5}
+        strokeLinecap="round" strokeLinejoin="round"
+      />
+      {pts.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r={i === pts.length - 1 ? 2.5 : 1.5} fill={color} />
+      ))}
+    </svg>
+  )
 }
 
 function CaminoCard({ emoji, value, label }) {
@@ -262,13 +325,55 @@ function Recomendaciones({ items = [] }) {
   )
 }
 
+function flameSize(fatigue) {
+  if (fatigue == null || fatigue <= 4) return 'text-lg'
+  if (fatigue <= 7) return 'text-xl'
+  return 'text-2xl'
+}
+
+function WeekFlames({ workouts }) {
+  const today  = getTodayLocal()
+  const days   = getThisWeekDays()
+  const byDate = {}
+  workouts.forEach(w => { if (!byDate[w.date]) byDate[w.date] = w })
+
+  return (
+    <div className="grid grid-cols-7 gap-1">
+      {days.map((dateStr, i) => {
+        const w       = byDate[dateStr]
+        const future  = dateStr > today
+        const isToday = dateStr === today
+        const trained = w && w.type !== 'descanso' && !future
+        return (
+          <div key={i} className="flex flex-col items-center gap-0.5">
+            <span className="text-[9px]" style={{ color: isToday ? PURPLE : '#4a4560' }}>{DAY_LETTERS[i]}</span>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: trained ? 'rgba(124,92,191,0.1)' : 'transparent' }}>
+              {trained
+                ? <span className={flameSize(w.fatigue)}>🔥</span>
+                : <span className="text-sm" style={{ color: future ? '#1e1a2e' : '#2a2440' }}>{future ? '' : '+'}</span>
+              }
+            </div>
+            <span className="text-[8px] text-center leading-none" style={{ color: '#3a3550' }}>
+              {trained ? (TYPE_LABEL[w.type] ?? '') : ''}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── ProgresoPage ─────────────────────────────────────────────────────────────
 
 export default function ProgresoPage() {
   const { user, profile } = useAuthContext()
   const { workouts, loading } = useWorkouts(user?.uid)
+  const [showAllExercises, setShowAllExercises] = useState(false)
+  const [showHistorial, setShowHistorial]        = useState(false)
 
-  const data = useMemo(() => computeAll(workouts), [workouts])
+  const data  = useMemo(() => computeAll(workouts),        [workouts])
+  const topEx = useMemo(() => computeTopExercises(workouts), [workouts])
 
   if (loading) return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center">
@@ -370,6 +475,77 @@ export default function ProgresoPage() {
         <div>
           <SectionTitle>Recomendaciones</SectionTitle>
           <Recomendaciones />
+        </div>
+
+        {/* Bloque 6 — Principales progresiones */}
+        <div>
+          <SectionTitle>Principales progresiones</SectionTitle>
+          <div className="rounded-2xl border border-white/[0.06]" style={{ backgroundColor: '#1a1625' }}>
+            {topEx.length === 0 ? (
+              <p className="text-app-muted text-sm text-center py-6 px-4">Sin entrenamientos de fuerza en el último mes</p>
+            ) : topEx.map((ex, i) => {
+              const sparkColor = ex.last > ex.first ? GREEN : ex.last < ex.first ? RED : PURPLE
+              return (
+                <div key={i} className={i < topEx.length - 1 ? 'border-b border-white/[0.06]' : ''}>
+                  <div className="px-4 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-app-text truncate flex-1 mr-2">{ex.name}</p>
+                      {ex.isPR && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: GREEN }}>PR 🏆</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Sparkline values={ex.sparkVals} color={sparkColor} width={80} height={24} />
+                      <p className="text-lg font-bold text-app-text">{ex.last}kg</p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+
+            <button
+              onClick={() => setShowAllExercises(v => !v)}
+              className="w-full flex items-center justify-center gap-1.5 py-3 border-t border-white/[0.06]"
+              style={{ color: PURPLE }}
+            >
+              <span className="text-sm font-medium">
+                {showAllExercises ? 'Ocultar ejercicios' : 'Ver todos los ejercicios'}
+              </span>
+              {showAllExercises ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+
+            {showAllExercises && (
+              <div className="border-t border-white/[0.06] px-4 py-4">
+                <ExerciseProgress workouts={workouts} profile={profile} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bloque 7 — Historial */}
+        <div>
+          <SectionTitle>Historial</SectionTitle>
+          <div className="rounded-2xl border border-white/[0.06] px-4 py-4" style={{ backgroundColor: '#1a1625' }}>
+            <WeekFlames workouts={workouts} />
+
+            <button
+              onClick={() => setShowHistorial(v => !v)}
+              className="w-full flex items-center justify-center gap-1.5 mt-4 pt-3 border-t border-white/[0.06]"
+              style={{ color: PURPLE }}
+            >
+              <span className="text-sm font-medium">
+                {showHistorial ? 'Ocultar historial' : 'Ver historial completo'}
+              </span>
+              {showHistorial ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+
+            {showHistorial && (
+              <div className="mt-4">
+                <WorkoutHistorial workouts={workouts} />
+              </div>
+            )}
+          </div>
         </div>
 
       </div>

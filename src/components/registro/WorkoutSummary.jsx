@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../ui/Button'
 import { FRASES_POST } from '../../data/frases'
+import { detectPRs } from '../../utils/prUtils'
 
 const CONFETTI_COLORS = ['#7C5CBF', '#40916C', '#4A9EDB', '#F59E0B', '#E57373', '#9B7FD4']
 const ICE_BLUE = '#38bdf8'
@@ -68,24 +69,6 @@ function getDayAchievement(workout, workouts) {
   return { text: 'Empezaste la semana 💪', color: 'text-app-purple-light', bg: 'bg-app-purple/10 border-app-purple/20' }
 }
 
-function detectPRs(workout, workouts) {
-  if (!workout.exercises?.length) return []
-  const prs = []
-  for (const ex of workout.exercises) {
-    if (!ex.exerciseId || !ex.sets?.length) continue
-    const maxThisSession = Math.max(0, ...ex.sets.map(s => Number(s.weight) || 0))
-    if (!maxThisSession) continue
-    const prevMax = workouts
-      .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === ex.exerciseId))
-      .flatMap(w => w.exercises.filter(e => e.exerciseId === ex.exerciseId))
-      .flatMap(e => e.sets || [])
-      .reduce((max, s) => Math.max(max, Number(s.weight) || 0), 0)
-    if (maxThisSession > prevMax && prevMax > 0) {
-      prs.push({ name: ex.name, weight: maxThisSession })
-    }
-  }
-  return prs
-}
 
 export default function WorkoutSummary({ workout, onDone, workouts = [], newAchievements = [] }) {
   // All hooks must be called unconditionally

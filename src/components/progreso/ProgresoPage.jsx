@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
-import { parseISO } from 'date-fns'
+import { parseISO, formatDistanceToNow } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal, dateToLocal } from '../../utils/dates'
@@ -8,6 +9,7 @@ import { ChevronDown, Loader2 } from 'lucide-react'
 const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
 import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
+import { detectPRs } from '../../utils/prUtils'
 
 const GREEN    = '#22c55e'
 const RED      = '#ef4444'
@@ -347,73 +349,14 @@ function Recomendaciones({ items = [] }) {
 
 // ─── Últimas sesiones (Bloque 7) ──────────────────────────────────────────────
 
-const SES_DAYS   = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
-const SES_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
-
-const SES_TYPE = {
-  fuerza: { icon: '💪', color: PURPLE },
-  cardio: { icon: '🏃', color: GREEN  },
-  clase:  { icon: '🧘', color: AMBER  },
-  tabata: { icon: '⚡', color: RED    },
-}
-
-function sessionSummary(w) {
-  if (w.type === 'fuerza') {
-    const n = w.exercises?.length ?? 0
-    return `${n} ejercicio${n !== 1 ? 's' : ''}`
-  }
-  if (w.type === 'cardio') {
-    const dist = w.distancia ? `${w.distancia}km · ` : ''
-    const time = w.tiempo ?? w.duracion ?? 0
-    return `${dist}${time ? `${time}min` : ''}`
-  }
-  if (w.type === 'clase') {
-    const name = w.rutina ?? w.nombre ?? w.tipo ?? 'Clase'
-    const time = w.tiempo ?? w.duracion ?? 0
-    return time ? `${name} · ${time}min` : name
-  }
-  return TYPE_LABEL[w.type] ?? w.type
-}
-
-function SessionDetail({ w }) {
-  if (w.type === 'fuerza' && w.exercises?.length) {
-    return (
-      <div className="space-y-2 mt-2">
-        {w.exercises.map((e, i) => (
-          <div key={i}>
-            <p className="text-app-muted text-xs font-medium mb-0.5">{e.name}</p>
-            <div className="flex flex-wrap gap-1">
-              {e.sets?.map((s, j) => (
-                <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-lg"
-                  style={{ backgroundColor: '#2a2440', color: '#94A3B8' }}>
-                  {s.reps}r · {s.weight}kg
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-  const rows = []
-  if (w.distancia)            rows.push(['Distancia', `${w.distancia}km`])
-  if (w.tiempo ?? w.duracion) rows.push(['Tiempo', `${w.tiempo ?? w.duracion}min`])
-  if (w.rutina ?? w.nombre)   rows.push(['Clase', w.rutina ?? w.nombre])
-  if (!rows.length) return null
-  return (
-    <div className="flex gap-4 mt-2">
-      {rows.map(([lbl, val], i) => (
-        <div key={i}>
-          <p className="text-app-muted text-[10px]">{lbl}</p>
-          <p className="text-app-text text-xs">{val}</p>
-        </div>
-      ))}
-    </div>
-  )
+const SESSION_TYPE_CONFIG = {
+  fuerza: { icon: '💪', color: PURPLE,    bgColor: 'rgba(155,127,212,0.15)' },
+  cardio: { icon: '🏃', color: '#40916C', bgColor: 'rgba(64,145,108,0.15)'  },
+  clase:  { icon: '🧘', color: '#4A9EDB', bgColor: 'rgba(74,158,219,0.15)'  },
+  tabata: { icon: '⚡', color: AMBER,     bgColor: 'rgba(245,158,11,0.15)'   },
 }
 
 function UltimasSesiones({ workouts }) {
-  const [expanded, setExpanded] = useState(null)
   const sessions = workouts.filter(w => REAL_TYPES.has(w.type) && w.date).slice(0, 5)
 
   if (!sessions.length) {
@@ -421,48 +364,72 @@ function UltimasSesiones({ workouts }) {
   }
 
   return (
-    <div>
+    <div className="space-y-3">
       {sessions.map((w, i) => {
-        const dt        = new Date(w.date + 'T12:00:00')
-        const dateStr   = `${SES_DAYS[dt.getDay()]} ${dt.getDate()} ${SES_MONTHS[dt.getMonth()]}`
-        const cfg       = SES_TYPE[w.type] ?? { icon: '🏋️', color: '#94A3B8' }
-        const fatigue   = w.fatigue
-        const fatColor  = fatigue == null ? null : fatigue <= 5 ? GREEN : fatigue <= 7 ? AMBER : RED
-        const isOpen    = expanded === i
+        const cfg     = SESSION_TYPE_CONFIG[w.type] ?? { icon: '🏋️', color: '#94A3B8', bgColor: 'rgba(148,163,184,0.15)' }
+        const relDate = formatDistanceToNow(parseISO(w.date + 'T12:00:00'), { addSuffix: true, locale: es })
+        const hasPR   = w.type === 'fuerza' && detectPRs(w, workouts.filter(h => h.date < w.date)).length > 0
+
+        let fatigueLabel = null, fatigueDot = null
+        if (w.fatigue != null) {
+          if (w.fatigue <= 3)      { fatigueLabel = 'Carga liviana';  fatigueDot = '#4ade80' }
+          else if (w.fatigue <= 6) { fatigueLabel = 'Carga moderada'; fatigueDot = '#facc15' }
+          else                     { fatigueLabel = 'Carga alta';     fatigueDot = '#f87171' }
+        }
+
+        const contentParts = []
+        if (w.type === 'fuerza') {
+          if (w.muscleGroups?.length) contentParts.push(w.muscleGroups.join(' · '))
+          const n = w.exercises?.length ?? 0
+          contentParts.push(`${n} ejercicio${n !== 1 ? 's' : ''}`)
+        } else if (w.type === 'cardio') {
+          if (w.activity)                           contentParts.push(w.activity)
+          if (w.tiempo)                             contentParts.push(`${w.tiempo} min`)
+          if (w.distancia)                          contentParts.push(`${w.distancia} km`)
+          if (w.ritmo && w.activity === 'Running')  contentParts.push(`${w.ritmo} min/km`)
+        } else if (w.type === 'clase') {
+          if (w.clase)    contentParts.push(w.clase)
+          if (w.duracion) contentParts.push(`${w.duracion} min`)
+        } else if (w.type === 'tabata') {
+          contentParts.push(w.tiempo ? `${w.tiempo} min` : 'Tabata')
+        }
 
         return (
-          <div key={i} className={i < sessions.length - 1 ? 'border-b border-white/[0.05]' : ''}>
-            <button
-              className="w-full text-left py-3 flex items-center gap-3"
-              onClick={() => setExpanded(isOpen ? null : i)}
-            >
-              <span className="text-xl flex-shrink-0">{cfg.icon}</span>
+          <div key={i} className="rounded-xl p-4" style={{ backgroundColor: '#1a1625' }}>
+            <div className="flex items-center gap-2.5">
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%',
+                backgroundColor: cfg.bgColor, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
+              }}>
+                {cfg.icon}
+              </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-app-text">{dateStr}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-xs font-medium" style={{ color: cfg.color }}>
-                    {TYPE_LABEL[w.type] ?? w.type}
-                  </span>
-                  <span style={{ color: '#3a3550', fontSize: 10 }}>·</span>
-                  <span className="text-xs truncate" style={{ color: '#6B7280' }}>{sessionSummary(w)}</span>
-                </div>
+                <p className="text-sm font-medium text-app-text">{relDate}</p>
               </div>
-              {fatigue != null && (
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: fatColor }} />
-                  <span style={{ fontSize: 9, color: '#6B7280' }}>{fatigue}/10</span>
-                </div>
+              {hasPR && (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: 'rgba(74,222,128,0.15)', color: '#4ade80' }}>
+                  🏆 PR
+                </span>
               )}
-              <ChevronDown size={13} style={{
-                color: '#4a4560', flexShrink: 0,
-                transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.2s ease',
-              }} />
-            </button>
-            {isOpen && (
-              <div className="pb-3 pl-9">
-                <SessionDetail w={w} />
+            </div>
+
+            {contentParts.length > 0 && (
+              <p className="mt-2 text-xs truncate" style={{ color: '#94A3B8' }}>
+                {contentParts.join(' · ')}
+              </p>
+            )}
+
+            {fatigueLabel && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: fatigueDot, flexShrink: 0 }} />
+                <span className="text-xs" style={{ color: '#6B7280' }}>{fatigueLabel}</span>
               </div>
+            )}
+
+            {w.notes && (
+              <p className="mt-1.5 text-xs truncate" style={{ color: '#6B7280' }}>{w.notes}</p>
             )}
           </div>
         )
@@ -636,13 +603,13 @@ export default function ProgresoPage() {
         {/* Bloque 7 — Historial: últimas sesiones */}
         <div>
           <SectionTitle>Últimas sesiones</SectionTitle>
-          <div className="rounded-2xl border border-white/[0.06] px-4 py-2" style={{ backgroundColor: '#1a1625' }}>
+          <div className="space-y-3">
             <UltimasSesiones workouts={workouts} />
 
             <button
               onClick={() => setShowHistorial(v => !v)}
-              className="w-full flex items-center justify-center gap-1.5 py-3 mt-2 border-t border-white/[0.06]"
-              style={{ color: PURPLE }}
+              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border border-white/[0.06]"
+              style={{ color: PURPLE, backgroundColor: '#1a1625' }}
             >
               <span className="text-sm font-medium">Ver todo el historial</span>
               <ChevronDown size={13} style={{
@@ -652,7 +619,7 @@ export default function ProgresoPage() {
             </button>
 
             {showHistorial && (
-              <div className="mt-2 border-t border-white/[0.06] pt-4">
+              <div className="rounded-2xl border border-white/[0.06] px-4 pt-4 pb-2" style={{ backgroundColor: '#1a1625' }}>
                 <WorkoutHistorial workouts={workouts} />
               </div>
             )}

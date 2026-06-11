@@ -1,8 +1,11 @@
 import { useState, useMemo } from 'react'
+import { parseISO } from 'date-fns'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal, dateToLocal } from '../../utils/dates'
 import { ChevronDown, Loader2 } from 'lucide-react'
+
+const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
 import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
 
@@ -37,7 +40,7 @@ function weekMonday(dateStr) {
 // ─── Data computation ─────────────────────────────────────────────────────────
 
 function computeAll(workouts) {
-  const real  = workouts.filter(w => w.type !== 'descanso' && w.date)
+  const real  = workouts.filter(w => REAL_TYPES.has(w.type) && w.date)
   const total = real.length
 
   let months = 0
@@ -114,7 +117,7 @@ function computeAll(workouts) {
   const mejorMarcaVal = maxDelta > 0 ? `+${maxDelta}kg` : '—'
   const mejorMarcaSub = maxDelta > 0 ? `en ${maxDeltaEx.split(' ').slice(0, 2).join(' ')}` : ''
 
-  const allFatigues = workouts.filter(w => w.fatigue != null).map(w => w.fatigue)
+  const allFatigues = workouts.filter(w => REAL_TYPES.has(w.type) && w.fatigue != null).map(w => w.fatigue)
   const avgFatigaHistorica = allFatigues.length >= 3
     ? allFatigues.reduce((a, b) => a + b, 0) / allFatigues.length
     : null
@@ -126,7 +129,7 @@ function computeAll(workouts) {
   thisMon.setDate(now2.getDate() - dow2 + 1)
   thisMon.setHours(0, 0, 0, 0)
   const thisMonStr = dateToLocal(thisMon)
-  const thisWeekW  = workouts.filter(w => w.date >= thisMonStr && w.date <= today && w.type !== 'descanso')
+  const thisWeekW  = workouts.filter(w => w.date >= thisMonStr && w.date <= today && REAL_TYPES.has(w.type))
   const thisDays   = new Set(thisWeekW.map(w => w.date)).size
 
   return {
@@ -247,16 +250,35 @@ const TYPE_LABEL  = { fuerza: 'Fuerza', cardio: 'Cardio', clase: 'Clase', tabata
 function WeekRow({ workouts }) {
   const today  = getTodayLocal()
   const days   = getThisWeekDays()
+
+  // Build byDate with explicit priority: real workout > descanso > pausa
   const byDate = {}
-  workouts.forEach(w => { if (!byDate[w.date]) byDate[w.date] = w })
+  workouts.forEach(w => {
+    if (REAL_TYPES.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
+  })
+  workouts.forEach(w => {
+    if (w.type === 'descanso' && w.date && !byDate[w.date]) byDate[w.date] = w
+  })
+  workouts.forEach(w => {
+    if (w.type !== 'pausa') return
+    const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')
+    const end   = parseISO((w.pausaFin   || w.date) + 'T12:00:00')
+    for (let d = new Date(start.getTime()); d <= end; d.setDate(d.getDate() + 1)) {
+      const ds = dateToLocal(d)
+      if (!byDate[ds]) byDate[ds] = w
+    }
+  })
 
   return (
     <div className="flex justify-between gap-1">
       {days.map((dateStr, i) => {
-        const w       = byDate[dateStr]
-        const trained = w && w.type !== 'descanso'
-        const isToday = dateStr === today
-        const future  = dateStr > today
+        const w        = byDate[dateStr]
+        const trained  = w && REAL_TYPES.has(w.type)
+        const isPausa  = w?.type === 'pausa'
+        const isToday  = dateStr === today
+        const future   = dateStr > today
+        const isFrozen = isPausa && (w.pausaMotivo === 'enfermedad' || w.pausaMotivo === 'lesion')
+        const pausaColor = isFrozen ? '#38bdf8' : '#4B5563'
 
         return (
           <div key={i} className="flex flex-col items-center gap-1.5" style={{ flex: 1 }}>
@@ -269,6 +291,14 @@ function WeekRow({ workouts }) {
                   <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
                     <path d="M2.5 7.5L5.5 10.5L11.5 4.5" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
+                </div>
+              ) : isPausa ? (
+                <div style={{ width: 32, height: 32, borderRadius: '50%', border: `2px solid ${pausaColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{
+                    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                    backgroundColor: isFrozen ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)',
+                    border: `1.5px solid ${pausaColor}`,
+                  }} />
                 </div>
               ) : isToday ? (
                 <div className="animate-pulse" style={{ width: 32, height: 32, borderRadius: '50%', border: `2px dashed ${PURPLE}` }} />
@@ -384,7 +414,7 @@ function SessionDetail({ w }) {
 
 function UltimasSesiones({ workouts }) {
   const [expanded, setExpanded] = useState(null)
-  const sessions = workouts.filter(w => w.type !== 'descanso' && w.date).slice(0, 5)
+  const sessions = workouts.filter(w => REAL_TYPES.has(w.type) && w.date).slice(0, 5)
 
   if (!sessions.length) {
     return <p className="text-app-muted text-sm text-center py-4">Sin sesiones registradas aún</p>

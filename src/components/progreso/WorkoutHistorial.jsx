@@ -15,8 +15,9 @@ export default function WorkoutHistorial({ workouts }) {
   const [month, setMonth] = useState(new Date())
   const [selected, setSelected] = useState(null)
   const days = getMonthDays(month)
+  const REAL = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
   const byDate = {}
-  workouts.forEach(w => { if (!byDate[w.date]) byDate[w.date] = w })
+  workouts.forEach(w => { if (REAL.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w })
 
   const prev = () => { const d = new Date(month); d.setMonth(d.getMonth() - 1); setMonth(d) }
   const next = () => { const d = new Date(month); d.setMonth(d.getMonth() + 1); setMonth(d) }

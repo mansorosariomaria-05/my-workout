@@ -41,70 +41,86 @@ function getThisWeekCount(workouts) {
 }
 
 function getWeekStreak(workouts) {
-  const realWorkouts = workouts.filter(w => w.type !== 'descanso' && w.date)
-  if (!realWorkouts.length) return { current: 0, record: 0 }
+  const allW = workouts.filter(w => w.date)
+  if (!allW.length) return { current: 0, record: 0, state: 'broken' }
 
-  const getMondayOf = (date) => {
-    const d = new Date(date)
-    const day = d.getDay() || 7
-    d.setDate(d.getDate() - day + 1)
-    d.setHours(0, 0, 0, 0)
-    return d
+  const getMondayOf = (d) => {
+    const dt = new Date(d)
+    const dow = dt.getDay() || 7
+    dt.setDate(dt.getDate() - dow + 1)
+    dt.setHours(0, 0, 0, 0)
+    return dt
   }
-
-  const toLocalStr = (date) => {
-    const y = date.getFullYear()
-    const m = String(date.getMonth() + 1).padStart(2, '0')
-    const d = String(date.getDate()).padStart(2, '0')
-    return y + '-' + m + '-' + d
+  const toStr = (d) => {
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${dd}`
   }
+  const addDays = (d, n) => new Date(d.getTime() + n * 86400000)
 
-  // Build week map: monday string -> set of distinct training days
+  const pausas = allW.filter(w => w.type === 'pausa')
+  const realW  = allW.filter(w => w.type !== 'descanso' && w.type !== 'pausa')
+
   const weekMap = {}
-  realWorkouts.forEach(w => {
-    const monday = toLocalStr(getMondayOf(new Date(w.date + 'T12:00:00')))
-    if (!weekMap[monday]) weekMap[monday] = new Set()
-    weekMap[monday].add(w.date)
+  realW.forEach(w => {
+    const mon = toStr(getMondayOf(new Date(w.date + 'T12:00:00')))
+    if (!weekMap[mon]) weekMap[mon] = new Set()
+    weekMap[mon].add(w.date)
   })
 
-  // Qualifying weeks (3+ distinct days), sorted ascending
   const qualifying = Object.entries(weekMap)
-    .filter(([, days]) => days.size >= 3)
-    .map(([monday]) => monday)
-    .sort()
-
-  // Record: longest consecutive-week run in full history
-  let record = qualifying.length > 0 ? 1 : 0
-  let runLen = 1
+    .filter(([, days]) => days.size >= 3).map(([mon]) => mon).sort()
+  let record = qualifying.length ? 1 : 0, runLen = 1
   for (let i = 1; i < qualifying.length; i++) {
-    const diffDays = Math.round(
-      (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00'))
-      / (1000 * 60 * 60 * 24)
+    const diff = Math.round(
+      (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00')) / 86400000
     )
-    if (diffDays === 7) {
-      runLen++
-      if (runLen > record) record = runLen
-    } else {
-      runLen = 1
-    }
+    if (diff === 7) { runLen++; record = Math.max(record, runLen) } else runLen = 1
   }
 
-  // Current: consecutive qualifying weeks ending at lastMonday (current week excluded)
-  const lastMondayDate = getMondayOf(new Date())
-  lastMondayDate.setDate(lastMondayDate.getDate() - 7)
-  let current = 0
-  let checkDate = new Date(lastMondayDate)
+  const getPausaType = (weekStart, weekEnd) => {
+    for (const p of pausas) {
+      const pi = p.pausaInicio || p.date
+      const pf = p.pausaFin   || p.date
+      if (pi <= weekEnd && pf >= weekStart) {
+        return (p.pausaMotivo === 'enfermedad' || p.pausaMotivo === 'lesion') ? 'frozen' : 'paused'
+      }
+    }
+    return null
+  }
+
+  const lastMon = getMondayOf(new Date())
+  lastMon.setDate(lastMon.getDate() - 7)
+
+  let current = 0, mostRecentStatus = null, emptyTol = 0
+  let checkDate = new Date(lastMon)
+
   for (let i = 0; i < 52; i++) {
-    const weekStart = toLocalStr(checkDate)
-    if (weekMap[weekStart]?.size >= 3) {
+    const weekStart = toStr(checkDate)
+    const weekEnd   = toStr(addDays(checkDate, 6))
+    const isActive  = (weekMap[weekStart]?.size ?? 0) >= 3
+    const pausaType = getPausaType(weekStart, weekEnd)
+
+    if (isActive) {
       current++
-      checkDate.setDate(checkDate.getDate() - 7)
+      emptyTol = 0
+      if (mostRecentStatus === null) mostRecentStatus = 'active'
+    } else if (pausaType) {
+      emptyTol = 0
+      if (mostRecentStatus === null) mostRecentStatus = pausaType
     } else {
-      break
+      emptyTol++
+      if (mostRecentStatus === null) mostRecentStatus = 'empty'
+      if (emptyTol >= 2) break
     }
+    checkDate.setDate(checkDate.getDate() - 7)
   }
 
-  return { current, record: Math.max(current, record) }
+  const state = mostRecentStatus === 'active'  ? 'active'
+    : mostRecentStatus === 'frozen' ? 'frozen'
+    : mostRecentStatus === 'paused' ? 'paused'
+    : 'broken'
+
+  return { current, record: Math.max(current, record), state }
 }
 
 // ─── Weekly summary modal ─────────────────────────────────────────────────────
@@ -534,7 +550,9 @@ function LastWorkoutModal({ workout }) {
 }
 
 // ─── Stats cards ─────────────────────────────────────────────────────────────
-function StatsCards({ diasSemana, semanasRacha, rachaRecord }) {
+const ICE_BLUE = '#38bdf8'
+
+function StatsCards({ diasSemana, semanasRacha, rachaRecord, rachaState }) {
   const clampedDays = Math.min(diasSemana, 4)
   const maxDays = 4
   const radius = 30
@@ -552,6 +570,20 @@ function StatsCards({ diasSemana, semanasRacha, rachaRecord }) {
   const dayMessage = diasSemana >= 5 ? '¡Esta semana fue ideal! ⭐'
     : diasSemana === 4 ? '¡Semana óptima! ✅'
     : null
+
+  // Racha card appearance by state
+  const rachaColor = rachaState === 'frozen' ? ICE_BLUE
+    : rachaState === 'broken' ? '#6B7280'
+    : '#9B7FD4'  // active + paused: purple
+
+  const rachaEmoji = rachaState === 'frozen' ? '🧊'
+    : rachaState === 'paused' ? '⏸'
+    : rachaState === 'broken' ? '' : '🔥'
+
+  const rachaSub = rachaState === 'frozen' ? 'Racha congelada · Recuperate pronto 💙'
+    : rachaState === 'paused' ? 'Semana de descanso · Volvés más fuerte'
+    : rachaState === 'broken' ? (rachaRecord > 0 ? `Racha anterior: ${rachaRecord} sem.` : 'Sin racha activa')
+    : 'semanas seguidas'
 
   return (
     <div className="flex gap-3 mx-4">
@@ -582,9 +614,11 @@ function StatsCards({ diasSemana, semanasRacha, rachaRecord }) {
 
       {/* Card derecha — racha */}
       <div className="flex-1 py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center" style={{ backgroundColor: '#1a1625' }}>
-        <span className="text-4xl font-bold text-app-amber leading-none">{semanasRacha}</span>
-        <p className="text-[10px] text-app-muted text-center mt-1">semanas seguidas ⚡</p>
-        {rachaRecord > semanasRacha && (
+        <span className="text-4xl font-bold leading-none" style={{ color: rachaColor }}>
+          {semanasRacha}{rachaEmoji ? ` ${rachaEmoji}` : ''}
+        </span>
+        <p className="text-[10px] text-app-muted text-center mt-1 px-1 leading-tight">{rachaSub}</p>
+        {rachaState === 'active' && rachaRecord > semanasRacha && (
           <p className="text-[9px] text-app-muted/60 text-center mt-0.5">récord: {rachaRecord}</p>
         )}
       </div>
@@ -603,7 +637,7 @@ export default function Inicio() {
   const [suggestion, setSuggestion] = useState(null)
 
   const diasSemana = getThisWeekCount(workouts)
-  const { current: semanasRacha, record: rachaRecord } = getWeekStreak(workouts)
+  const { current: semanasRacha, record: rachaRecord, state: rachaState } = getWeekStreak(workouts)
 
   useEffect(() => {
     if (loading || !workouts.length) return
@@ -650,7 +684,7 @@ export default function Inicio() {
       )}
 
       <div className="flex-1 flex flex-col mt-2 pb-2 overflow-x-hidden">
-        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} /></div>
+        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} rachaState={rachaState} /></div>
         <div className="mb-2"><FraseDiariaCard workouts={workouts} /></div>
         <div className="mb-3"><WeekCalendar workouts={workouts} /></div>
         <div className="mb-2"><LastAndSuggestion workouts={workouts} /></div>

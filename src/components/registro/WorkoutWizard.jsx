@@ -31,12 +31,103 @@ function SessionTimer({ startTs }) {
 }
 
 const TYPE_CARDS = [
-  { type: 'fuerza', icon: '🏋️', label: 'Fuerza', color: 'border-app-purple/50 bg-app-purple/10 text-app-purple-light' },
-  { type: 'cardio', icon: '🏃', label: 'Cardio', color: 'border-app-green-light/50 bg-app-green/10 text-app-green-light' },
-  { type: 'clase',  icon: '🥊', label: 'Clase',  color: 'border-app-blue-light/50 bg-app-blue/10 text-app-blue-light' },
+  { type: 'fuerza', icon: '🏋️', label: 'Fuerza', sub: 'Pesas, rutinas, series y reps',   color: 'border-app-purple/50 bg-app-purple/10 text-app-purple-light' },
+  { type: 'cardio', icon: '🏃', label: 'Cardio', sub: 'Running, bici, rollers...',         color: 'border-app-green-light/50 bg-app-green/10 text-app-green-light' },
+  { type: 'clase',  icon: '🥊', label: 'Clase',  sub: 'Strong, HIIT, Funcional...',        color: 'border-app-blue-light/50 bg-app-blue/10 text-app-blue-light' },
+  { type: 'pausa',  icon: '⏸',  label: 'Semana de pausa', sub: 'Enfermedad, lesión o descanso', color: 'border-white/20 bg-white/5 text-app-muted' },
+]
+
+const PAUSA_MOTIVOS = [
+  { key: 'enfermedad', icon: '🤒', label: 'Enfermedad' },
+  { key: 'lesion',     icon: '🤕', label: 'Lesión' },
+  { key: 'descanso',   icon: '🧘', label: 'Descanso intencional' },
 ]
 
 const STEPS = ['tipo', 'detalle', 'sensacion']
+
+function PausaFlow({ pausaMotivo, setPausaMotivo, pausaInicio, setPausaInicio, pausaFin, setPausaFin, notes, setNotes, onSave, saving, saveError }) {
+  const handleFinChange = (val) => {
+    if (val < pausaInicio) return
+    setPausaFin(val)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-app-muted text-sm mb-3">Motivo</p>
+        <div className="space-y-2">
+          {PAUSA_MOTIVOS.map(({ key, icon, label }) => (
+            <button
+              key={key}
+              onClick={() => setPausaMotivo(key)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 text-left transition-all ${
+                pausaMotivo === key
+                  ? 'border-app-purple/60 bg-app-purple/10'
+                  : 'border-white/10 bg-app-surface'
+              }`}
+            >
+              <span className="text-2xl">{icon}</span>
+              <span className={`font-medium text-sm ${pausaMotivo === key ? 'text-app-purple-light' : 'text-app-text'}`}>
+                {label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-app-muted text-xs block mb-1.5">Desde</label>
+          <input
+            type="date"
+            value={pausaInicio}
+            onChange={e => { setPausaInicio(e.target.value); if (pausaFin < e.target.value) setPausaFin(e.target.value) }}
+            className="w-full bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none focus:border-app-purple/50"
+          />
+        </div>
+        <div>
+          <label className="text-app-muted text-xs block mb-1.5">Hasta</label>
+          <input
+            type="date"
+            value={pausaFin}
+            min={pausaInicio}
+            onChange={e => handleFinChange(e.target.value)}
+            className="w-full bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none focus:border-app-purple/50"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-app-muted text-sm block mb-2">¿Querés agregar algún detalle? (opcional)</label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Ej: gripe, fiebre 3 días"
+          rows={3}
+          className="w-full bg-app-surface border border-white/10 rounded-xl px-4 py-3 text-app-text text-sm placeholder-app-muted/40 focus:outline-none focus:border-app-purple/50 resize-none"
+        />
+      </div>
+
+      {saveError && (
+        <div className="bg-app-coral/10 border border-app-coral/30 rounded-xl px-4 py-3 text-app-coral text-sm text-center">
+          {saveError}
+        </div>
+      )}
+
+      <Button size="xl" onClick={onSave} disabled={!pausaMotivo || saving}>
+        {saving ? (
+          <span className="flex items-center justify-center gap-2">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            Guardando...
+          </span>
+        ) : 'Guardar pausa'}
+      </Button>
+    </div>
+  )
+}
 
 export default function WorkoutWizard({ initialType }) {
   const { user, profile, settings } = useAuthContext()
@@ -53,6 +144,9 @@ export default function WorkoutWizard({ initialType }) {
   const [fatigue, setFatigue]   = useState(savedDraft?.fatigue ?? 5)
   const [notes, setNotes]       = useState(savedDraft?.notes ?? '')
   const [date, setDate]         = useState(savedDraft?.date ?? todayStr())
+  const [pausaMotivo, setPausaMotivo] = useState(savedDraft?.pausaMotivo ?? '')
+  const [pausaInicio, setPausaInicio] = useState(savedDraft?.pausaInicio ?? todayStr())
+  const [pausaFin, setPausaFin]       = useState(savedDraft?.pausaFin ?? todayStr())
   const [saving, setSaving]     = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saved, setSaved]       = useState(null)
@@ -72,8 +166,8 @@ export default function WorkoutWizard({ initialType }) {
       setStartTime(null)
       return
     }
-    setDraft({ step, type, detail, fatigue, notes, date })
-  }, [step, type, detail, fatigue, notes, date]) // eslint-disable-line react-hooks/exhaustive-deps
+    setDraft({ step, type, detail, fatigue, notes, date, pausaMotivo, pausaInicio, pausaFin })
+  }, [step, type, detail, fatigue, notes, date, pausaMotivo, pausaInicio, pausaFin]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startTimer = () => {
     if (startTime) return
@@ -101,6 +195,28 @@ export default function WorkoutWizard({ initialType }) {
       else clean[k] = v
     }
     return clean
+  }
+
+  const handleSavePausa = async () => {
+    setSaving(true)
+    setSaveError(null)
+    const workout = sanitizeWorkout({
+      type: 'pausa',
+      pausaMotivo,
+      pausaInicio,
+      pausaFin,
+      date: pausaInicio,
+      notes: notes || '',
+    })
+    try {
+      await workoutsHook.saveWorkout(workout)
+      clearDraft()
+      setSaved(workout)
+    } catch {
+      setSaveError('No se pudo guardar. Revisá tu conexión e intentá de nuevo.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSave = async () => {
@@ -155,19 +271,21 @@ export default function WorkoutWizard({ initialType }) {
     <div className="min-h-screen bg-app-bg flex flex-col">
       <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none"
-          />
+          {type !== 'pausa' && (
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none"
+            />
+          )}
           {settings?.deloadActive && (
             <span className="text-xs bg-app-gold/20 text-app-gold px-2.5 py-1 rounded-full border border-app-gold/30">
               🔄 Descarga
             </span>
           )}
         </div>
-        {step >= 1 && startTime && <SessionTimer startTs={startTime} />}
+        {step >= 1 && startTime && type !== 'pausa' && <SessionTimer startTs={startTime} />}
         <button
           onClick={() => setShowCancelConfirm(true)}
           className="text-app-muted/60 text-xs px-3 py-1.5 rounded-xl border border-white/10"
@@ -185,10 +303,10 @@ export default function WorkoutWizard({ initialType }) {
       <div className="flex-1 px-4 py-4 overflow-y-auto">
         {step === 0 && (
           <div className="animate-fadeIn">
-            <h2 className="text-app-text font-bold text-lg mb-1">¿Qué entrenaste?</h2>
-            <p className="text-app-muted text-sm mb-6">Elegí el tipo de entrenamiento</p>
+            <h2 className="text-app-text font-bold text-lg mb-1">¿Qué registrás?</h2>
+            <p className="text-app-muted text-sm mb-6">Elegí el tipo de registro</p>
             <div className="grid gap-4">
-              {TYPE_CARDS.map(({ type: t, icon, label, color }) => (
+              {TYPE_CARDS.map(({ type: t, icon, label, sub, color }) => (
                 <button
                   key={t}
                   onClick={() => { setType(t); setStep(1) }}
@@ -199,9 +317,7 @@ export default function WorkoutWizard({ initialType }) {
                   <span className="text-4xl">{icon}</span>
                   <div>
                     <p className={`font-bold text-lg ${type === t ? '' : 'text-app-text'}`}>{label}</p>
-                    <p className="text-app-muted text-xs mt-0.5">
-                      {t === 'fuerza' ? 'Pesas, rutinas, series y reps' : t === 'cardio' ? 'Running, bici, rollers...' : 'Strong, HIIT, Funcional...'}
-                    </p>
+                    <p className="text-app-muted text-xs mt-0.5">{sub}</p>
                   </div>
                 </button>
               ))}
@@ -217,7 +333,9 @@ export default function WorkoutWizard({ initialType }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <h2 className="text-app-text font-bold text-base">Detalle del entrenamiento</h2>
+              <h2 className="text-app-text font-bold text-base">
+                {type === 'pausa' ? 'Registrar pausa' : 'Detalle del entrenamiento'}
+              </h2>
             </div>
             {type === 'fuerza' && (
               <FuerzaFlow
@@ -232,9 +350,21 @@ export default function WorkoutWizard({ initialType }) {
             )}
             {type === 'cardio' && <CardioFlow data={detail} onChange={setDetail} />}
             {type === 'clase'  && <ClaseFlow data={detail} onChange={setDetail} deloadActive={settings?.deloadActive} />}
-            <div className="pt-4">
-              <Button size="lg" onClick={() => { startTimer(); setStep(2) }}>Continuar</Button>
-            </div>
+            {type === 'pausa'  && (
+              <PausaFlow
+                pausaMotivo={pausaMotivo} setPausaMotivo={setPausaMotivo}
+                pausaInicio={pausaInicio} setPausaInicio={setPausaInicio}
+                pausaFin={pausaFin}       setPausaFin={setPausaFin}
+                notes={notes}             setNotes={setNotes}
+                onSave={handleSavePausa}  saving={saving}
+                saveError={saveError}
+              />
+            )}
+            {type !== 'pausa' && (
+              <div className="pt-4">
+                <Button size="lg" onClick={() => { startTimer(); setStep(2) }}>Continuar</Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -320,7 +450,7 @@ export default function WorkoutWizard({ initialType }) {
       {showCancelConfirm && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-6">
           <div className="bg-app-elevated rounded-2xl p-6 w-full max-w-xs border border-white/10">
-            <p className="text-app-text font-semibold text-base mb-1">¿Cancelar el entrenamiento?</p>
+            <p className="text-app-text font-semibold text-base mb-1">¿Cancelar el registro?</p>
             <p className="text-app-muted text-sm mb-5">Perderás lo registrado hasta ahora.</p>
             <div className="flex flex-col gap-2">
               <button

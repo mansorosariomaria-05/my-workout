@@ -4,6 +4,8 @@ import Button from '../ui/Button'
 import { FRASES_POST } from '../../data/frases'
 
 const CONFETTI_COLORS = ['#7C5CBF', '#40916C', '#4A9EDB', '#F59E0B', '#E57373', '#9B7FD4']
+const ICE_BLUE = '#38bdf8'
+const PURPLE   = '#9B7FD4'
 
 function Confetti() {
   const pieces = Array.from({ length: 24 }, (_, i) => ({
@@ -21,13 +23,9 @@ function Confetti() {
           key={p.id}
           className="confetti-piece"
           style={{
-            left: p.left,
-            top: '-10px',
-            background: p.color,
-            width: p.size,
-            height: p.size,
-            animationDuration: p.duration,
-            animationDelay: p.delay,
+            left: p.left, top: '-10px', background: p.color,
+            width: p.size, height: p.size,
+            animationDuration: p.duration, animationDelay: p.delay,
           }}
         />
       ))}
@@ -52,24 +50,17 @@ function getSundayStr(mondayStr) {
 function getDayAchievement(workout, workouts) {
   const workoutMonday = getMondayStr(workout.date)
   const workoutSunday = getSundayStr(workoutMonday)
-
-  // Determine if the workout belongs to the current week
   const today = new Date()
   const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0')
   const currentMonday = getMondayStr(todayStr)
-
-  // Workout is in a past week — show generic confirmation, no week milestone
   if (workoutMonday !== currentMonday) {
     return { text: '¡Entrenamiento guardado! 💪', color: 'text-app-purple-light', bg: 'bg-app-purple/10 border-app-purple/20' }
   }
-
-  // Count distinct training days within the workout's week (bounded by monday–sunday)
   const thisWeekDates = new Set(
     workouts.filter(w => w.date >= workoutMonday && w.date <= workoutSunday).map(w => w.date)
   )
   thisWeekDates.add(workout.date)
   const count = thisWeekDates.size
-
   if (count >= 5) return { text: '¡Semana Ideal! ⭐', color: 'text-app-amber', bg: 'bg-app-amber/10 border-app-amber/20' }
   if (count === 4) return { text: '¡Óptimo conseguido! 🌟', color: 'text-app-green-light', bg: 'bg-app-green/10 border-app-green-light/20' }
   if (count === 3) return { text: '¡Ya entrenaste 3 días esta semana! 💪', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' }
@@ -97,6 +88,7 @@ function detectPRs(workout, workouts) {
 }
 
 export default function WorkoutSummary({ workout, onDone, workouts = [], newAchievements = [] }) {
+  // All hooks must be called unconditionally
   const [visible, setVisible]         = useState(true)
   const [secondsLeft, setSecondsLeft] = useState(5)
   const navigate   = useNavigate()
@@ -114,18 +106,10 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
     return frase
   })
 
-  const totalSets = workout.exercises?.reduce((a, e) => a + (e.sets?.length ?? 0), 0) ?? 0
-  const fatigue   = workout.fatigue ?? 5
-  const total     = workouts.length + 1
-  const milestone = [10, 20, 30, 50].find(m => total === m)
-  const prs       = detectPRs(workout, workouts)
-  const dayAchievement = getDayAchievement(workout, workouts)
-
-  const canClose = secondsLeft === 0
-
   const goHome = () => { setVisible(false); onDone?.(); navigate('/') }
 
   useEffect(() => {
+    if (workout.type === 'pausa') return
     countdownRef.current = setInterval(() => {
       setSecondsLeft(s => {
         if (s <= 1) { clearInterval(countdownRef.current); return 0 }
@@ -138,6 +122,43 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
       clearTimeout(autoCloseRef.current)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Pausa: pantalla simple sin confetti ni cuenta regresiva ─────────────────
+  if (workout.type === 'pausa') {
+    const isFrozen = workout.pausaMotivo === 'enfermedad' || workout.pausaMotivo === 'lesion'
+    const color    = isFrozen ? ICE_BLUE : PURPLE
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-app-bg/95">
+        <div className="text-center px-8 py-10 w-full max-w-sm animate-scaleIn">
+          <div className="text-6xl mb-5">{isFrozen ? '🧊' : '⏸'}</div>
+          <p className="text-xl font-bold mb-3" style={{ color }}>
+            Registrado {isFrozen ? '🧊' : '⏸'}
+          </p>
+          <p className="text-sm leading-relaxed" style={{ color: '#94A3B8' }}>
+            {isFrozen
+              ? 'Que te mejores pronto. Tu racha está a salvo.'
+              : 'Descanso registrado. Volvés más fuerte.'}
+          </p>
+          <button
+            onClick={goHome}
+            className="mt-10 w-full py-3.5 rounded-2xl font-semibold text-white text-base"
+            style={{ backgroundColor: color }}
+          >
+            Volver al inicio
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Regular workout summary ──────────────────────────────────────────────────
+  const totalSets      = workout.exercises?.reduce((a, e) => a + (e.sets?.length ?? 0), 0) ?? 0
+  const fatigue        = workout.fatigue ?? 5
+  const total          = workouts.length + 1
+  const milestone      = [10, 20, 30, 50].find(m => total === m)
+  const prs            = detectPRs(workout, workouts)
+  const dayAchievement = getDayAchievement(workout, workouts)
+  const canClose       = secondsLeft === 0
 
   if (!visible) return null
 

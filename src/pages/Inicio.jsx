@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isToday, isYesterday, differenceInDays, format } from 'date-fns'
+import { isToday, isYesterday, differenceInDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Lightbulb, ChevronRight } from 'lucide-react'
 import { useAuthContext } from '../context/AuthContext'
@@ -20,7 +20,7 @@ const TYPE_LABELS = { fuerza: 'Fuerza', cardio: 'Cardio', clase: 'Clase', tabata
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 function fechaRelativa(dateStr) {
   if (!dateStr) return ''
-  const d = new Date(dateStr + 'T12:00:00')
+  const d = parseISO(dateStr + 'T12:00:00')
   if (isToday(d)) return 'hoy'
   if (isYesterday(d)) return 'ayer'
   const dias = differenceInDays(new Date(), d)
@@ -30,97 +30,11 @@ function fechaRelativa(dateStr) {
 
 // ─── Week stats ───────────────────────────────────────────────────────────────
 function getThisWeekCount(workouts) {
-  const now = new Date()
-  const day = now.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  const monday = new Date(now)
-  monday.setDate(now.getDate() + diff)
-  const mondayStr = monday.getFullYear() + '-' + String(monday.getMonth() + 1).padStart(2, '0') + '-' + String(monday.getDate()).padStart(2, '0')
-  const dates = new Set(workouts.filter(w => w.date >= mondayStr && w.type !== 'descanso').map(w => w.date))
+  const mondayStr = getWeekStartLocal()
+  const dates = new Set(
+    workouts.filter(w => w.date >= mondayStr && w.type !== 'descanso' && w.type !== 'pausa').map(w => w.date)
+  )
   return dates.size
-}
-
-function getWeekStreak(workouts) {
-  const allW = workouts.filter(w => w.date)
-  if (!allW.length) return { current: 0, record: 0, state: 'broken' }
-
-  const getMondayOf = (d) => {
-    const dt = new Date(d)
-    const dow = dt.getDay() || 7
-    dt.setDate(dt.getDate() - dow + 1)
-    dt.setHours(0, 0, 0, 0)
-    return dt
-  }
-  const toStr = (d) => {
-    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${dd}`
-  }
-  const addDays = (d, n) => new Date(d.getTime() + n * 86400000)
-
-  const pausas = allW.filter(w => w.type === 'pausa')
-  const realW  = allW.filter(w => w.type !== 'descanso' && w.type !== 'pausa')
-
-  const weekMap = {}
-  realW.forEach(w => {
-    const mon = toStr(getMondayOf(new Date(w.date + 'T12:00:00')))
-    if (!weekMap[mon]) weekMap[mon] = new Set()
-    weekMap[mon].add(w.date)
-  })
-
-  const qualifying = Object.entries(weekMap)
-    .filter(([, days]) => days.size >= 3).map(([mon]) => mon).sort()
-  let record = qualifying.length ? 1 : 0, runLen = 1
-  for (let i = 1; i < qualifying.length; i++) {
-    const diff = Math.round(
-      (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00')) / 86400000
-    )
-    if (diff === 7) { runLen++; record = Math.max(record, runLen) } else runLen = 1
-  }
-
-  const getPausaType = (weekStart, weekEnd) => {
-    for (const p of pausas) {
-      const pi = p.pausaInicio || p.date
-      const pf = p.pausaFin   || p.date
-      if (pi <= weekEnd && pf >= weekStart) {
-        return (p.pausaMotivo === 'enfermedad' || p.pausaMotivo === 'lesion') ? 'frozen' : 'paused'
-      }
-    }
-    return null
-  }
-
-  const lastMon = getMondayOf(new Date())
-  lastMon.setDate(lastMon.getDate() - 7)
-
-  let current = 0, mostRecentStatus = null, emptyTol = 0
-  let checkDate = new Date(lastMon)
-
-  for (let i = 0; i < 52; i++) {
-    const weekStart = toStr(checkDate)
-    const weekEnd   = toStr(addDays(checkDate, 6))
-    const isActive  = (weekMap[weekStart]?.size ?? 0) >= 3
-    const pausaType = getPausaType(weekStart, weekEnd)
-
-    if (isActive) {
-      current++
-      emptyTol = 0
-      if (mostRecentStatus === null) mostRecentStatus = 'active'
-    } else if (pausaType) {
-      emptyTol = 0
-      if (mostRecentStatus === null) mostRecentStatus = pausaType
-    } else {
-      emptyTol++
-      if (mostRecentStatus === null) mostRecentStatus = 'empty'
-      if (emptyTol >= 2) break
-    }
-    checkDate.setDate(checkDate.getDate() - 7)
-  }
-
-  const state = mostRecentStatus === 'active'  ? 'active'
-    : mostRecentStatus === 'frozen' ? 'frozen'
-    : mostRecentStatus === 'paused' ? 'paused'
-    : 'broken'
-
-  return { current, record: Math.max(current, record), state }
 }
 
 // ─── Weekly summary modal ─────────────────────────────────────────────────────
@@ -631,13 +545,13 @@ function StatsCards({ diasSemana, semanasRacha, rachaRecord, rachaState }) {
 export default function Inicio() {
   const { user, settings } = useAuthContext()
   const navigate = useNavigate()
-  const { workouts, loading, reload } = useWorkouts(user?.uid)
+  const { workouts, loading, reload, getCurrentStreak } = useWorkouts(user?.uid)
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)
   const [suggestion, setSuggestion] = useState(null)
 
   const diasSemana = getThisWeekCount(workouts)
-  const { current: semanasRacha, record: rachaRecord, state: rachaState } = getWeekStreak(workouts)
+  const { current: semanasRacha, record: rachaRecord, state: rachaState } = getCurrentStreak()
 
   useEffect(() => {
     if (loading || !workouts.length) return

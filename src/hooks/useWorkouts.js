@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { parseISO } from 'date-fns'
 import { getWorkouts, saveWorkout as dbSaveWorkout } from '../services/db'
 import { dateToLocal } from '../utils/dates'
 
@@ -92,8 +93,8 @@ export function useWorkouts(uid) {
   }
 
   const getWeekWorkouts = (weekStartStr) => {
-    const end = new Date(weekStartStr)
-    end.setDate(end.getDate() + 6)
+    const start = parseISO(weekStartStr + 'T12:00:00')
+    const end   = new Date(start.getTime() + 6 * 86400000)
     const endStr = dateToLocal(end)
     return workouts.filter(w => w.date >= weekStartStr && w.date <= endStr)
   }
@@ -125,7 +126,7 @@ export function useWorkouts(uid) {
     // Build week training map: monday -> Set of dates trained
     const weekMap = {}
     realW.forEach(w => {
-      const mon = toStr(getMondayOf(new Date(w.date + 'T12:00:00')))
+      const mon = toStr(getMondayOf(parseISO(w.date + 'T12:00:00')))
       if (!weekMap[mon]) weekMap[mon] = new Set()
       weekMap[mon].add(w.date)
     })
@@ -136,7 +137,7 @@ export function useWorkouts(uid) {
     let record = qualifying.length ? 1 : 0, runLen = 1
     for (let i = 1; i < qualifying.length; i++) {
       const diff = Math.round(
-        (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00')) / 86400000
+        (parseISO(qualifying[i] + 'T12:00:00') - parseISO(qualifying[i - 1] + 'T12:00:00')) / 86400000
       )
       if (diff === 7) { runLen++; record = Math.max(record, runLen) } else runLen = 1
     }

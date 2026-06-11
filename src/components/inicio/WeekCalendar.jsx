@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { parseISO } from 'date-fns'
 import { toDateStr } from '../../utils/dates'
 
 const DAY_LABELS    = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -38,9 +39,9 @@ export default function WeekCalendar({ workouts }) {
   // Second pass: pausa workouts expand their date range, filling uncovered days only
   workouts.forEach(w => {
     if (w.type !== 'pausa') return
-    const start = new Date((w.pausaInicio || w.date) + 'T12:00:00')
-    const end   = new Date((w.pausaFin   || w.date) + 'T12:00:00')
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')
+    const end   = parseISO((w.pausaFin   || w.date) + 'T12:00:00')
+    for (let d = new Date(start.getTime()); d <= end; d.setDate(d.getDate() + 1)) {
       const ds = toDateStr(d)
       if (!byDate[ds]) byDate[ds] = w
     }
@@ -86,12 +87,11 @@ export default function WeekCalendar({ workouts }) {
 
           // Pausa color + icon
           const isFrozen = isPausa && (workout.pausaMotivo === 'enfermedad' || workout.pausaMotivo === 'lesion')
-          const pausaBg  = isFrozen ? ICE_BLUE : '#4B5563'
-          const pausaIcon = isFrozen ? '🧊' : '⏸'
+          const pausaDotBg     = isFrozen ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)'
+          const pausaDotBorder = isFrozen ? '#38bdf8' : '#4B5563'
 
-          const bgColor = isRest  ? '#3D5A80'
-            : isPausa             ? pausaBg
-            : workout && !isFuture ? '#40916C'
+          const bgColor = isRest ? '#3D5A80'
+            : workout && !isFuture && !isPausa ? '#40916C'
             : 'transparent'
 
           return (
@@ -100,14 +100,22 @@ export default function WeekCalendar({ workouts }) {
                 <div
                   style={{
                     backgroundColor: bgColor,
-                    border: isToday ? '2px solid #7C5CBF' : 'none',
+                    border: isToday && !isPausa ? '2px solid #7C5CBF' : isPausa ? `2px solid ${pausaDotBorder}` : 'none',
                   }}
                   className="w-7 h-7 rounded-full flex items-center justify-center"
                 >
                   {isRest ? (
                     <span className="text-[9px] leading-none">💤</span>
                   ) : isPausa ? (
-                    <span className="text-[9px] leading-none">{pausaIcon}</span>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 8, height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: pausaDotBg,
+                        border: `1.5px solid ${pausaDotBorder}`,
+                      }}
+                    />
                   ) : workout && !isFuture ? (
                     <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

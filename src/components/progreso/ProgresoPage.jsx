@@ -138,49 +138,6 @@ function computeAll(workouts) {
   }
 }
 
-// Pausa-aware streak state: 'active' | 'frozen' | 'paused' | 'broken'
-function computeStreakState(workouts) {
-  const allW   = workouts.filter(w => w.date)
-  const pausas = allW.filter(w => w.type === 'pausa')
-  const realW  = allW.filter(w => w.type !== 'descanso' && w.type !== 'pausa')
-  if (!realW.length && !pausas.length) return 'broken'
-
-  const getMon = (d) => {
-    const dt = new Date(d); const dow = dt.getDay() || 7
-    dt.setDate(dt.getDate() - dow + 1); dt.setHours(0,0,0,0); return dt
-  }
-  const toStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-  const addD  = (d, n) => new Date(d.getTime() + n * 86400000)
-
-  const weekMap = {}
-  realW.forEach(w => {
-    const mon = toStr(getMon(new Date(w.date + 'T12:00:00')))
-    if (!weekMap[mon]) weekMap[mon] = new Set()
-    weekMap[mon].add(w.date)
-  })
-  const getPausaType = (ws, we) => {
-    for (const p of pausas) {
-      const pi = p.pausaInicio || p.date, pf = p.pausaFin || p.date
-      if (pi <= we && pf >= ws) return (p.pausaMotivo === 'enfermedad' || p.pausaMotivo === 'lesion') ? 'frozen' : 'paused'
-    }
-    return null
-  }
-
-  const lastMon = getMon(new Date())
-  lastMon.setDate(lastMon.getDate() - 7)
-  let status = null, emptyTol = 0, check = new Date(lastMon)
-  for (let i = 0; i < 52; i++) {
-    const ws = toStr(check), we = toStr(addD(check, 6))
-    const active = (weekMap[ws]?.size ?? 0) >= 3
-    const pt     = getPausaType(ws, we)
-    if (active)      { if (!status) status = 'active'; emptyTol = 0 }
-    else if (pt)     { if (!status) status = pt;       emptyTol = 0 }
-    else             { emptyTol++; if (!status) status = 'empty'; if (emptyTol >= 2) break }
-    check.setDate(check.getDate() - 7)
-  }
-  return status === 'active' ? 'active' : status === 'frozen' ? 'frozen' : status === 'paused' ? 'paused' : 'broken'
-}
-
 // Top 3 most recent progress events (weight PR, reps PR, or double)
 function computeTopExercises(workouts) {
   const sorted = [...workouts]
@@ -488,13 +445,13 @@ function UltimasSesiones({ workouts }) {
 
 export default function ProgresoPage() {
   const { user, profile } = useAuthContext()
-  const { workouts, loading } = useWorkouts(user?.uid)
+  const { workouts, loading, getCurrentStreak } = useWorkouts(user?.uid)
   const [showAllExercises, setShowAllExercises] = useState(false)
   const [showHistorial, setShowHistorial]        = useState(false)
 
-  const data        = useMemo(() => computeAll(workouts),          [workouts])
-  const topEx       = useMemo(() => computeTopExercises(workouts), [workouts])
-  const streakState = useMemo(() => computeStreakState(workouts),  [workouts])
+  const data        = useMemo(() => computeAll(workouts),            [workouts])
+  const topEx       = useMemo(() => computeTopExercises(workouts),   [workouts])
+  const { state: streakState } = useMemo(() => getCurrentStreak(),   [workouts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center">

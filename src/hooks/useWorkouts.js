@@ -167,14 +167,18 @@ export function useWorkouts(uid) {
       const isActive  = (weekMap[weekStart]?.size ?? 0) >= 3
       const pausaType = getPausaType(weekStart, weekEnd)
 
+      const weekTrainingCount = weekMap[weekStart]?.size ?? 0
+
       if (isActive) {
         current++
         emptyTol = 0
         if (mostRecentStatus === null) mostRecentStatus = 'active'
       } else if (pausaType) {
         emptyTol = 0
-        if (mostRecentStatus === null) mostRecentStatus = pausaType
-        // frozen/paused: don't break streak, don't increment current
+        if (mostRecentStatus === null) {
+          // If user trained any day during the pausa, reactivate from here
+          mostRecentStatus = weekTrainingCount > 0 ? 'active' : pausaType
+        }
       } else {
         emptyTol++
         if (mostRecentStatus === null) mostRecentStatus = 'empty'

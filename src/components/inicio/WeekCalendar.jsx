@@ -29,14 +29,19 @@ export default function WeekCalendar({ workouts }) {
     return d
   })
 
-  // Build byDate: regular workouts take priority over pausa
+  // Build byDate with explicit priority: real workout > descanso > pausa
   const byDate = {}
+  const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
 
-  // First pass: all non-pausa workouts
+  // Pass 1: real workouts (highest priority — always win over pausa)
   workouts.forEach(w => {
-    if (w.type !== 'pausa' && w.date && !byDate[w.date]) byDate[w.date] = w
+    if (REAL_TYPES.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
   })
-  // Second pass: pausa workouts expand their date range, filling uncovered days only
+  // Pass 2: descanso (fills only days without a real workout)
+  workouts.forEach(w => {
+    if (w.type === 'descanso' && w.date && !byDate[w.date]) byDate[w.date] = w
+  })
+  // Pass 3: pausa expands date range, fills only days not already covered
   workouts.forEach(w => {
     if (w.type !== 'pausa') return
     const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')

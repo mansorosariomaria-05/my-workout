@@ -195,7 +195,7 @@ function LastAndSuggestion({ workouts }) {
   const today = getTodayLocal()
   const [showNote, setShowNote] = useState(false)
 
-  const real = workouts.filter(w => w.type !== 'descanso' && w.date)
+  const real = workouts.filter(w => w.type !== 'descanso' && w.type !== 'pausa' && w.date)
   if (!real.length) return null
 
   // workouts from db are ordered by date desc — first date is the most recent

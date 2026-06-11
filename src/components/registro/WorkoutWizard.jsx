@@ -20,6 +20,7 @@ import WorkoutSummary from './WorkoutSummary'
 import Button from '../ui/Button'
 import { todayStr } from '../../utils/dates'
 import { runAchievementCheck, ACHIEVEMENTS_META } from '../../utils/achievements'
+import { FuerzaIcon, CardioIcon, ClaseIcon } from '../icons/WorkoutIcons'
 
 const SESSION_TIMER_KEY = 'workout_start_ts'
 
@@ -40,11 +41,17 @@ function SessionTimer({ startTs }) {
 }
 
 const TYPE_CARDS = [
-  { type: 'fuerza', icon: '🏋️', label: 'Fuerza', sub: 'Pesas, rutinas, series y reps',   color: 'border-app-purple/50 bg-app-purple/10 text-app-purple-light' },
-  { type: 'cardio', icon: '🏃', label: 'Cardio', sub: 'Running, bici, rollers...',         color: 'border-app-green-light/50 bg-app-green/10 text-app-green-light' },
-  { type: 'clase',  icon: '🥊', label: 'Clase',  sub: 'Strong, HIIT, Funcional...',        color: 'border-app-blue-light/50 bg-app-blue/10 text-app-blue-light' },
-  { type: 'pausa',  icon: '⏸',  label: 'Semana de pausa', sub: 'Enfermedad, lesión o descanso', color: 'border-white/20 bg-white/5 text-app-muted' },
+  { type: 'fuerza', label: 'Fuerza', sub: 'Pesas, rutinas, series y reps',        color: 'border-app-purple/50 bg-app-purple/10 text-app-purple-light' },
+  { type: 'cardio', label: 'Cardio', sub: 'Running, bici, rollers...',              color: 'border-app-green-light/50 bg-app-green/10 text-app-green-light' },
+  { type: 'clase',  label: 'Clase',  sub: 'Strong, HIIT, Funcional...',             color: 'border-app-blue-light/50 bg-app-blue/10 text-app-blue-light' },
+  { type: 'pausa',  label: 'Semana de pausa', sub: 'Enfermedad, lesión o descanso', color: 'border-white/20 bg-white/5 text-app-muted' },
 ]
+
+const TYPE_ICON_MAP = {
+  fuerza: { Icon: FuerzaIcon, color: '#9B7FD4' },
+  cardio: { Icon: CardioIcon, color: '#4ade80' },
+  clase:  { Icon: ClaseIcon,  color: '#60a5fa' },
+}
 
 const PAUSA_MOTIVOS = [
   { key: 'enfermedad', icon: '🤒', label: 'Enfermedad' },
@@ -431,21 +438,28 @@ export default function WorkoutWizard({ initialType }) {
             <h2 className="text-app-text font-bold text-lg mb-1">¿Qué registrás?</h2>
             <p className="text-app-muted text-sm mb-6">Elegí el tipo de registro</p>
             <div className="grid gap-4">
-              {TYPE_CARDS.map(({ type: t, icon, label, sub, color }) => (
-                <button
-                  key={t}
-                  onClick={() => { setType(t); setStep(1) }}
-                  className={`flex items-center gap-4 p-5 rounded-2xl border-2 text-left transition-all active:scale-95 ${
-                    type === t ? color : 'border-white/10 bg-app-surface'
-                  }`}
-                >
-                  <span className="text-4xl">{icon}</span>
-                  <div>
-                    <p className={`font-bold text-lg ${type === t ? '' : 'text-app-text'}`}>{label}</p>
-                    <p className="text-app-muted text-xs mt-0.5">{sub}</p>
-                  </div>
-                </button>
-              ))}
+              {TYPE_CARDS.map(({ type: t, label, sub, color }) => {
+                const iconCfg = TYPE_ICON_MAP[t]
+                const { Icon, color: iconColor } = iconCfg ?? {}
+                return (
+                  <button
+                    key={t}
+                    onClick={() => { setType(t); setStep(1) }}
+                    className={`flex items-center gap-4 p-5 rounded-2xl border-2 text-left transition-all active:scale-95 ${
+                      type === t ? color : 'border-white/10 bg-app-surface'
+                    }`}
+                  >
+                    {Icon
+                      ? <div style={{ color: iconColor }}><Icon size={40} /></div>
+                      : <span className="text-4xl">⏸</span>
+                    }
+                    <div>
+                      <p className={`font-bold text-lg ${type === t ? '' : 'text-app-text'}`}>{label}</p>
+                      <p className="text-app-muted text-xs mt-0.5">{sub}</p>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}

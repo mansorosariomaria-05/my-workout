@@ -10,6 +10,7 @@ const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
 import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
 import { detectPRs } from '../../utils/prUtils'
+import { WorkoutIcon } from '../icons/WorkoutIcons'
 
 const GREEN    = '#22c55e'
 const RED      = '#ef4444'
@@ -349,11 +350,11 @@ function Recomendaciones({ items = [] }) {
 
 // ─── Últimas sesiones (Bloque 7) ──────────────────────────────────────────────
 
-const SESSION_TYPE_CONFIG = {
-  fuerza: { icon: '💪', color: PURPLE,    bgColor: 'rgba(155,127,212,0.15)' },
-  cardio: { icon: '🏃', color: '#40916C', bgColor: 'rgba(64,145,108,0.15)'  },
-  clase:  { icon: '🧘', color: '#4A9EDB', bgColor: 'rgba(74,158,219,0.15)'  },
-  tabata: { icon: '⚡', color: AMBER,     bgColor: 'rgba(245,158,11,0.15)'   },
+const WORKOUT_ICON_COLORS = {
+  fuerza: '#9B7FD4',
+  cardio: '#4ade80',
+  clase:  '#60a5fa',
+  tabata: '#f59e0b',
 }
 
 function UltimasSesiones({ workouts }) {
@@ -364,72 +365,66 @@ function UltimasSesiones({ workouts }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-2">
       {sessions.map((w, i) => {
-        const cfg     = SESSION_TYPE_CONFIG[w.type] ?? { icon: '🏋️', color: '#94A3B8', bgColor: 'rgba(148,163,184,0.15)' }
-        const relDate = formatDistanceToNow(parseISO(w.date + 'T12:00:00'), { addSuffix: true, locale: es })
-        const hasPR   = w.type === 'fuerza' && detectPRs(w, workouts.filter(h => h.date < w.date)).length > 0
+        const iconColor = WORKOUT_ICON_COLORS[w.type] ?? '#94A3B8'
+        const relDate   = formatDistanceToNow(parseISO(w.date + 'T12:00:00'), { addSuffix: true, locale: es })
+        const hasPR     = w.type === 'fuerza' && detectPRs(w, workouts.filter(h => h.date < w.date)).length > 0
 
-        let fatigueLabel = null, fatigueDot = null
+        // Fatigue badge
+        let fatLabel = null, fatDot = null
         if (w.fatigue != null) {
-          if (w.fatigue <= 3)      { fatigueLabel = 'Carga liviana';  fatigueDot = '#4ade80' }
-          else if (w.fatigue <= 6) { fatigueLabel = 'Carga moderada'; fatigueDot = '#facc15' }
-          else                     { fatigueLabel = 'Carga alta';     fatigueDot = '#f87171' }
+          if (w.fatigue <= 3)      { fatLabel = 'liviana';  fatDot = '#4ade80' }
+          else if (w.fatigue <= 6) { fatLabel = 'moderada'; fatDot = '#facc15' }
+          else                     { fatLabel = 'alta';     fatDot = '#f87171' }
         }
 
-        const contentParts = []
-        if (w.type === 'fuerza') {
-          if (w.muscleGroups?.length) contentParts.push(w.muscleGroups.join(' · '))
-          const n = w.exercises?.length ?? 0
-          contentParts.push(`${n} ejercicio${n !== 1 ? 's' : ''}`)
-        } else if (w.type === 'cardio') {
-          if (w.activity)                           contentParts.push(w.activity)
-          if (w.tiempo)                             contentParts.push(`${w.tiempo} min`)
-          if (w.distancia)                          contentParts.push(`${w.distancia} km`)
-          if (w.ritmo && w.activity === 'Running')  contentParts.push(`${w.ritmo} min/km`)
-        } else if (w.type === 'clase') {
-          if (w.clase)    contentParts.push(w.clase)
-          if (w.duracion) contentParts.push(`${w.duracion} min`)
-        } else if (w.type === 'tabata') {
-          contentParts.push(w.tiempo ? `${w.tiempo} min` : 'Tabata')
-        }
+        // Line 2: subtitle by type
+        let subtitle = null
+        if (w.type === 'fuerza' && w.muscleGroups?.length) subtitle = w.muscleGroups.join(' · ')
+        else if (w.type === 'cardio' && w.activity)        subtitle = w.activity
+        else if (w.type === 'clase' && w.clase)            subtitle = w.clase
+
+        // Line 3: tiempo + notes
+        const tiempo   = w.tiempo ?? w.duracion ?? null
+        const hasLine3 = tiempo || w.notes
 
         return (
-          <div key={i} className="rounded-xl p-4" style={{ backgroundColor: '#1a1625' }}>
-            <div className="flex items-center gap-2.5">
-              <div style={{
-                width: 32, height: 32, borderRadius: '50%',
-                backgroundColor: cfg.bgColor, flexShrink: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
-              }}>
-                {cfg.icon}
+          <div key={i} className="rounded-xl px-4 py-3" style={{ backgroundColor: '#1a1625' }}>
+            {/* Row 1: icon · type · fatigue · [PR] · date */}
+            <div className="flex items-center gap-2">
+              <div style={{ color: iconColor, flexShrink: 0 }}>
+                <WorkoutIcon type={w.type} size={20} />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-app-text">{relDate}</p>
-              </div>
+              <span className="text-sm font-semibold text-app-text">{TYPE_LABEL[w.type] ?? w.type}</span>
+              {fatLabel && (
+                <div className="flex items-center gap-1">
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: fatDot, flexShrink: 0 }} />
+                  <span className="text-xs" style={{ color: '#9090A8' }}>{fatLabel}</span>
+                </div>
+              )}
+              <div className="flex-1" />
               {hasPR && (
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full mr-1 flex-shrink-0"
                   style={{ backgroundColor: 'rgba(74,222,128,0.15)', color: '#4ade80' }}>
                   🏆 PR
                 </span>
               )}
+              <span className="text-xs flex-shrink-0" style={{ color: '#6B7280' }}>{relDate}</span>
             </div>
 
-            {contentParts.length > 0 && (
-              <p className="mt-2 text-xs truncate" style={{ color: '#94A3B8' }}>
-                {contentParts.join(' · ')}
+            {/* Row 2: subtitle */}
+            {subtitle && (
+              <p className="mt-1 text-xs truncate" style={{ color: '#9090A8' }}>{subtitle}</p>
+            )}
+
+            {/* Row 3: tiempo · notes italic */}
+            {hasLine3 && (
+              <p className="mt-0.5 text-xs truncate" style={{ color: '#6B7280' }}>
+                {tiempo && <span>{tiempo} min</span>}
+                {tiempo && w.notes && <span> · </span>}
+                {w.notes && <em>{w.notes}</em>}
               </p>
-            )}
-
-            {fatigueLabel && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: fatigueDot, flexShrink: 0 }} />
-                <span className="text-xs" style={{ color: '#6B7280' }}>{fatigueLabel}</span>
-              </div>
-            )}
-
-            {w.notes && (
-              <p className="mt-1.5 text-xs truncate" style={{ color: '#6B7280' }}>{w.notes}</p>
             )}
           </div>
         )

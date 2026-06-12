@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuthContext } from './context/AuthContext'
 import { WorkoutDraftProvider } from './context/WorkoutDraftContext'
@@ -48,6 +48,16 @@ function AppRoutes() {
 
 export default function App() {
   const [splashDone, setSplashDone] = useState(false)
+  const [swReady, setSwReady]       = useState(false)
+
+  useEffect(() => {
+    const handler = () => {
+      setSwReady(true)
+      setTimeout(() => setSwReady(false), 4000)
+    }
+    window.addEventListener('pwa-offline-ready', handler)
+    return () => window.removeEventListener('pwa-offline-ready', handler)
+  }, [])
 
   return (
     <BrowserRouter>
@@ -55,6 +65,14 @@ export default function App() {
         <WorkoutDraftProvider>
           {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
           {splashDone && <AppRoutes />}
+          {swReady && (
+            <div
+              className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] px-4 py-2.5 rounded-xl text-white text-sm font-medium shadow-lg"
+              style={{ backgroundColor: '#7C5CBF', whiteSpace: 'nowrap' }}
+            >
+              La app está lista para usar sin conexión
+            </div>
+          )}
         </WorkoutDraftProvider>
       </AuthProvider>
     </BrowserRouter>

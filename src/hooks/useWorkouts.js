@@ -26,10 +26,17 @@ export function useWorkouts(uid) {
   const load = useCallback(async (silent = false) => {
     if (!uid) return
     if (!silent) setLoading(true)
-    const data = await getWorkouts(uid, 100)
-    setWorkouts(data)
-    writeCache(uid, data)
-    setLoading(false)
+    try {
+      const data = await getWorkouts(uid, 100)
+      setWorkouts(data)
+      writeCache(uid, data)
+    } catch (err) {
+      console.warn('Error cargando workouts, usando cache local:', err)
+      const cached = readCache(uid)
+      if (cached) setWorkouts(cached)
+    } finally {
+      if (!silent) setLoading(false)
+    }
   }, [uid])
 
   useEffect(() => {

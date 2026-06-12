@@ -11,7 +11,12 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const timeout = setTimeout(() => {
+      setLoading(false)
+    }, 7000)
+
     const unsub = onAuthChange(async (firebaseUser) => {
+      clearTimeout(timeout)
       setUser(firebaseUser)
       if (firebaseUser) {
         const [prof, sett] = await Promise.all([
@@ -26,7 +31,11 @@ export function AuthProvider({ children }) {
       }
       setLoading(false)
     })
-    return unsub
+
+    return () => {
+      clearTimeout(timeout)
+      unsub()
+    }
   }, [])
 
   const updateProfile = async (data) => {

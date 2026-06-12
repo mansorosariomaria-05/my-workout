@@ -10,7 +10,7 @@ registerSW({
     window.location.reload()
   },
   onOfflineReady() {
-    console.log('App lista para usar offline')
+    window.dispatchEvent(new CustomEvent('pwa-offline-ready'))
   },
   onRegistered(r) {
     if (r) {

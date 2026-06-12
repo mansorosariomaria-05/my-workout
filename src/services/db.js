@@ -47,8 +47,13 @@ export const getWorkouts = async (uid, limitN = 50) => {
     orderBy('date', 'desc'),
     limit(limitN)
   )
-  const snap = await getDocs(q)
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  try {
+    const snap = await getDocs(q)
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  } catch (err) {
+    console.warn('getWorkouts sin red, devolviendo vacío:', err)
+    return []
+  }
 }
 
 export const getWorkoutsByDateRange = async (uid, startDate, endDate) => {

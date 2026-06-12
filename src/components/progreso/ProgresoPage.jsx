@@ -4,7 +4,7 @@ import { es } from 'date-fns/locale'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal, dateToLocal } from '../../utils/dates'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 
 const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
 import ExerciseProgress from './ExerciseProgress'
@@ -323,31 +323,6 @@ function WeekRow({ workouts }) {
   )
 }
 
-function Recomendaciones({ items = [] }) {
-  if (items.length > 0) {
-    return (
-      <div className="space-y-2">
-        {items.map((r, i) => (
-          <div key={i} className="rounded-2xl border border-white/[0.06] px-4 py-3" style={{ backgroundColor: '#1a1625' }}>
-            <p className="text-app-text text-sm font-medium">{r.titulo}</p>
-            <p className="text-app-muted text-xs mt-0.5">{r.descripcion}</p>
-            {r.accion && <button className="text-xs mt-1.5 font-medium" style={{ color: PURPLE }}>{r.accion}</button>}
-          </div>
-        ))}
-      </div>
-    )
-  }
-  return (
-    <div className="rounded-2xl border border-white/[0.06] px-4 py-4" style={{ backgroundColor: '#1a1625' }}>
-      <div className="flex items-center gap-2 mb-1">
-        <Loader2 size={13} color="#6B7280" />
-        <p className="text-app-muted text-sm">Analizando tu historial...</p>
-      </div>
-      <p style={{ color: '#4a4560', fontSize: 10 }}>Las recomendaciones personalizadas estarán disponibles pronto.</p>
-    </div>
-  )
-}
-
 // ─── Últimas sesiones (Bloque 7) ──────────────────────────────────────────────
 
 const WORKOUT_ICON_COLORS = {
@@ -542,12 +517,6 @@ export default function ProgresoPage() {
           <div className="rounded-2xl border border-white/[0.06] px-4 py-4" style={{ backgroundColor: '#1a1625' }}>
             <WeekRow workouts={workouts} />
           </div>
-        </div>
-
-        {/* Bloque 5 — Recomendaciones */}
-        <div>
-          <SectionTitle>Recomendaciones</SectionTitle>
-          <Recomendaciones />
         </div>
 
         {/* Bloque 6 — Principales progresiones */}

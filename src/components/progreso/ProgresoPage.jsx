@@ -3,7 +3,7 @@ import { parseISO, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
-import { getTodayLocal, dateToLocal } from '../../utils/dates'
+import { getTodayLocal, dateToLocal, getWeekStartLocal } from '../../utils/dates'
 import { ChevronDown } from 'lucide-react'
 
 const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
@@ -452,6 +452,21 @@ export default function ProgresoPage() {
     ? '¡arrancá hoy!'
     : semanaOK ? '¡vas bien!' : '¡vamos!'
 
+  const mondayStr = getWeekStartLocal()
+  const pausaThisWeek = workouts.find(w =>
+    w.type === 'pausa' &&
+    w.date >= mondayStr
+  )
+  const pausaMotivo = pausaThisWeek?.pausaMotivo
+
+  const semanaAsideText = pausaThisWeek
+    ? pausaMotivo === 'enfermedad' || pausaMotivo === 'lesion'
+      ? 'Descansá · La próxima semana volvés 💙'
+      : 'Semana de descanso · Volvés más fuerte'
+    : `${thisDays} de ${diasSemana} días · ${semanaMsg}`
+
+  const semanaAsideColor = pausaThisWeek ? ICE_BLUE : (semanaOK && thisDays > 0 ? GREEN : AMBER)
+
   return (
     <div className="min-h-screen bg-app-bg">
       <div className="px-4 pt-6 pb-10 space-y-6">
@@ -508,8 +523,8 @@ export default function ProgresoPage() {
         {/* Bloque 4 — Esta semana */}
         <div>
           <SectionTitle aside={
-            <p className="text-xs" style={{ color: semanaOK && thisDays > 0 ? GREEN : AMBER }}>
-              {thisDays} de {diasSemana} días · {semanaMsg}
+            <p className="text-xs" style={{ color: semanaAsideColor }}>
+              {semanaAsideText}
             </p>
           }>
             Esta semana

@@ -136,6 +136,42 @@ export default function WeekCalendar({ workouts }) {
           )
         })}
       </div>
+
+      {/* Pausa legend */}
+      {(() => {
+        const pausaMotivosVisible = new Set(
+          days
+            .map(d => byDate[toDateStr(d)])
+            .filter(w => w?.type === 'pausa')
+            .map(w => w.pausaMotivo)
+        )
+        if (pausaMotivosVisible.size === 0) return null
+        const lines = []
+        if (pausaMotivosVisible.has('enfermedad')) {
+          lines.push({ color: ICE_BLUE, text: 'Semana de pausa por enfermedad' })
+        }
+        if (pausaMotivosVisible.has('lesion')) {
+          lines.push({ color: ICE_BLUE, text: 'Semana de pausa por lesión' })
+        }
+        if ([...pausaMotivosVisible].some(m => m !== 'enfermedad' && m !== 'lesion')) {
+          lines.push({ color: '#4B5563', text: 'Semana de descanso registrada' })
+        }
+        if (lines.length === 0) return null
+        return (
+          <div className="mt-2 space-y-1">
+            {lines.map((line, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span style={{
+                  display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  backgroundColor: line.color === ICE_BLUE ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)',
+                  border: `1.5px solid ${line.color}`,
+                }} />
+                <span className="text-[10px]" style={{ color: '#6B7280' }}>{line.text}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </div>
   )
 }

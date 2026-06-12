@@ -177,7 +177,7 @@ function computeWeeklyMedals(workouts, profile, streakState) {
   const filtered = medalsWithState.filter(m => {
     if (['w_mas_fuerte', 'w_supero_pr', 'w_volumen_alto'].includes(m.key) && !hasFuerzaHistory) return false
     if (m.key === 'w_hamburguesa' && diasObjetivo < 4) return false
-    if (m.key === 'w_racha_viva' && streakState === 'broken') return false
+    if (m.key === 'w_racha_viva' && (streakState === 'broken' || streakState === 'frozen' || streakState === 'paused')) return false
     return true
   })
 

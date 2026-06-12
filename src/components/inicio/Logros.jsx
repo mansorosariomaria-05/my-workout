@@ -3,6 +3,8 @@ import { useAuthContext } from '../../context/AuthContext'
 import { getAchievements } from '../../services/db'
 import { ACHIEVEMENTS_META, runAchievementCheck } from '../../utils/achievements'
 import { textoGenero } from '../../utils/genero'
+import { getWeekStartLocal } from '../../utils/dates'
+import { detectPRs } from '../../utils/prUtils'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
@@ -11,7 +13,7 @@ import {
   User, Globe, Activity, Circle, Play, Shuffle, Scale, BarChart2,
   Moon, RefreshCw, Cake, AlarmClock, CloudMoon, Award,
   ArrowUp, Sparkles, CalendarRange, ListChecks, PenLine,
-  X, ChevronRight, Lock,
+  X, ChevronRight, Lock, Shield, Heart,
 } from 'lucide-react'
 
 // ─── Icon map (UI-only, no refs in shared utility) ────────────────────────────
@@ -63,19 +65,148 @@ const ACHIEVEMENTS = ACHIEVEMENTS_META.map(m => ({
   iconColor: ICON_COLOR_OVERRIDE[m.key] ?? undefined,
 }))
 
-// Recurrentes: aparecen en "Por desbloquear" en la vitrina hasta que el próximo
-// prompt los mueva al pool semanal
 const RECURRING_KEYS = new Set(['hamburguesaMerecida', 'rachaFuerza', 'semanaPerfecta'])
 const PERMANENT_ACHIEVEMENTS = ACHIEVEMENTS.filter(a => !RECURRING_KEYS.has(a.key))
 const RECURRENT_ACHIEVEMENTS = ACHIEVEMENTS.filter(a => RECURRING_KEYS.has(a.key))
 
-// 4 medallas semanales hardcodeadas (lógica dinámica en próximo prompt)
-const WEEKLY_MEDALS = [
-  { key: 'w_semana_completa', label: 'Semana completa',    Icon: CalendarCheck, completed: false },
-  { key: 'w_mas_fuerte',      label: 'Mas fuerte',         Icon: Dumbbell,      completed: false },
-  { key: 'w_semana_mixta',    label: 'Semana mixta',       Icon: Shuffle,       completed: false },
-  { key: 'w_cuatro_dias',     label: '4 dias esta semana', Icon: Star,          completed: false },
+// ─── Pool de 12 medallas semanales ────────────────────────────────────────────
+const MEDAL_POOL = [
+  { key: 'w_semana_completa',   label: 'Semana completa',      Icon: CalendarCheck, categoria: 'consistencia' },
+  { key: 'w_sin_excusas',       label: 'Sin excusas',          Icon: Shield,        categoria: 'consistencia' },
+  { key: 'w_arrancaste_fuerte', label: 'Arrancaste fuerte',    Icon: Zap,           categoria: 'consistencia' },
+  { key: 'w_mas_fuerte',        label: 'Más fuerte',           Icon: Dumbbell,      categoria: 'progresion'  },
+  { key: 'w_supero_pr',         label: 'Nuevo récord',         Icon: Trophy,        categoria: 'progresion'  },
+  { key: 'w_volumen_alto',      label: 'Volumen alto',         Icon: BarChart2,     categoria: 'progresion'  },
+  { key: 'w_semana_mixta',      label: 'Semana mixta',         Icon: Shuffle,       categoria: 'balance'     },
+  { key: 'w_cuerpo_sabio',      label: 'Cuerpo sabio',         Icon: Heart,         categoria: 'balance'     },
+  { key: 'w_bien_descansada',   label: 'Bien descansada',      Icon: Moon,          categoria: 'balance'     },
+  { key: 'w_racha_viva',        label: 'Racha viva',           Icon: Flame,         categoria: 'libre'       },
+  { key: 'w_hamburguesa',       label: 'Hamburguesa merecida', Icon: Award,         categoria: 'libre'       },
+  { key: 'w_sabado',            label: 'Guerrera del sábado',  Icon: Star,          categoria: 'libre'       },
 ]
+
+function computeWeeklyMedals(workouts, profile, streakState) {
+  const mondayStr  = getWeekStartLocal()
+  const REAL_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
+  const thisWeek   = workouts.filter(w => w.date >= mondayStr && REAL_TYPES.includes(w.type))
+
+  const hasFuerzaHistory = workouts.some(w => w.type === 'fuerza' && w.date < mondayStr)
+  const diasObjetivo     = profile?.diasSemana ?? 3
+  const weekNum = Math.floor(new Date(mondayStr + 'T12:00:00').getTime() / (7 * 86400000))
+
+  const medalsWithState = MEDAL_POOL.map(m => {
+    let completed = false
+    switch (m.key) {
+      case 'w_semana_completa': {
+        const days = new Set(thisWeek.map(w => w.date)).size
+        completed = days >= diasObjetivo
+        break
+      }
+      case 'w_sin_excusas': {
+        completed = thisWeek.some(w => {
+          const d = new Date(w.date + 'T12:00:00').getDay()
+          return d === 0 || d === 6
+        })
+        break
+      }
+      case 'w_arrancaste_fuerte': {
+        const sorted = [...thisWeek].sort((a, b) => a.date.localeCompare(b.date))
+        if (sorted.length > 0) {
+          const firstDay = new Date(sorted[0].date + 'T12:00:00').getDay()
+          completed = firstDay === 1 || firstDay === 2
+        }
+        break
+      }
+      case 'w_mas_fuerte':
+      case 'w_supero_pr': {
+        const fuerzaW = thisWeek.filter(w => w.type === 'fuerza')
+        completed = fuerzaW.some(w =>
+          detectPRs(w, workouts.filter(h => h.date < w.date)).length > 0
+        )
+        break
+      }
+      case 'w_volumen_alto': {
+        completed = thisWeek.filter(w => w.type === 'fuerza').some(w => (w.exercises?.length ?? 0) >= 5)
+        break
+      }
+      case 'w_semana_mixta': {
+        const hasFuerza      = thisWeek.some(w => w.type === 'fuerza')
+        const hasCardioClase = thisWeek.some(w => w.type === 'cardio' || w.type === 'clase')
+        completed = hasFuerza && hasCardioClase
+        break
+      }
+      case 'w_cuerpo_sabio': {
+        const wf = thisWeek.filter(w => w.fatigue != null)
+        if (wf.length > 0) {
+          const avg = wf.reduce((s, w) => s + w.fatigue, 0) / wf.length
+          completed = avg <= 5
+        }
+        break
+      }
+      case 'w_bien_descansada': {
+        const fs = thisWeek
+          .filter(w => w.type === 'fuerza')
+          .sort((a, b) => a.date.localeCompare(b.date))
+        if (fs.length >= 2) {
+          completed = true
+          for (let i = 1; i < fs.length; i++) {
+            const d1 = new Date(fs[i - 1].date + 'T12:00:00')
+            const d2 = new Date(fs[i].date + 'T12:00:00')
+            if (Math.round((d2 - d1) / 86400000) < 1) { completed = false; break }
+          }
+        }
+        break
+      }
+      case 'w_racha_viva': {
+        completed = streakState === 'active'
+        break
+      }
+      case 'w_hamburguesa': {
+        completed = new Set(thisWeek.map(w => w.date)).size >= 4
+        break
+      }
+      case 'w_sabado': {
+        completed = thisWeek.some(w => new Date(w.date + 'T12:00:00').getDay() === 6)
+        break
+      }
+    }
+    return { ...m, completed }
+  })
+
+  // Filtrar medallas imposibles según contexto
+  const filtered = medalsWithState.filter(m => {
+    if (['w_mas_fuerte', 'w_supero_pr', 'w_volumen_alto'].includes(m.key) && !hasFuerzaHistory) return false
+    if (m.key === 'w_hamburguesa' && diasObjetivo < 4) return false
+    if (m.key === 'w_racha_viva' && streakState === 'broken') return false
+    return true
+  })
+
+  // Seleccionar 1 por categoría, priorizando completadas, rotando por semana
+  const categories = ['consistencia', 'progresion', 'balance', 'libre']
+  const selected = []
+
+  for (const cat of categories) {
+    const candidates = filtered.filter(m => m.categoria === cat)
+    if (!candidates.length) continue
+    const pool = candidates.some(m => m.completed)
+      ? candidates.filter(m => m.completed)
+      : candidates
+    selected.push(pool[weekNum % pool.length])
+  }
+
+  // Fallback: completar hasta 4 con cualquier medalla no seleccionada
+  while (selected.length < 4) {
+    const usedKeys  = new Set(selected.map(m => m.key))
+    const remaining = filtered.filter(m => !usedKeys.has(m.key))
+    if (!remaining.length) break
+    const pool = remaining.some(m => m.completed)
+      ? remaining.filter(m => m.completed)
+      : remaining
+    selected.push(pool[weekNum % pool.length])
+  }
+
+  return selected.slice(0, 4)
+}
 
 function getAchievementLabel(a, genero) {
   return textoGenero(genero, a.labelMasc ?? a.label, a.labelFem ?? a.label, a.label)
@@ -84,9 +215,9 @@ function getAchievementLabel(a, genero) {
 // ─── Medalla semanal ──────────────────────────────────────────────────────────
 function WeeklyMedalCard({ medal, size = 'sm' }) {
   const { Icon, label, completed } = medal
-  const dim  = size === 'sm' ? 'w-9 h-9' : 'w-11 h-11'
-  const ico  = size === 'sm' ? 14 : 18
-  const txt  = size === 'sm' ? 'text-[8px] w-10' : 'text-[9px] w-12'
+  const dim = size === 'sm' ? 'w-9 h-9' : 'w-11 h-11'
+  const ico = size === 'sm' ? 14 : 18
+  const txt = size === 'sm' ? 'text-[8px] w-10' : 'text-[9px] w-12'
   return (
     <div className="flex flex-col items-center gap-1">
       <div className={`${dim} rounded-full border flex items-center justify-center`}
@@ -170,7 +301,7 @@ function SectionLabel({ children }) {
 }
 
 // ─── Vitrina full-screen ──────────────────────────────────────────────────────
-function VitrinaTrofeos({ achieved, onClose, genero }) {
+function VitrinaTrofeos({ achieved, onClose, genero, weeklyMedals }) {
   const sortByDateV = (a, b) => {
     const tA = achieved?.[a.key]?.at
     const tB = achieved?.[b.key]?.at
@@ -181,7 +312,6 @@ function VitrinaTrofeos({ achieved, onClose, genero }) {
 
   const permanentUnlocked = PERMANENT_ACHIEVEMENTS.filter(a => achieved?.[a.key]?.unlocked).sort(sortByDateV)
   const permanentLocked   = PERMANENT_ACHIEVEMENTS.filter(a => !achieved?.[a.key]?.unlocked)
-
   const unlockedCount = permanentUnlocked.length
   const total = PERMANENT_ACHIEVEMENTS.length
 
@@ -213,7 +343,7 @@ function VitrinaTrofeos({ achieved, onClose, genero }) {
         <div className="pt-4 mb-5">
           <SectionLabel>Esta semana</SectionLabel>
           <div className="flex justify-around">
-            {WEEKLY_MEDALS.map(medal => (
+            {weeklyMedals.map(medal => (
               <WeeklyMedalCard key={medal.key} medal={medal} size="lg" />
             ))}
           </div>
@@ -251,7 +381,7 @@ function VitrinaTrofeos({ achieved, onClose, genero }) {
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-export default function Logros({ workouts, compact }) {
+export default function Logros({ workouts, streakState, compact }) {
   const { user, settings, profile } = useAuthContext()
   const genero = profile?.genero ?? ''
   const [achieved, setAchieved] = useState(null)
@@ -275,7 +405,9 @@ export default function Logros({ workouts, compact }) {
     })
   }, [workouts, user]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Vista compacta (Home): 4 medallas semanales fijas
+  const weeklyMedals = computeWeeklyMedals(workouts, profile, streakState)
+
+  // Vista compacta (Home): 4 medallas semanales dinámicas
   if (compact) {
     return (
       <>
@@ -287,14 +419,19 @@ export default function Logros({ workouts, compact }) {
             </button>
           </div>
           <div className="flex justify-around">
-            {WEEKLY_MEDALS.map(medal => (
+            {weeklyMedals.map(medal => (
               <WeeklyMedalCard key={medal.key} medal={medal} size="sm" />
             ))}
           </div>
         </div>
 
         {showVitrina && (
-          <VitrinaTrofeos achieved={achieved ?? {}} onClose={() => setShowVitrina(false)} genero={genero} />
+          <VitrinaTrofeos
+            achieved={achieved ?? {}}
+            onClose={() => setShowVitrina(false)}
+            genero={genero}
+            weeklyMedals={weeklyMedals}
+          />
         )}
       </>
     )
@@ -333,7 +470,12 @@ export default function Logros({ workouts, compact }) {
       </div>
 
       {showVitrina && (
-        <VitrinaTrofeos achieved={achieved ?? {}} onClose={() => setShowVitrina(false)} genero={genero} />
+        <VitrinaTrofeos
+          achieved={achieved ?? {}}
+          onClose={() => setShowVitrina(false)}
+          genero={genero}
+          weeklyMedals={weeklyMedals}
+        />
       )}
     </>
   )

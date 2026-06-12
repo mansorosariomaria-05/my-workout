@@ -549,6 +549,7 @@ export default function Inicio() {
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)
   const [suggestion, setSuggestion] = useState(null)
+  const [showSatBanner, setShowSatBanner] = useState(false)
 
   const diasSemana = getThisWeekCount(workouts)
   const { current: semanasRacha, record: rachaRecord, state: rachaState } = getCurrentStreak()
@@ -581,6 +582,21 @@ export default function Inicio() {
     getDailySuggestion(user.uid).then(setSuggestion).catch(err => console.error('Error sugerencia:', err))
   }, [user?.uid]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (loading) return
+    if (new Date().getDay() !== 1) return
+    const key = `saturday_banner_${getWeekStartLocal()}`
+    if (localStorage.getItem(key)) return
+    const lastSat = new Date()
+    lastSat.setDate(lastSat.getDate() - 2)
+    const satStr = dateToLocal(lastSat)
+    const REAL = ['fuerza', 'cardio', 'clase', 'tabata']
+    if (workouts.some(w => w.date === satStr && REAL.includes(w.type))) {
+      setShowSatBanner(true)
+      localStorage.setItem(key, '1')
+    }
+  }, [workouts, loading])
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="text-app-muted text-sm animate-pulse-slow">Cargando...</div>
@@ -599,11 +615,22 @@ export default function Inicio() {
 
       <div className="flex-1 flex flex-col mt-2 pb-2 overflow-x-hidden">
         <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} rachaState={rachaState} /></div>
+        {showSatBanner && (
+          <div className="mb-2 mx-4">
+            <div className="flex items-center gap-3 rounded-xl px-4 py-3"
+              style={{ backgroundColor: 'rgba(124,92,191,0.12)', border: '1px solid rgba(124,92,191,0.25)' }}>
+              <span className="text-lg shrink-0">💪</span>
+              <p className="text-sm leading-snug" style={{ color: '#9B7FD4' }}>
+                Entrenaste el sábado. Hoy podés elegir descansar o hacer algo suave.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="mb-2"><FraseDiariaCard workouts={workouts} /></div>
         <div className="mb-3"><WeekCalendar workouts={workouts} /></div>
         <div className="mb-2"><LastAndSuggestion workouts={workouts} /></div>
         <div className="mb-2"><DailySuggestionCard suggestion={suggestion} /></div>
-        <div className="mb-2"><Logros workouts={workouts} compact /></div>
+        <div className="mb-2"><Logros workouts={workouts} streakState={rachaState} compact /></div>
       </div>
 
       <Modal isOpen={showWeeklySummary} onClose={() => setShowWeeklySummary(false)} title="Resumen de la semana 📊">

@@ -5,18 +5,22 @@ import { getUserProfile, saveUserProfile, getSettings, saveSettings } from '../s
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(undefined)
-  const [profile, setProfile] = useState(null)
-  const [settings, setSettings] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser]               = useState(undefined)
+  const [profile, setProfile]         = useState(null)
+  const [settings, setSettings]       = useState(null)
+  const [loading, setLoading]         = useState(true)
+  const [authTimedOut, setAuthTimedOut] = useState(false)
 
   useEffect(() => {
     const timeout = setTimeout(() => {
+      setAuthTimedOut(true)
       setLoading(false)
-    }, 7000)
+      // user queda undefined — no forzamos null para no enviar al login
+    }, 15000)
 
     const unsub = onAuthChange(async (firebaseUser) => {
       clearTimeout(timeout)
+      setAuthTimedOut(false)
       setUser(firebaseUser)
       if (firebaseUser) {
         const [prof, sett] = await Promise.all([
@@ -53,7 +57,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, settings, loading, updateProfile, updateSettings }}>
+    <AuthContext.Provider value={{ user, profile, settings, loading, authTimedOut, updateProfile, updateSettings }}>
       {children}
     </AuthContext.Provider>
   )

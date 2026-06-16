@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isToday, isYesterday, differenceInDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Lightbulb, ChevronRight } from 'lucide-react'
+import { Lightbulb, ChevronRight, CloudUpload } from 'lucide-react'
 import { useAuthContext } from '../context/AuthContext'
 import { useWorkouts } from '../hooks/useWorkouts'
 import { getWorkouts } from '../services/db'
@@ -234,7 +234,10 @@ function LastAndSuggestion({ workouts }) {
               const str = formatLastWorkout(w)
               return (
                 <div key={i} className="bg-black/20 rounded-lg px-2.5 py-2">
-                  {str && <p className="text-app-text text-xs font-medium leading-snug">{str}</p>}
+                  <div className="flex items-center gap-1">
+                    {str && <p className="text-app-text text-xs font-medium leading-snug flex-1">{str}</p>}
+                    {w._pendingSync && <CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />}
+                  </div>
                 </div>
               )
             })}
@@ -244,7 +247,10 @@ function LastAndSuggestion({ workouts }) {
             const str = formatLastWorkout(w)
             return (
               <div key={i} className={i > 0 ? 'mt-1.5 pt-1.5 border-t border-white/5' : ''}>
-                {str && <p className="text-app-text text-xs font-medium">{str}</p>}
+                <div className="flex items-center gap-1">
+                  {str && <p className="text-app-text text-xs font-medium flex-1">{str}</p>}
+                  {w._pendingSync && <CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />}
+                </div>
               </div>
             )
           })

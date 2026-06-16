@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { getMonthDays, toDateStr } from '../../utils/dates'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { CloudUpload } from 'lucide-react'
 import Modal from '../ui/Modal'
 
 const TYPE_DOT = {
@@ -66,6 +67,11 @@ export default function WorkoutHistorial({ workouts }) {
               {workout?.deload && (
                 <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-app-gold" />
               )}
+              {workout?._pendingSync && (
+                <span className="absolute bottom-0.5 right-0.5 flex items-center justify-center">
+                  <CloudUpload size={8} color="#94A3B8" title="Pendiente de sincronizar" />
+                </span>
+              )}
             </button>
           )
         })}
@@ -79,6 +85,12 @@ export default function WorkoutHistorial({ workouts }) {
                 {selectedWorkout.type}
               </span>
               {selectedWorkout.deload && <span className="text-app-gold text-xs">🔄 Descarga</span>}
+              {selectedWorkout._pendingSync && (
+                <span className="flex items-center gap-1" title="Pendiente de sincronizar">
+                  <CloudUpload size={12} color="#94A3B8" />
+                  <span className="text-[10px]" style={{ color: '#94A3B8' }}>Sin sincronizar</span>
+                </span>
+              )}
             </div>
 
             {selectedWorkout.exercises?.map((e, i) => (

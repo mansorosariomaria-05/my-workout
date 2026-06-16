@@ -13,22 +13,39 @@ import Progreso from './pages/Progreso'
 import ConfigPage from './components/configuracion/ConfigPage'
 import SplashScreen from './components/SplashScreen'
 
-function LoadingScreen() {
+function LoadingScreen({ message, showRetry }) {
   return (
     <div className="min-h-screen bg-app-bg flex flex-col items-center justify-center gap-3">
       <div className="w-12 h-12 bg-app-purple rounded-xl flex items-center justify-center">
         <span className="text-2xl">💪</span>
       </div>
       <div className="w-6 h-1 bg-app-purple/40 rounded-full animate-pulse-slow" />
+      {message && (
+        <p className="text-app-muted text-xs text-center max-w-[220px] mt-2 leading-snug">{message}</p>
+      )}
+      {showRetry && (
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-2 px-4 py-2 rounded-xl text-sm font-medium"
+          style={{ backgroundColor: 'rgba(124,92,191,0.2)', color: '#9B7FD4', border: '1px solid rgba(124,92,191,0.3)' }}
+        >
+          Reintentar
+        </button>
+      )}
     </div>
   )
 }
 
 function AppRoutes() {
-  const { user, profile, loading } = useAuthContext()
+  const { user, profile, loading, authTimedOut } = useAuthContext()
 
   if (loading) return <LoadingScreen />
-  if (!user)   return <AuthScreen />
+
+  if (authTimedOut && user === undefined) {
+    return <LoadingScreen message="No pudimos verificar tu sesión. Revisá tu conexión." showRetry />
+  }
+
+  if (user === null) return <AuthScreen />
   if (!profile?.onboardingDone) return <Onboarding />
 
   return (

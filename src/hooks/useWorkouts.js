@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { parseISO } from 'date-fns'
 import { getWorkouts, saveWorkout as dbSaveWorkout } from '../services/db'
 import { dateToLocal } from '../utils/dates'
+import { getDrafts, saveDraft, syncDrafts } from '../utils/draftQueue'
 
 const CACHE_KEY = (uid) => `workouts_cache_${uid}`
 
@@ -28,12 +29,15 @@ export function useWorkouts(uid) {
     if (!silent) setLoading(true)
     try {
       const data = await getWorkouts(uid, 100)
-      setWorkouts(data)
       writeCache(uid, data)
+      const pending = getDrafts(uid)
+      setWorkouts(pending.length ? [...pending, ...data] : data)
     } catch (err) {
       console.warn('Error cargando workouts, usando cache local:', err)
       const cached = readCache(uid)
-      if (cached) setWorkouts(cached)
+      const pending = getDrafts(uid)
+      if (cached) setWorkouts(pending.length ? [...pending, ...cached] : cached)
+      else if (pending.length) setWorkouts(pending)
     } finally {
       if (!silent) setLoading(false)
     }
@@ -49,10 +53,27 @@ export function useWorkouts(uid) {
   }, [uid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveWorkout = async (workout) => {
-    const id = await dbSaveWorkout(uid, workout)
-    await load(true)
-    return id
+    try {
+      const id = await dbSaveWorkout(uid, workout)
+      await load(true)
+      return id
+    } catch (err) {
+      console.warn('Sin red al guardar, guardando como borrador local:', err)
+      const draft = saveDraft(uid, workout)
+      setWorkouts(prev => [draft, ...prev])
+      return draft._draftId
+    }
   }
+
+  useEffect(() => {
+    if (!uid) return
+    const handleOnline = async () => {
+      const { synced } = await syncDrafts(uid, (w) => dbSaveWorkout(uid, w))
+      if (synced > 0) await load(true)
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [uid, load])
 
   const getLastWeightsForExercise = (exerciseId) => {
     const relevant = workouts

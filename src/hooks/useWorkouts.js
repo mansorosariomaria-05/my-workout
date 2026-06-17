@@ -55,7 +55,16 @@ export function useWorkouts(uid) {
   const saveWorkout = async (workout) => {
     try {
       const id = await dbSaveWorkout(uid, workout)
-      await load(true)
+      // Root cause fix: write to cache and local state immediately after the Firestore
+      // write confirms. Previously we awaited load(true) here, but if the user navigated
+      // back to Inicio before that Firestore re-fetch completed, Inicio mounted with a
+      // stale cache that didn't include this workout — causing getCurrentStreak() to
+      // return the wrong state (e.g. 'frozen' instead of 'active' after training during
+      // a pausa week). Optimistic update ensures the cache is always current on navigation.
+      const fresh = { ...workout, id }
+      writeCache(uid, [fresh, ...(readCache(uid) ?? [])])
+      setWorkouts(prev => [fresh, ...prev])
+      load(true) // background sync from Firestore (not awaited)
       return id
     } catch (err) {
       console.warn('Sin red al guardar, guardando como borrador local:', err)

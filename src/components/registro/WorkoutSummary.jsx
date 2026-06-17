@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '../ui/Button'
 import { FRASES_POST } from '../../data/frases'
-import { detectPRs } from '../../utils/prUtils'
+import { detectPRs, detectImprovements } from '../../utils/prUtils'
 
 const CONFETTI_COLORS = ['#7C5CBF', '#40916C', '#4A9EDB', '#F59E0B', '#E57373', '#9B7FD4']
 const ICE_BLUE = '#38bdf8'
@@ -140,6 +140,7 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
   const total          = workouts.length + 1
   const milestone      = [10, 20, 30, 50].find(m => total === m)
   const prs            = detectPRs(workout, workouts)
+  const improvements   = detectImprovements(workout, workouts)
   const dayAchievement = getDayAchievement(workout, workouts)
   const canClose       = secondsLeft === 0
 
@@ -199,6 +200,16 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
             ))}
           </div>
         )}
+
+        {improvements.filter(imp => !prs.some(pr => pr.name === imp.name)).map((imp, i) => (
+          <div key={i} className="rounded-xl px-4 py-2.5 mb-3" style={{ backgroundColor: 'rgba(64,145,108,0.12)', border: '1px solid rgba(64,145,108,0.25)' }}>
+            <p className="text-sm" style={{ color: '#40916C' }}>
+              {imp.type === 'weight'
+                ? `¡Subiste ${imp.deltaW}kg en ${imp.name}! 💪`
+                : `¡Hiciste ${imp.deltaR} rep${imp.deltaR > 1 ? 's' : ''} más en ${imp.name}! 🎯`}
+            </p>
+          </div>
+        ))}
 
         {milestone && (
           <div className="bg-app-purple/10 border border-app-purple/20 rounded-xl px-4 py-3 mb-3">

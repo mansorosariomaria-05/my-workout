@@ -3,7 +3,8 @@ import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice } from '../../utils/progression'
 import { useAuthContext } from '../../context/AuthContext'
-import { getCustomExercises, deleteCustomExercise, getCustomRoutines } from '../../services/db'
+import { getCustomExercises, saveCustomExercise, deleteCustomExercise, getCustomRoutines } from '../../services/db'
+import { Plus } from 'lucide-react'
 import Modal from '../ui/Modal'
 
 const TIME_EXERCISES = ['Plancha', 'Sentadilla isométrica', 'Bird Dog', 'Hollow Body Hold', 'Dead Bug', 'Press Pallof']
@@ -379,6 +380,9 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [genEquip, setGenEquip]         = useState('Gym completo')
   const [genGenerated, setGenGenerated] = useState(null)
   const [customExercises, setCustomExercises] = useState([])
+  const [newExFormContext, setNewExFormContext] = useState(null) // null | 'libre' | 'panel'
+  const [newExFormName, setNewExFormName]     = useState('')
+  const [newExFormMuscle, setNewExFormMuscle] = useState('')
   const [routineLoading, setRoutineLoading]   = useState(false)
   const [routineLoadError, setRoutineLoadError] = useState(null)
   const { getLastWeightsForExercise, getPRForExercise, workouts } = workoutsHook
@@ -420,6 +424,20 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const filteredByMuscle = selectedMuscles.length
     ? intercalateExercises(allExercises.filter(e => selectedMuscles.includes(e.muscle)))
     : []
+
+  const handleSaveNewExercise = async () => {
+    const name = newExFormName.trim()
+    if (!name) return
+    const muscle = newExFormMuscle || MUSCLE_GROUPS[0]
+    const ex = { id: `custom_${Date.now()}`, name, muscle, group: muscle, level: 'C', equip: '', alt: '', custom: true }
+    try { await saveCustomExercise(user.uid, ex) } catch (_) {}
+    setCustomExercises(prev => [...prev, ex])
+    addExercise(ex)
+    setNewExFormContext(null)
+    setNewExFormName('')
+    setShowAddPanel(false)
+    setAddMuscles([])
+  }
 
   const buildEntry = (ex) => {
     const history = getLastWeightsForExercise(ex.id)
@@ -761,6 +779,49 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                   )
                 })}
               </div>
+              {newExFormContext === 'libre' ? (
+                <div className="mt-2 bg-app-elevated rounded-xl p-3 space-y-2 border border-app-purple/20 animate-fadeIn">
+                  <input
+                    autoFocus
+                    value={newExFormName}
+                    onChange={e => setNewExFormName(e.target.value)}
+                    placeholder="Nombre del ejercicio"
+                    className="w-full bg-app-bg border border-white/10 rounded-xl px-3 py-2 text-app-text text-xs focus:outline-none"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {MUSCLE_GROUPS.map(m => (
+                      <button
+                        key={m}
+                        onClick={() => setNewExFormMuscle(m)}
+                        className={`px-2 py-1 rounded-full text-[10px] border transition-all ${
+                          newExFormMuscle === m
+                            ? 'border-app-purple bg-app-purple/20 text-app-purple-light'
+                            : 'border-white/10 text-app-muted'
+                        }`}
+                      >{m}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setNewExFormContext(null); setNewExFormName('') }}
+                      className="flex-1 py-2 rounded-xl text-xs text-app-muted border border-white/10"
+                    >Cancelar</button>
+                    <button
+                      onClick={handleSaveNewExercise}
+                      disabled={!newExFormName.trim()}
+                      className="flex-1 py-2 rounded-xl text-xs text-white bg-app-purple disabled:opacity-50"
+                    >Guardar y agregar</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setNewExFormContext('libre'); setNewExFormMuscle(selectedMuscles[0] ?? MUSCLE_GROUPS[0]) }}
+                  className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 border border-dashed border-app-purple/40 text-app-purple-light mt-1"
+                >
+                  <Plus size={14} />
+                  Ejercicio nuevo
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -938,26 +999,71 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                 ))}
               </div>
               {addMuscles.length > 0 && (
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {allExercises.filter(e => addMuscles.includes(e.muscle)).map(e => {
-                    const alreadyAdded = exerciseList.some(ex => ex.exerciseId === e.id)
-                    return (
-                      <button key={e.id}
-                        onClick={() => { if (alreadyAdded) return; addExercise(e); setShowAddPanel(false); setAddMuscles([]) }}
-                        className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-all ${
-                          alreadyAdded ? 'bg-app-purple/10 text-app-purple-light border border-app-purple/20 cursor-default' : 'bg-app-bg border border-white/8 text-app-text active:opacity-70'
-                        }`}
-                      >
-                        <span>
-                          <span className="font-medium">{exDisplayName(e)}</span>
-                        </span>
-                        <span className={alreadyAdded ? 'text-app-purple-light text-[10px]' : 'text-app-muted/60 text-[10px]'}>
-                          {alreadyAdded ? '✓' : e.level}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+                <>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {allExercises.filter(e => addMuscles.includes(e.muscle)).map(e => {
+                      const alreadyAdded = exerciseList.some(ex => ex.exerciseId === e.id)
+                      return (
+                        <button key={e.id}
+                          onClick={() => { if (alreadyAdded) return; addExercise(e); setShowAddPanel(false); setAddMuscles([]) }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-all ${
+                            alreadyAdded ? 'bg-app-purple/10 text-app-purple-light border border-app-purple/20 cursor-default' : 'bg-app-bg border border-white/8 text-app-text active:opacity-70'
+                          }`}
+                        >
+                          <span>
+                            <span className="font-medium">{exDisplayName(e)}</span>
+                          </span>
+                          <span className={alreadyAdded ? 'text-app-purple-light text-[10px]' : 'text-app-muted/60 text-[10px]'}>
+                            {alreadyAdded ? '✓' : e.level}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {newExFormContext === 'panel' ? (
+                    <div className="mt-2 bg-app-bg rounded-xl p-3 space-y-2 border border-app-purple/20 animate-fadeIn">
+                      <input
+                        autoFocus
+                        value={newExFormName}
+                        onChange={e => setNewExFormName(e.target.value)}
+                        placeholder="Nombre del ejercicio"
+                        className="w-full bg-app-elevated border border-white/10 rounded-xl px-3 py-2 text-app-text text-xs focus:outline-none"
+                      />
+                      <div className="flex flex-wrap gap-1.5">
+                        {MUSCLE_GROUPS.map(m => (
+                          <button
+                            key={m}
+                            onClick={() => setNewExFormMuscle(m)}
+                            className={`px-2 py-1 rounded-full text-[10px] border transition-all ${
+                              newExFormMuscle === m
+                                ? 'border-app-purple bg-app-purple/20 text-app-purple-light'
+                                : 'border-white/10 text-app-muted'
+                            }`}
+                          >{m}</button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { setNewExFormContext(null); setNewExFormName('') }}
+                          className="flex-1 py-2 rounded-xl text-xs text-app-muted border border-white/10"
+                        >Cancelar</button>
+                        <button
+                          onClick={handleSaveNewExercise}
+                          disabled={!newExFormName.trim()}
+                          className="flex-1 py-2 rounded-xl text-xs text-white bg-app-purple disabled:opacity-50"
+                        >Guardar y agregar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setNewExFormContext('panel'); setNewExFormMuscle(addMuscles[0] ?? MUSCLE_GROUPS[0]) }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 border border-dashed border-app-purple/40 text-app-purple-light mt-1"
+                    >
+                      <Plus size={14} />
+                      Ejercicio nuevo
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}

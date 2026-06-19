@@ -230,7 +230,17 @@ export function useWorkouts(uid) {
       : mostRecentStatus === 'paused' ? 'paused'
       : 'broken'
 
-    return { current, record: Math.max(current, record), state }
+    // Override: si la racha está congelada/pausada pero el usuario ya entrenó
+    // en la semana actual, descongelar visualmente aunque la semana no haya terminado.
+    // El loop principal no evalúa la semana en curso (solo semanas completas),
+    // por eso este check adicional es necesario para reflejar el regreso al entrenamiento.
+    const thisWeekMon = toStr(getMondayOf(new Date()))
+    const thisWeekTrainingCount = weekMap[thisWeekMon]?.size ?? 0
+    const finalState = (state === 'frozen' || state === 'paused') && thisWeekTrainingCount > 0
+      ? 'active'
+      : state
+
+    return { current, record: Math.max(current, record), state: finalState }
   }
 
   return {

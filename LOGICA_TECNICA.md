@@ -1,0 +1,1210 @@
+# Lógica Técnica — My Workout
+
+Documentación técnica permanente para que cualquier instancia de Claude pueda entender las lógicas complejas, decisiones de producto y comportamiento esperado sin necesidad de preguntas adicionales. Complementa a `CONTEXTO.md` y tiene la misma prioridad: **debe mantenerse actualizado** cada vez que se toca alguna de las lógicas documentadas acá.
+
+---
+
+## 1. SISTEMA DE RACHA (`getCurrentStreak()`)
+
+### Ubicación
+`src/hooks/useWorkouts.js` — función interna del hook `useWorkouts`.
+
+### Código completo con explicación línea por línea
+
+```js
+// Returns { current, record, state }
+// state: 'active' | 'frozen' | 'paused' | 'broken'
+const getCurrentStreak = () => {
+  const allW = workouts.filter(w => w.date)
+  // Filtra workouts que tienen fecha (descarta posibles docs corruptos)
+  if (!allW.length) return { current: 0, record: 0, state: 'broken' }
+
+  // ── FUNCIONES AUXILIARES INTERNAS ──────────────────────────────────────────
+
+  const getMondayOf = (d) => {
+    const dt = new Date(d)
+    const dow = dt.getDay() || 7   // 0 (domingo) → 7, lunes=1 ... sábado=6
+    dt.setDate(dt.getDate() - dow + 1)  // retrocede al lunes de esa semana
+    dt.setHours(0, 0, 0, 0)
+    return dt
+  }
+  const toStr = (d) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${dd}`
+  }
+  const addDays = (d, n) => new Date(d.getTime() + n * 86400000)
+
+  // ── SEPARACIÓN POR TIPO ────────────────────────────────────────────────────
+
+  const pausas = allW.filter(w => w.type === 'pausa')
+  const realW  = allW.filter(w => w.type !== 'descanso' && w.type !== 'pausa')
+  // 'descanso' y 'pausa' no cuentan como entrenamientos reales
+
+  // ── WEEKMAP: Monday → Set de fechas entrenadas ─────────────────────────────
+
+  const weekMap = {}
+  realW.forEach(w => {
+    // parseISO(date + 'T12:00:00') → ver sección 5 sobre timezones
+    const mon = toStr(getMondayOf(parseISO(w.date + 'T12:00:00')))
+    if (!weekMap[mon]) weekMap[mon] = new Set()
+    weekMap[mon].add(w.date)
+  })
+  // weekMap['2026-06-09'] = Set(['2026-06-11', '2026-06-13', '2026-06-15'])
+
+  // ── RECORD: racha histórica más larga ─────────────────────────────────────
+
+  const qualifying = Object.entries(weekMap)
+    .filter(([, days]) => days.size >= 3)   // solo semanas con ≥3 días de entrenamiento
+    .map(([mon]) => mon)
+    .sort()
+  let record = qualifying.length ? 1 : 0, runLen = 1
+  for (let i = 1; i < qualifying.length; i++) {
+    const diff = Math.round(
+      (parseISO(qualifying[i] + 'T12:00:00') - parseISO(qualifying[i - 1] + 'T12:00:00')) / 86400000
+    )
+    if (diff === 7) { runLen++; record = Math.max(record, runLen) }
+    else runLen = 1   // semanas no consecutivas → rompe la racha histórica
+  }
+
+  // Devuelve 'frozen', 'paused' o null dependiendo de si hay una pausa
+  // que solapa con el rango [weekStart, weekEnd]
+  const getPausaType = (weekStart, weekEnd) => {
+    for (const p of pausas) {
+      const pi = p.pausaInicio || p.date
+      const pf = p.pausaFin   || p.date
+      if (pi <= weekEnd && pf >= weekStart) {  // ¿el rango de la pausa toca esta semana?
+        return (p.pausaMotivo === 'enfermedad' || p.pausaMotivo === 'lesion')
+          ? 'frozen'   // pausa médica → congela la racha
+          : 'paused'   // descanso voluntario → pausa la racha
+      }
+    }
+    return null
+  }
+
+  // ── LOOP PRINCIPAL: evalúa semana a semana hacia atrás ────────────────────
+
+  const lastMon = getMondayOf(new Date())
+  lastMon.setDate(lastMon.getDate() - 7)
+  // PUNTO CRÍTICO: empieza desde la semana ANTERIOR, no la actual.
+  // La semana actual (en curso) siempre se omite porque aún no terminó.
+  // Un martes de la semana X, el loop empieza en el lunes de la semana X-1.
+
+  let current = 0, mostRecentStatus = null, emptyTol = 0
+  let checkDate = new Date(lastMon)
+
+  for (let i = 0; i < 52; i++) {
+    const weekStart = toStr(checkDate)
+    const weekEnd   = toStr(addDays(checkDate, 6))
+    const isActive  = (weekMap[weekStart]?.size ?? 0) >= 3   // ≥3 días → semana activa
+    const pausaType = getPausaType(weekStart, weekEnd)
+    const weekTrainingCount = weekMap[weekStart]?.size ?? 0
+
+    if (isActive) {
+      // Semana con ≥3 entrenamientos: suma 1 a la racha actual
+      current++
+      emptyTol = 0
+      if (mostRecentStatus === null) mostRecentStatus = 'active'
+
+    } else if (pausaType) {
+      // Semana con pausa registrada: no suma a current, pero no rompe la racha
+      emptyTol = 0
+      if (mostRecentStatus === null) {
+        // Si el usuario entrenó aunque sea 1 vez durante la semana de pausa,
+        // el estado es 'active'. Si no entrenó, hereda el tipo de pausa.
+        mostRecentStatus = weekTrainingCount > 0 ? 'active' : pausaType
+      }
+
+    } else {
+      // Semana vacía (ni entrenamiento suficiente ni pausa)
+      emptyTol++
+      if (mostRecentStatus === null) mostRecentStatus = 'empty'
+      if (emptyTol >= 2) break   // 2 semanas vacías consecutivas → fin de búsqueda
+    }
+
+    checkDate.setDate(checkDate.getDate() - 7)
+  }
+
+  const state = mostRecentStatus === 'active'  ? 'active'
+    : mostRecentStatus === 'frozen' ? 'frozen'
+    : mostRecentStatus === 'paused' ? 'paused'
+    : 'broken'
+
+  // ── OVERRIDE POST-LOOP: descongelamiento por entrenamientos semana actual ──
+
+  // El loop principal nunca evalúa la semana en curso. Si el usuario tuvo una
+  // pausa la semana pasada y ya entrenó esta semana, el loop devolvería 'frozen'
+  // o 'paused' aunque haya vuelto al entrenamiento. Este override lo corrige.
+  const thisWeekMon = toStr(getMondayOf(new Date()))
+  const thisWeekTrainingCount = weekMap[thisWeekMon]?.size ?? 0
+  const finalState = (state === 'frozen' || state === 'paused') && thisWeekTrainingCount > 0
+    ? 'active'
+    : state
+
+  return { current, record: Math.max(current, record), state: finalState }
+}
+```
+
+*(Este bloque es el código real y completo de `getCurrentStreak()` en [useWorkouts.js](src/hooks/useWorkouts.js:141), con comentarios agregados para esta documentación — el código fuente tiene comentarios más breves en inglés, el contenido lógico es idéntico.)*
+
+### Cómo se construye `weekMap`
+
+`weekMap` es un objeto `{ 'YYYY-MM-DD (lunes)': Set<'YYYY-MM-DD'> }`. Solo incluye workouts reales (excluye `type='pausa'` y `type='descanso'`). La clave es siempre el lunes de la semana a la que pertenece cada entrenamiento. El `Set` de cada entrada permite saber cuántos **días únicos** se entrenó en cada semana (si el usuario registra 2 workouts el mismo día, cuenta como 1 día).
+
+### Por qué el loop empieza desde la semana ANTERIOR
+
+Diseño intencional. La racha se basa en **semanas completas**. Si hoy es miércoles, la semana actual aún no terminó — el usuario podría entrenar el jueves, viernes y sábado. Incluirla en la evaluación principal sería contar una semana incompleta como si ya hubiera fallado. El loop empieza en el lunes de la semana pasada (`getMondayOf(new Date())` con `setDate(-7)`).
+
+**Consecuencia**: los workouts de la semana actual siempre quedan guardados en `weekMap[thisWeekMon]`, pero el loop principal nunca los evalúa. Solo el override post-loop los considera, exclusivamente para el descongelamiento.
+
+### Override post-loop
+
+Agregado para resolver un bug real detectado en producción:
+
+> **Caso**: pausa semana X (ej. 8–14 jun) + el usuario entrena el lunes/martes de la semana X+1 (15 jun+).
+> El loop evalúa la semana X → `frozen`. Nunca llega a evaluar X+1 porque es la semana en curso.
+> **Resultado sin override**: `state: 'frozen'` aunque el usuario ya esté de vuelta entrenando.
+> **Resultado con override**: si `thisWeekTrainingCount > 0` → `finalState: 'active'`.
+
+El override **no suma a `current`** — solo cambia el `state` mostrado en la UI. La racha numérica sigue reflejando únicamente semanas históricas completas y calificadas.
+
+### Los 4 estados posibles
+
+| Estado | Cuándo aplica | Ícono en UI |
+|--------|---------------|-----|
+| `active` | La última semana completa evaluada tiene ≥3 días de entrenamiento, O el override detectó entrenamientos en la semana actual tras una pausa/frozen | 🔥 |
+| `frozen` | La última semana evaluada tiene una pausa con `pausaMotivo: 'enfermedad'` o `'lesion'`, y 0 entrenamientos reales en esa semana | 🧊 |
+| `paused` | La última semana evaluada tiene una pausa con `pausaMotivo: 'descanso'`, y 0 entrenamientos reales en esa semana | ⏸ |
+| `broken` | La última semana evaluada está vacía (ni pausa ni entrenamientos suficientes), o no hay workouts en absoluto | sin ícono |
+
+### Casos edge documentados
+
+**Caso A — Pausa + entrenamiento en la MISMA semana (dentro del rango de pausa):**
+```
+Pausa: 8–14 jun (frozen)
+Entrenamiento: 11 jun (dentro del rango, misma semana)
+weekMap['2026-06-08'] = Set(['2026-06-11']) → size=1
+Loop: isActive=false, pausaType='frozen', weekTrainingCount=1 → mostRecentStatus='active'
+Resultado: state='active' (el entrenamiento cancela el frozen dentro de la misma semana evaluada)
+```
+
+**Caso B — Pausa + entrenamiento en la semana SIGUIENTE (semana actual, invisible al loop):**
+```
+Pausa: 8–14 jun (frozen)
+Entrenamientos: 16 jun, 18 jun (semana siguiente, semana actual en curso)
+weekMap['2026-06-15'] = Set(['2026-06-16', '2026-06-18']) → size=2
+Loop: empieza en 8 jun → frozen. Nunca evalúa la semana del 15 jun (es la semana en curso).
+Override: thisWeekMon='2026-06-15', thisWeekTrainingCount=2 > 0 → finalState='active'
+Resultado: state='active' ✓ (gracias exclusivamente al override)
+```
+
+**Caso C — `getPausaType` considera "en pausa" la semana anterior si el inicio de pausa cae en su último día:**
+
+`getPausaType(weekStart, weekEnd)` usa `pi <= weekEnd && pf >= weekStart`. Si `pausaInicio = '2026-06-08'` (lunes) y se evalúa la semana previa cuyo `weekEnd = '2026-06-07'` (domingo)... en realidad el solapamiento ocurre cuando `pausaInicio` cae exactamente en el **último día** de una semana anterior al lunes de inicio típico — por ejemplo si por algún motivo `pausaInicio` es domingo y esa fecha es también el `weekEnd` de la semana calendario anterior evaluada por el loop, la condición `pi <= weekEnd` se cumple y esa semana anterior también se marca como "en pausa" aunque conceptualmente la pausa recién estaba arrancando.
+**Efecto real**: esto solo importa si `mostRecentStatus` todavía es `null` cuando el loop llega a esa semana límite (es decir, si ninguna semana más reciente ya definió el estado). En la práctica esto es poco frecuente porque el `weekMap` ya suele resolver el estado en semanas más recientes. **No se corrigió por baja frecuencia real de este caso**, pero queda documentado para no sorprender a futuras revisiones del algoritmo.
+
+### Decisión de producto
+
+**Cualquier entrenamiento real en la semana actual descongela la racha, sin importar la cantidad de días.**
+No se requieren 3 días para descongelar — a diferencia del criterio de "semana activa" que sí exige ≥3 días. Con 1 solo workout en la semana actual, el override activa `finalState='active'`. Esto es intencional: el objetivo del override es reflejar el **regreso al entrenamiento** de forma inmediata y motivadora (ver 🔥 después de la primera sesión tras una enfermedad), no medir si la semana completa ya cumplió el mínimo.
+
+---
+
+## 2. SISTEMA DE PAUSA
+
+### Estructura exacta del documento en Firestore
+
+Colección: `users/{uid}/workouts/{id}`
+
+```js
+{
+  type: 'pausa',
+  pausaMotivo: 'enfermedad' | 'lesion' | 'descanso',
+  pausaInicio: 'YYYY-MM-DD',   // primer día de la pausa
+  pausaFin:    'YYYY-MM-DD',   // último día de la pausa (inclusive)
+  date:        'YYYY-MM-DD',   // siempre igual a pausaInicio (campo requerido por el resto del sistema)
+  notes:       '',             // texto libre opcional, placeholder: "Ej: gripe, fiebre 3 días"
+  createdAt:   serverTimestamp(),
+}
+```
+
+Se crea desde `handleSavePausa()` en [WorkoutWizard.jsx:332](src/components/registro/WorkoutWizard.jsx:332):
+```js
+const handleSavePausa = async () => {
+  setSaving(true)
+  setSaveError(null)
+  const workout = sanitizeWorkout({
+    type: 'pausa',
+    pausaMotivo,
+    pausaInicio,
+    pausaFin,
+    date: pausaInicio,
+    notes: notes || '',
+  })
+  try {
+    await workoutsHook.saveWorkout(workout)
+    clearDraft()
+    setSaved(workout)
+  } catch {
+    setSaveError('No se pudo guardar. Revisá tu conexión e intentá de nuevo.')
+  } finally {
+    setSaving(false)
+  }
+}
+```
+
+### Tres motivos y su efecto en la racha
+
+| pausaMotivo | Icono en el selector | Estado de racha | Efecto |
+|-------------|-------|-----------------|-------------|
+| `enfermedad` | 🤒 | `frozen` 🧊 | Congela la racha |
+| `lesion`     | 🤕 | `frozen` 🧊 | Congela la racha (idéntico a enfermedad) |
+| `descanso`   | 🧘 | `paused` ⏸ | Pausa voluntaria de la racha |
+
+En `getPausaType()` (sección 1): los motivos `enfermedad` y `lesion` devuelven `'frozen'`; el motivo `descanso` devuelve `'paused'`. Es la única bifurcación de comportamiento entre los tres motivos — a nivel UI y de calendario, `enfermedad` y `lesion` comparten exactamente el mismo tratamiento visual (celeste/hielo), mientras que `descanso` se pinta distinto (gris).
+
+### Lógica de prioridad en `WeekCalendar.jsx` — 3 pasadas
+
+El calendario semanal construye un mapa `byDate` con **3 pasadas explícitas**, en este orden de prioridad (código real, [WeekCalendar.jsx:32-53](src/components/inicio/WeekCalendar.jsx:32)):
+
+```js
+// Build byDate with explicit priority: real workout > descanso > pausa
+const byDate = {}
+const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
+
+// Pass 1: real workouts (highest priority — always win over pausa)
+workouts.forEach(w => {
+  if (REAL_TYPES.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
+})
+// Pass 2: descanso (fills only days without a real workout)
+workouts.forEach(w => {
+  if (w.type === 'descanso' && w.date && !byDate[w.date]) byDate[w.date] = w
+})
+// Pass 3: pausa expands date range, fills only days not already covered
+workouts.forEach(w => {
+  if (w.type !== 'pausa') return
+  const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')
+  const end   = parseISO((w.pausaFin   || w.date) + 'T12:00:00')
+  for (let d = new Date(start.getTime()); d <= end; d.setDate(d.getDate() + 1)) {
+    const ds = toDateStr(d)
+    if (!byDate[ds]) byDate[ds] = w
+  }
+})
+```
+
+Orden de prioridad real: **entrenamiento real (fuerza/cardio/clase/tabata) > descanso > pausa > vacío**. Cada pasada solo escribe en `byDate[fecha]` si esa fecha todavía no fue ocupada por una pasada anterior — por eso `pausa`, al ser la última pasada, nunca sobrescribe un día que ya tiene un entrenamiento real o un `descanso`.
+
+### Cómo se expande el rango `pausaInicio`–`pausaFin` para pintar el calendario
+
+La pasada 3 (arriba) itera día por día desde `pausaInicio` hasta `pausaFin` inclusive, y por cada día llama a `toDateStr(d)` para generar la clave y rellenar `byDate` solo si esa fecha está libre. El rango es **inclusivo en ambos extremos**.
+
+Renderizado visual por día ([WeekCalendar.jsx:90-133](src/components/inicio/WeekCalendar.jsx:90)):
+```js
+const isFrozen = isPausa && (workout.pausaMotivo === 'enfermedad' || workout.pausaMotivo === 'lesion')
+const pausaDotBg     = isFrozen ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)'
+const pausaDotBorder = isFrozen ? '#38bdf8' : '#4B5563'
+```
+`enfermedad`/`lesion` → punto celeste (`#38bdf8`, ICE_BLUE). `descanso` → punto gris (`#4B5563`). El calendario también muestra una leyenda dinámica debajo con el texto correspondiente ("Semana de pausa por enfermedad/lesión" o "Semana de descanso registrada") solo si hay días de pausa visibles en la semana mostrada.
+
+### Comportamiento cuando se entrena dentro del rango de pausa
+
+- El workout real gana en la pasada 1 y se muestra normalmente en el calendario para ese día específico — la pausa sigue existiendo como documento en Firestore pero queda "tapada" visualmente ese día.
+- En el cálculo de racha: si `weekTrainingCount > 0` para la semana de la pausa, `mostRecentStatus = 'active'` (ver sección 1, Caso A).
+- La pausa **no se elimina ni se modifica** en Firestore — sigue expandiéndose sobre el resto de los días de su rango que no tengan un entrenamiento real.
+
+### El formulario de pausa: calendario inline con `date-fns`
+
+El formulario vive en `PausaFlow` dentro de [WorkoutWizard.jsx:193](src/components/registro/WorkoutWizard.jsx:193), y usa un componente `InlineRangePicker` ([WorkoutWizard.jsx:69](src/components/registro/WorkoutWizard.jsx:69)) construido **enteramente con `date-fns`, sin librerías adicionales de calendario**:
+
+```js
+import {
+  parseISO, format,
+  startOfMonth, endOfMonth,
+  startOfWeek, endOfWeek,
+  eachDayOfInterval,
+  addMonths, subMonths,
+  isSameMonth,
+} from 'date-fns'
+import { es } from 'date-fns/locale'
+```
+
+Mecánica de selección de rango (`handleDayClick`):
+```js
+const handleDayClick = (day) => {
+  const dayStr = format(day, 'yyyy-MM-dd')
+  if (dayStr > todayFmt) return   // no se pueden seleccionar días futuros
+  if (!startDate || (startDate && endDate && startDate !== endDate)) {
+    onChange(dayStr, dayStr)      // primer click → nuevo rango de 1 día
+  } else {
+    if (dayStr < startDate) onChange(dayStr, startDate)   // extiende hacia atrás
+    else onChange(startDate, dayStr)                       // extiende hacia adelante
+  }
+}
+```
+
+El grid de días se genera con `eachDayOfInterval({ start: calStart, end: calEnd })` donde `calStart`/`calEnd` vienen de `startOfWeek`/`endOfWeek` con `weekStartsOn: 1` (semana empieza lunes). La navegación entre meses usa `addMonths`/`subMonths`, y no se puede navegar a meses futuros (`canGoNext = !isSameMonth(viewDate, new Date())`). El texto del rango seleccionado ("Del lunes 8 al domingo 14 de junio") se genera con `format(..., "EEEE d 'de' MMMM", { locale: es })`.
+
+---
+
+## 3. SISTEMA DE MEDALLAS SEMANALES (`Logros.jsx`)
+
+### Pool completo de 12 medallas
+
+```js
+// src/components/inicio/Logros.jsx — MEDAL_POOL
+const MEDAL_POOL = [
+  { key: 'w_semana_completa',   label: 'Semana completa',      Icon: CalendarCheck, categoria: 'consistencia' },
+  { key: 'w_sin_excusas',       label: 'Sin excusas',          Icon: Shield,        categoria: 'consistencia' },
+  { key: 'w_arrancaste_fuerte', label: 'Arrancaste fuerte',    Icon: Zap,           categoria: 'consistencia' },
+  { key: 'w_mas_fuerte',        label: 'Más fuerte',           Icon: Dumbbell,      categoria: 'progresion'  },
+  { key: 'w_supero_pr',         label: 'Nuevo récord',         Icon: Trophy,        categoria: 'progresion'  },
+  { key: 'w_volumen_alto',      label: 'Volumen alto',         Icon: BarChart2,     categoria: 'progresion'  },
+  { key: 'w_semana_mixta',      label: 'Semana mixta',         Icon: Shuffle,       categoria: 'balance'     },
+  { key: 'w_cuerpo_sabio',      label: 'Cuerpo sabio',         Icon: Heart,         categoria: 'balance'     },
+  { key: 'w_bien_descansada',   label: 'Bien descansada',      Icon: Moon,          categoria: 'balance'     },
+  { key: 'w_racha_viva',        label: 'Racha viva',           Icon: Flame,         categoria: 'libre'       },
+  { key: 'w_hamburguesa',       label: 'Hamburguesa merecida', Icon: Award,         categoria: 'libre'       },
+  { key: 'w_sabado',            label: 'Guerrera del sábado',  Icon: Star,          categoria: 'libre'       },
+]
+```
+
+Criterio exacto de completado de cada una (del `switch` dentro de `computeWeeklyMedals`):
+
+| key | categoría | criterio exacto |
+|---|---|---|
+| `w_semana_completa` | consistencia | `Set(fechas únicas de la semana).size >= diasObjetivo` (default 3, o `profile.diasSemana`) |
+| `w_sin_excusas` | consistencia | algún workout de la semana cae en domingo (`getDay()===0`) o sábado (`getDay()===6`) |
+| `w_arrancaste_fuerte` | consistencia | el workout más temprano de la semana (ordenado por fecha) cayó en lunes (1) o martes (2) |
+| `w_mas_fuerte` | progresion | algún workout de fuerza de la semana tiene `detectPRs(w, historialAnteriorAEseWorkout).length > 0` |
+| `w_supero_pr` | progresion | **idéntico** a `w_mas_fuerte` — mismo bloque `case` en el switch, misma lógica de `detectPRs()` |
+| `w_volumen_alto` | progresion | algún workout de fuerza de la semana tiene `exercises.length >= 5` |
+| `w_semana_mixta` | balance | hay ≥1 workout `fuerza` Y ≥1 workout `cardio` o `clase` en la semana |
+| `w_cuerpo_sabio` | balance | promedio de `fatigue` (de los workouts con `fatigue != null`) de la semana `<= 5` |
+| `w_bien_descansada` | balance | ≥2 sesiones de `fuerza` en la semana, con al menos 1 día de diferencia entre cada par consecutivo ordenado por fecha |
+| `w_racha_viva` | libre | `streakState === 'active'` |
+| `w_hamburguesa` | libre | días únicos entrenados en la semana `>= 4` |
+| `w_sabado` | libre | algún workout de la semana cae en sábado (`getDay()===6`) |
+
+### Algoritmo de selección de las 4 medallas semanales
+
+```js
+function computeWeeklyMedals(workouts, profile, streakState) {
+  const mondayStr  = getWeekStartLocal()
+  const REAL_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
+  const thisWeek   = workouts.filter(w => w.date >= mondayStr && REAL_TYPES.includes(w.type))
+
+  const hasFuerzaHistory = workouts.some(w => w.type === 'fuerza' && w.date < mondayStr)
+  const diasObjetivo     = profile?.diasSemana ?? 3
+  const weekNum = Math.floor(new Date(mondayStr + 'T12:00:00').getTime() / (7 * 86400000))
+  // weekNum: número de semana absoluto desde Epoch → rota la selección semana a semana
+
+  // 1. Calcular completed:true/false para cada una de las 12 medallas (switch de arriba)
+  const medalsWithState = MEDAL_POOL.map(m => { /* ... */ })
+
+  // 2. Filtrar medallas imposibles según contexto (ver reglas de exclusión abajo)
+  const filtered = medalsWithState.filter(m => {
+    if (['w_mas_fuerte', 'w_supero_pr', 'w_volumen_alto'].includes(m.key) && !hasFuerzaHistory) return false
+    if (m.key === 'w_hamburguesa' && diasObjetivo < 4) return false
+    if (m.key === 'w_racha_viva' && (streakState === 'broken' || streakState === 'frozen' || streakState === 'paused')) return false
+    return true
+  })
+
+  // 3. Seleccionar 1 por categoría: ['consistencia', 'progresion', 'balance', 'libre']
+  const categories = ['consistencia', 'progresion', 'balance', 'libre']
+  const selected = []
+  for (const cat of categories) {
+    const candidates = filtered.filter(m => m.categoria === cat)
+    if (!candidates.length) continue
+    const pool = candidates.some(m => m.completed)
+      ? candidates.filter(m => m.completed)   // si hay completadas en la categoría, priorizarlas
+      : candidates                             // si ninguna completada, rotar entre todas
+    selected.push(pool[weekNum % pool.length]) // rotación semanal determinista
+  }
+
+  // 4. Fallback: completar hasta 4 con cualquier medalla no seleccionada (misma lógica de prioridad)
+  while (selected.length < 4) {
+    const usedKeys  = new Set(selected.map(m => m.key))
+    const remaining = filtered.filter(m => !usedKeys.has(m.key))
+    if (!remaining.length) break
+    const pool = remaining.some(m => m.completed) ? remaining.filter(m => m.completed) : remaining
+    selected.push(pool[weekNum % pool.length])
+  }
+
+  return selected.slice(0, 4)
+}
+```
+
+### Reglas de exclusión por contexto
+
+- `w_mas_fuerte`, `w_supero_pr`, `w_volumen_alto`: excluidas si `!hasFuerzaHistory` (no hay ningún workout de fuerza **anterior** a esta semana — sin historial no hay nada contra qué comparar para un PR).
+- `w_hamburguesa`: excluida si `diasObjetivo < 4` (el objetivo de días/semana del perfil es menor a 4 → nunca se podría cumplir el criterio de ≥4 días).
+- `w_racha_viva`: excluida si `streakState` es `'broken'`, `'frozen'` o `'paused'`.
+
+### Medalla `w_racha_viva`: comportamiento especial
+
+- **Exclusión completa del pool** (no solo "no completada") cuando `streakState !== 'active'` → no aparece ni como incompleta ni como gris, simplemente no existe esa semana en la selección.
+- `completed = true` únicamente cuando `streakState === 'active'`.
+
+### Cadena completa de datos
+
+```
+useWorkouts.js: getCurrentStreak() → { current, record, state: finalState }
+    ↓
+Inicio.jsx: const { state: rachaState } = getCurrentStreak()
+    ↓
+Inicio.jsx: <Logros workouts={workouts} streakState={rachaState} compact />
+    ↓
+Logros.jsx: computeWeeklyMedals(workouts, profile, streakState)
+            → dentro del switch: case 'w_racha_viva': completed = streakState === 'active'
+            → dentro del filtro de exclusión: se remueve del pool si !== 'active'
+```
+
+**Nota importante**: `Logros.jsx` **no llama `getCurrentStreak()` directamente**. Recibe `streakState` como prop desde `Inicio.jsx`, que es el único componente que invoca la función y decide qué estado propagar.
+
+### El reset semanal es automático
+
+No hay ningún cron ni proceso batch. Cada componente que renderiza calcula `getWeekStartLocal()` en tiempo real — cada lunes esa función devuelve una clave de semana (`mondayStr`) distinta, lo que automáticamente cambia `thisWeek` (el filtro de workouts) y `weekNum` (usado para la rotación determinista). El "reset" es simplemente una consecuencia de que la clave de semana cambió, no un evento explícito.
+
+---
+
+## 4. DETECCIÓN DE PRs Y MEJORAS (`src/utils/prUtils.js`)
+
+### `detectPRs(workout, workoutsHistory)`
+
+**Qué compara**: el peso máximo de la sesión actual vs. el **máximo histórico absoluto de todas las sesiones anteriores** para ese ejercicio.
+
+```js
+export function detectPRs(workout, workoutsHistory) {
+  if (!workout.exercises?.length) return []
+  const prs = []
+  for (const ex of workout.exercises) {
+    if (!ex.exerciseId || !ex.sets?.length) continue
+    const maxThisSession = Math.max(0, ...ex.sets.map(s => Number(s.weight) || 0))
+    if (!maxThisSession) continue  // 0kg → ignorar
+    const prevMax = workoutsHistory
+      .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === ex.exerciseId))
+      .flatMap(w => w.exercises.filter(e => e.exerciseId === ex.exerciseId))
+      .flatMap(e => e.sets || [])
+      .reduce((max, s) => Math.max(max, Number(s.weight) || 0), 0)
+    if (maxThisSession > prevMax && prevMax > 0) {
+      // prevMax > 0: solo cuenta como PR si hubo historial previo (no el primer registro del ejercicio)
+      prs.push({ name: ex.name, weight: maxThisSession })
+    }
+  }
+  return prs
+}
+```
+
+**Retorna**: `[{ name: string, weight: number }]` — uno por ejercicio con nuevo récord absoluto. **Aplica** cuando `maxThisSession > prevMax` y `prevMax > 0` (es decir, ya existía al menos un registro previo de ese ejercicio con peso > 0; si es la primera vez que se hace el ejercicio, no cuenta como PR).
+
+### `detectImprovements(workout, workoutsHistory)`
+
+**Qué compara**: peso máximo / reps de la sesión actual vs. la **sesión inmediatamente anterior** de ese mismo ejercicio (no el máximo histórico).
+
+```js
+export function detectImprovements(workout, workoutsHistory) {
+  if (!workout.exercises?.length) return []
+  const improvements = []
+  for (const ex of workout.exercises) {
+    if (!ex.exerciseId || !ex.sets?.length) continue
+    const lastSession = workoutsHistory
+      .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === ex.exerciseId))
+      [0]  // ← [0] = sesión más reciente (workoutsHistory viene ordenado desc por fecha)
+    if (!lastSession) continue  // primer registro → sin mejora que reportar
+    const lastSets = lastSession.exercises.find(e => e.exerciseId === ex.exerciseId)?.sets || []
+    if (!lastSets.length) continue
+
+    const maxWeightNow  = Math.max(0, ...ex.sets.map(s => Number(s.weight) || 0))
+    const maxWeightLast = Math.max(0, ...lastSets.map(s => Number(s.weight) || 0))
+    // Comparar reps SOLO al mismo peso máximo de la sesión anterior
+    const maxRepsNowAtSameWeight  = Math.max(0, ...ex.sets.filter(s => Number(s.weight) === maxWeightLast).map(s => Number(s.reps) || 0))
+    const maxRepsLastAtSameWeight = Math.max(0, ...lastSets.filter(s => Number(s.weight) === maxWeightLast).map(s => Number(s.reps) || 0))
+
+    if (maxWeightNow > maxWeightLast) {
+      improvements.push({ name: ex.name, type: 'weight', deltaW: maxWeightNow - maxWeightLast, weight: maxWeightNow })
+    } else if (maxWeightNow === maxWeightLast && maxRepsNowAtSameWeight > maxRepsLastAtSameWeight) {
+      improvements.push({ name: ex.name, type: 'reps', deltaR: maxRepsNowAtSameWeight - maxRepsLastAtSameWeight, reps: maxRepsNowAtSameWeight })
+    }
+  }
+  return improvements
+}
+```
+
+**Retorna**:
+- Mejora de peso: `{ name, type: 'weight', deltaW: number, weight: number }`
+- Mejora de reps (al mismo peso máximo que la sesión anterior): `{ name, type: 'reps', deltaR: number, reps: number }`
+
+**Aplica** cuando existe una sesión anterior (`lastSession`) del mismo ejercicio, y el peso máximo actual es mayor, o es igual pero con más reps al mismo peso.
+
+### Diferencia clave entre ambas
+
+| | `detectPRs` | `detectImprovements` |
+|--|-------------|----------------------|
+| Compara contra | Máximo histórico absoluto (todas las sesiones) | Solo la sesión inmediatamente anterior |
+| Umbral | `prevMax > 0` (necesita al menos 1 registro previo) | `lastSession` existe |
+| Semántica | Récord absoluto — celebración mayor | Progreso incremental — motivación sesión a sesión |
+| Puede haber mejora sin ser PR | No aplica (es la definición de PR) | Sí — mejorar vs. la sesión pasada sin superar el máximo histórico |
+
+### Dónde se consumen
+
+- **`WorkoutSummary.jsx`**: usa **ambas**. `prs = detectPRs(workout, workouts)` y `improvements = detectImprovements(workout, workouts)`.
+- **`ProgresoPage.jsx`** (bloque "Últimas Sesiones"): usa únicamente `detectPRs`.
+- **`Logros.jsx`**: usa `detectPRs` para calcular el estado de las medallas `w_mas_fuerte` y `w_supero_pr` (sección 3).
+
+### Por qué `detectImprovements` filtra ejercicios que ya aparecen en `detectPRs`
+
+En `WorkoutSummary.jsx`, un ejercicio que logró un PR absoluto **también** cumpliría trivialmente el criterio de "mejora vs. sesión anterior" (todo PR es, por definición, mejor que la sesión pasada). Sin filtrar, el mismo ejercicio aparecería duplicado: una vez en el bloque dorado de PRs y otra vez en el bloque verde de mejoras. Por eso `WorkoutSummary.jsx` remueve de `improvements` cualquier ejercicio cuyo `name` ya esté presente en `prs`, para no mostrar el mismo logro dos veces con framing distinto.
+
+---
+
+## 5. TIMEZONE Y FECHAS (`src/utils/dates.js`)
+
+### Por qué todas las fechas son strings `YYYY-MM-DD` y no Timestamps de Firestore
+
+Firestore Timestamps guardan instantes en UTC. Al convertir un Timestamp a `Date` y formatearlo, el resultado depende del timezone del dispositivo. Si el usuario está en UTC-3, un Timestamp guardado a las 23:00 del lunes en hora local se vería como martes al leerlo en UTC. Usando strings `YYYY-MM-DD` en hora local, la fecha del entrenamiento siempre es exacta y portable, independiente del timezone del dispositivo que lee o escribe.
+
+### Por qué se usa `parseISO()` de `date-fns` en lugar de `new Date(string)`
+
+```js
+// MAL: new Date('2026-06-16') → se interpreta como medianoche UTC
+// → en UTC-3 eso es "2026-06-15T21:00:00" en hora local → FECHA INCORRECTA (un día antes)
+new Date('2026-06-16')
+
+// parseISO de date-fns respeta el formato ISO 8601, pero sin hora también cae en medianoche UTC
+parseISO('2026-06-16')  // → igual de peligroso sin especificar hora
+
+// CORRECTO para comparaciones y aritmética de fechas:
+parseISO('2026-06-16T12:00:00')  // → mediodía LOCAL → timezone-safe
+```
+
+El patrón `parseISO(date + 'T12:00:00')` es la convención en todo el codebase (aparece en `getCurrentStreak()`, `achievements.js`, `WeekCalendar.jsx`, `ProgresoPage.jsx`, `InlineRangePicker`) cuando se necesita un objeto `Date` a partir de un string `YYYY-MM-DD` para hacer aritmética de fechas. El mediodía local da suficiente margen para que cambios de DST o desfases de timezone nunca desplacen el día calculado.
+
+### Por qué se usa `format(new Date(), 'yyyy-MM-dd')` en lugar de `.toISOString().split('T')[0]`
+
+```js
+// MAL: toISOString() siempre retorna la fecha en UTC
+new Date().toISOString().split('T')[0]
+// En UTC-3, poco antes de medianoche local, esto ya devuelve el día siguiente en UTC → BUG
+
+// BIEN: usar getFullYear/getMonth/getDate (hora local del dispositivo)
+// src/utils/dates.js
+export function getTodayLocal() {
+  return format(new Date(), 'yyyy-MM-dd')  // date-fns format() usa los getters locales del Date
+}
+```
+
+`date-fns`'s `format()` usa los getters locales del objeto `Date` (`getFullYear`, `getMonth`, `getDate`), nunca los UTC — por eso es seguro para representar "el día de hoy en el dispositivo del usuario", a diferencia de `toISOString()` que siempre normaliza a UTC.
+
+### El patrón `parseISO(date + 'T12:00:00')` para evitar problemas de timezone
+
+Regla general del codebase: **siempre que se necesite aritmética de fechas (obtener el lunes de la semana, diferencia en días, comparar rangos de semana) sobre un string `YYYY-MM-DD`, hay que construir el `Date` con `parseISO(date + 'T12:00:00')`** en vez de pasar el string solo. Esto asegura que el objeto `Date` resultante caiga a mediodía en hora local, lejos de cualquier borde de medianoche que timezone o DST puedan desplazar.
+
+### Las funciones clave de `src/utils/dates.js`
+
+```js
+getTodayLocal()        // → 'YYYY-MM-DD' de hoy, en hora local del dispositivo
+dateToLocal(date)      // Date → 'YYYY-MM-DD' en hora local (mismo mecanismo que getTodayLocal)
+getWeekStartLocal()    // → 'YYYY-MM-DD' del lunes de la semana actual, en hora local
+parseLocalDate(str)    // 'YYYY-MM-DD' → new Date(y, m-1, d) → medianoche LOCAL (no UTC)
+toDateStr(date)        // → format(date, 'yyyy-MM-dd') — wrapper directo de date-fns
+todayStr               // alias/export usado en formularios (WorkoutWizard) para el valor default del date picker
+weekKey(date)          // → lunes de la semana del Date dado (para agrupar workouts por semana)
+getWeekDays(date)      // → array de 7 Dates, lunes a domingo, de la semana del date dado
+getMonthDays(date)     // → array de Dates del mes del date dado (para MonthCalendar)
+getLast12Weeks()       // → array de Dates de los últimos 12 lunes (para gráficos de progreso)
+```
+
+---
+
+## 6. SISTEMA OFFLINE Y AUTH
+
+### Persistencia de Firebase Auth
+
+```js
+// src/firebase.js
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth'
+// ...
+setPersistence(auth, browserLocalPersistence)
+```
+
+Por qué: el token de sesión se guarda en `localStorage`. Esto hace que la sesión sobreviva a cierres del navegador y a arranques en modo offline. En PWA standalone de iOS, `localStorage` persiste entre sesiones de la app instalada — sin esto, cada apertura de la PWA podría perder la sesión si no hay red inmediatamente disponible.
+
+### Por qué el timeout de Auth es de 15s y qué hace cuando dispara
+
+```js
+// src/context/AuthContext.jsx
+const [user, setUser] = useState(undefined)   // undefined = indeterminado
+const [authTimedOut, setAuthTimedOut] = useState(false)
+
+useEffect(() => {
+  const timeout = setTimeout(() => {
+    setAuthTimedOut(true)
+    setLoading(false)
+    // user queda undefined — NO se fuerza a null para no mandar al usuario al login
+  }, 15000)
+
+  const unsub = onAuthChange(async (firebaseUser) => {
+    clearTimeout(timeout)
+    setAuthTimedOut(false)
+    setUser(firebaseUser)          // null = sin sesión confirmada, objeto = sesión activa
+    if (firebaseUser) {
+      const [prof, sett] = await Promise.all([
+        getUserProfile(firebaseUser.uid),
+        getSettings(firebaseUser.uid),
+      ])
+      setProfile(prof)
+      setSettings(sett ?? { deloadActive: false, restTimerSeconds: 90, coverUrl: '' })
+    } else {
+      setProfile(null)
+      setSettings(null)
+    }
+    setLoading(false)
+  })
+
+  return () => { clearTimeout(timeout); unsub() }
+}, [])
+```
+
+**Cuando el timeout dispara, `user` NO se setea a `null`.** Queda en `undefined`. Esto es crítico: forzar `null` dispararía la pantalla de login (`AuthScreen`), lo cual borraría efectivamente la sesión del usuario a los ojos de la UI aunque Firebase simplemente no haya podido responder a tiempo (ej. sin conexión). El timeout de 15s existe para no dejar al usuario colgado en un `LoadingScreen` infinito, pero su disparo se trata como "no sabemos" (mostrar mensaje de reintentar), nunca como "confirmado sin sesión".
+
+### Diferencia crítica: `user === undefined` vs. `user === null`
+
+| Valor | Significado | Acción en `App.jsx` |
+|-------|-------------|-------------------|
+| `undefined` | Estado indeterminado — Firebase todavía no respondió (o no respondió a tiempo) | Mostrar `LoadingScreen` (con opción de reintentar si `authTimedOut`) |
+| `null` | Firebase confirmó explícitamente que **no** hay sesión activa | Mostrar `AuthScreen` |
+| objeto `FirebaseUser` | Sesión activa confirmada | Cargar perfil y mostrar la app |
+
+```js
+// src/App.jsx — AppRoutes
+if (loading) return <LoadingScreen />
+if (authTimedOut && user === undefined) {
+  return <LoadingScreen message="No pudimos verificar tu sesión. Revisá tu conexión." showRetry />
+}
+if (user === null) return <AuthScreen />
+if (!profile?.onboardingDone) return <Onboarding />
+// → rutas normales
+```
+
+### Sistema de borrador local — `src/utils/draftQueue.js`
+
+Cuando el usuario guarda un workout sin conexión:
+
+```js
+const DRAFT_KEY_PREFIX = 'workout_draft_'
+
+// Guardar draft en localStorage
+export function saveDraft(uid, workout) {
+  const drafts = getDrafts(uid)
+  const draftWithMeta = {
+    ...workout,
+    _draftId: crypto.randomUUID(),
+    _pendingSync: true,           // flag: no está guardado en Firestore todavía
+    _draftCreatedAt: Date.now(),
+  }
+  drafts.push(draftWithMeta)
+  localStorage.setItem(DRAFT_KEY_PREFIX + uid, JSON.stringify(drafts))
+  return draftWithMeta
+}
+
+// Leer todos los drafts pendientes de un usuario
+export function getDrafts(uid) {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY_PREFIX + uid)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+// Eliminar un draft específico (por _draftId) tras sincronizarlo
+export function removeDraft(uid, draftId) {
+  const drafts = getDrafts(uid).filter(d => d._draftId !== draftId)
+  localStorage.setItem(DRAFT_KEY_PREFIX + uid, JSON.stringify(drafts))
+}
+
+// Sincronizar todos los drafts pendientes con Firestore
+export async function syncDrafts(uid, saveWorkoutFn) {
+  const drafts = getDrafts(uid)
+  if (!drafts.length) return { synced: 0, failed: 0 }
+  let synced = 0, failed = 0
+  for (const draft of drafts) {
+    try {
+      const { _draftId, _pendingSync, _draftCreatedAt, ...workoutData } = draft
+      await saveWorkoutFn(workoutData)   // se despoja la metadata del draft antes de guardar
+      removeDraft(uid, _draftId)
+      synced++
+    } catch { failed++ }
+  }
+  return { synced, failed }
+}
+```
+
+*(Firmas y comportamiento verificados contra el código real de `draftQueue.js`; los nombres de campo `_draftId`, `_pendingSync`, `_draftCreatedAt` son exactos.)*
+
+### Activación automática de la sincronización al volver la conexión
+
+```js
+// src/hooks/useWorkouts.js
+useEffect(() => {
+  if (!uid) return
+  const handleOnline = async () => {
+    const { synced } = await syncDrafts(uid, (w) => dbSaveWorkout(uid, w))
+    if (synced > 0) await load(true)  // recarga silenciosa para reflejar los datos ya sincronizados
+  }
+  window.addEventListener('online', handleOnline)
+  return () => window.removeEventListener('online', handleOnline)
+}, [uid, load])
+```
+
+El listener de `window.online` está registrado dentro del propio hook `useWorkouts` — cada instancia del hook (hay instancias separadas en `Inicio.jsx` y en `WorkoutWizard.jsx`) registra su propio listener.
+
+### Indicador visual de workout pendiente de sync
+
+```jsx
+import { CloudUpload } from 'lucide-react'
+// Se muestra cuando workout._pendingSync === true
+{workout._pendingSync && <CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />}
+```
+
+12px, color `#94A3B8`. Aparece en las vistas que listan workouts históricos (`WorkoutHistorial.jsx`, `Inicio.jsx`, `ProgresoPage.jsx`) junto a cualquier entrada que todavía sea un draft local no confirmado en Firestore.
+
+### Optimistic update en `saveWorkout` (fix de race condition)
+
+```js
+// src/hooks/useWorkouts.js
+const saveWorkout = async (workout) => {
+  try {
+    const id = await dbSaveWorkout(uid, workout)
+    // Root cause fix: escribir al cache y al estado local inmediatamente después de que
+    // el write a Firestore confirma. Antes se esperaba (await) un load(true) acá — pero si
+    // el usuario navegaba de vuelta a Inicio antes de que ese re-fetch a Firestore terminara,
+    // Inicio montaba con un cache desactualizado que no incluía este workout, causando que
+    // getCurrentStreak() devolviera el estado incorrecto (ej. 'frozen' en vez de 'active'
+    // tras entrenar durante una semana de pausa). El optimistic update garantiza que el
+    // cache esté siempre al día en el momento de la navegación.
+    const fresh = { ...workout, id }
+    writeCache(uid, [fresh, ...(readCache(uid) ?? [])])
+    setWorkouts(prev => [fresh, ...prev])
+    load(true) // sync en background desde Firestore (no se espera/await)
+    return id
+  } catch (err) {
+    // Sin red → guardar como borrador local
+    const draft = saveDraft(uid, workout)
+    setWorkouts(prev => [draft, ...prev])
+    return draft._draftId
+  }
+}
+```
+
+---
+
+## 7. ESTRUCTURA DE DATOS FIREBASE
+
+### `users/{uid}/workouts/{id}`
+
+**Tipo `fuerza`:**
+```js
+{
+  type: 'fuerza',
+  date: 'YYYY-MM-DD',
+  fatigue: 5,                    // 1-10, slider en paso 3 del wizard
+  notes: '',                     // texto libre opcional
+  deload: false,                 // true si estaba activa la semana de descarga al guardar
+  muscleGroups: ['Glúteos'],     // grupos musculares trabajados (para sugerencias y recovery)
+  exercises: [{
+    exerciseId: 'glut_01',
+    name: 'Hip Thrust',
+    muscle: 'Glúteos',
+    originalMuscle: 'Glúteos',   // músculo del ejercicio original (antes de un swap)
+    originalExerciseId: null,    // si se hizo swap al alternativo, apunta al ejercicio original
+    sets: [{ reps: 12, weight: 20 }],
+    fatigue: null,               // fatigue por ejercicio individual, si se usó ExerciseCard
+  }],
+  cinta: null | {
+    tipo: string | null,         // ej. 'incline'
+    min: number | null,
+    kmh: number | null,
+    inclinacion: number | null,
+  },
+  createdAt: serverTimestamp(),
+}
+```
+
+**Tipo `cardio`:**
+```js
+{
+  type: 'cardio',
+  date: 'YYYY-MM-DD',
+  fatigue: 5,
+  notes: '',
+  activity: 'Running' | 'Bici' | 'Rollers' | string,  // texto libre si se eligió "otra"
+  tiempo: number | null,      // minutos
+  distancia: number | null,   // km
+  ritmo: string | null,       // 'mm:ss min/km'
+  deload: false,
+  muscleGroups: [],
+  createdAt: serverTimestamp(),
+}
+```
+
+**Tipo `clase`:**
+```js
+{
+  type: 'clase',
+  date: 'YYYY-MM-DD',
+  fatigue: 5,
+  notes: '',
+  clase: 'Strong' | 'HIIT' | 'Funcional' | string,
+  duracion: 60,   // minutos
+  deload: false,
+  muscleGroups: [],
+  createdAt: serverTimestamp(),
+}
+```
+
+**Tipo `pausa`** (ver sección 2 para detalle completo):
+```js
+{
+  type: 'pausa',
+  pausaMotivo: 'enfermedad' | 'lesion' | 'descanso',
+  pausaInicio: 'YYYY-MM-DD',
+  pausaFin:    'YYYY-MM-DD',
+  date:        'YYYY-MM-DD',    // siempre = pausaInicio
+  notes: '',
+  createdAt: serverTimestamp(),
+}
+```
+
+**Tipo `descanso`** (legacy — ya no se registra activamente desde el wizard, pero el sistema de racha y calendario lo sigue soportando por compatibilidad con datos históricos):
+```js
+{ type: 'descanso', date: 'YYYY-MM-DD', createdAt: serverTimestamp() }
+```
+
+**Tipo `tabata`** (registrado desde `TabataPage`, vía `saveTabataRecord`):
+```js
+{ type: 'tabata', date: 'YYYY-MM-DD', tabataId: string, tabataName: string, createdAt: serverTimestamp() }
+```
+
+### `users/{uid}/customExercises/{id}`
+
+```js
+{
+  id: 'custom_1718700000000',   // 'custom_' + Date.now() — generado en cliente
+  name: 'Mi ejercicio',
+  muscle: 'Glúteos',           // debe ser uno de los MUSCLE_GROUPS predefinidos
+  group: 'Glúteos',            // igual a muscle en ejercicios custom
+  level: 'C',                  // siempre 'C' para ejercicios custom
+  equip: '',
+  alt: '',
+  custom: true,                // flag para mostrar el badge "Mío" en la UI
+}
+```
+
+### `users/{uid}/data/achievements`
+
+```js
+{
+  primerPaso: {
+    unlocked: true,
+    at: Timestamp,
+    detail: 'Primer entrenamiento registrado',
+  },
+  semanaActiva: { unlocked: true, at: Timestamp, detail: 'Semana del 1 jun al 7 jun' },
+  // ... un entry por key de ACHIEVEMENTS_META (35 logros permanentes/recurrentes definidos)
+  // Los logros NO desbloqueados simplemente no tienen entry en el documento — no existen
+  // como { unlocked: false }, su ausencia ES el estado "no desbloqueado".
+}
+```
+
+### Perfil del usuario — `users/{uid}/data/profile`
+
+```js
+{
+  name: string,
+  genero: 'femenino' | 'masculino' | 'otro',
+  objectives: string[],         // ej: ['Ganar masa muscular', 'Mejorar resistencia']
+  objetivo: string,             // objetivo primario (el primero de objectives)
+  nivel: 'Principiante' | 'Intermedio' | 'Avanzado',
+  diasSemana: number,           // 3-6, objetivo de días de entrenamiento por semana
+  tiposPreferidos: string[],    // ej: ['fuerza', 'cardio', 'clase']
+  pausa: boolean,               // legacy — flag simple de "en pausa" en ConfigPage; el sistema
+                                 // real de pausa (sección 2) usa documentos type:'pausa', no este campo
+  lesiones: string,             // texto libre de lesiones (solo relevante si lesionesYes === true)
+  lesionesYes: boolean,
+  equipamiento: 'Gym completo' | 'Casa' | string,
+  onboardingDone: boolean,
+  createdAt: Timestamp,
+}
+```
+
+### Otras colecciones relevantes (vía `src/services/db.js`)
+
+- `getFavorites` / `toggleFavorite`: lista de `exerciseId` favoritos del usuario — lógica de datos existe en Firestore, pero **sin UI que la consuma actualmente** (ver sección 11, pendientes).
+- `getNeverList` / `toggleNever`: lista negra de `exerciseId` que el usuario no quiere ver sugeridos — misma situación, lógica lista en Firestore sin UI.
+- `getCustomRoutines` / `saveCustomRoutine` / `updateCustomRoutine` / `deleteCustomRoutine`: rutinas armadas por el usuario, consumidas desde `RutinasPage.jsx`.
+
+---
+
+## 8. ÍCONOS SVG (`src/components/icons/WorkoutIcons.jsx`)
+
+### Los 5 componentes SVG
+
+Código completo del archivo:
+
+```jsx
+export function FuerzaIcon({ size = 24, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {/* Left weight plate */}
+      <rect x="2" y="7.5" width="4.5" height="9" rx="1.5"/>
+      {/* Handle */}
+      <line x1="6.5" y1="12" x2="17.5" y2="12"/>
+      {/* Right weight plate */}
+      <rect x="17.5" y="7.5" width="4.5" height="9" rx="1.5"/>
+    </svg>
+  )
+}
+
+export function CardioIcon({ size = 24, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {/* Head */}
+      <circle cx="14.5" cy="4" r="2"/>
+      {/* Body (forward lean) */}
+      <path d="M13.5 6L11 13"/>
+      {/* Trailing arm (pointing forward) */}
+      <path d="M12.5 8L9.5 6.2"/>
+      {/* Leading arm (pointing back) */}
+      <path d="M11.5 9.5L14.5 12"/>
+      {/* Leading leg */}
+      <path d="M11 13L14 19"/>
+      {/* Leading foot */}
+      <path d="M14 19L16 18.2"/>
+      {/* Trailing leg */}
+      <path d="M11 13L8 19"/>
+    </svg>
+  )
+}
+
+export function ClaseIcon({ size = 24, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {/* Lightning bolt */}
+      <path d="M13 2L5 13h6l-2 9l11-11h-7z"/>
+    </svg>
+  )
+}
+
+export function TabataIcon({ size = 24, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {/* Main circle body */}
+      <circle cx="12" cy="13" r="7"/>
+      {/* Crown button + stem */}
+      <path d="M10 4.5h4M12 4.5v1.5"/>
+      {/* 12 o'clock tick mark */}
+      <line x1="12" y1="7" x2="12" y2="9"/>
+      {/* Hand pointing to ~2 o'clock */}
+      <line x1="12" y1="13" x2="15.5" y2="10"/>
+    </svg>
+  )
+}
+
+export function DescansIcon({ size = 24, className = '' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {/* Crescent moon */}
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  )
+}
+```
+
+Los 5 son SVG custom dibujados a mano (no vienen de una librería de íconos), `stroke`-based (`fill="none"`), pensados para heredar `color` vía `currentColor` — por eso todos los usos externos les pasan el color por CSS/prop `color` o `style={{ color }}`, nunca un `fill` directo.
+
+### El helper `WorkoutIcon({ type, size, className })`
+
+```jsx
+export function WorkoutIcon({ type, size = 24, className = '' }) {
+  const map = {
+    fuerza:   FuerzaIcon,
+    cardio:   CardioIcon,
+    clase:    ClaseIcon,
+    tabata:   TabataIcon,
+    descanso: DescansIcon,
+  }
+  const Icon = map[type] || FuerzaIcon   // fallback: FuerzaIcon si el type no matchea
+  return <Icon size={size} className={className} />
+}
+```
+
+Nota: `WorkoutIcon` no expone una prop de color propia — el color se controla heredando `currentColor` desde el CSS del elemento contenedor (`className`/`style` en el padre).
+
+### Colores por tipo (constante en todo el codebase)
+
+| Tipo | Color hex | Dónde está declarado |
+|---|---|---|
+| `fuerza` | `#9B7FD4` | `ProgresoPage.jsx` (`TYPE_COLORS`), `WorkoutWizard.jsx` (`TYPE_ICON_MAP`) |
+| `cardio` | `#4ade80` | ídem |
+| `clase`  | `#60a5fa` | ídem |
+| `tabata` | `#f59e0b` | `ProgresoPage.jsx` (`TYPE_COLORS`) — `tabata` no tiene entrada en `TYPE_ICON_MAP` de WorkoutWizard porque el wizard no ofrece tabata como tipo inicial (se registra desde `TabataPage`) |
+
+```js
+// src/components/progreso/ProgresoPage.jsx
+const TYPE_COLORS = {
+  fuerza: '#9B7FD4',
+  cardio: '#4ade80',
+  clase:  '#60a5fa',
+  tabata: '#f59e0b',
+}
+```
+```js
+// src/components/registro/WorkoutWizard.jsx — Step 0 (selector de tipo)
+const TYPE_ICON_MAP = {
+  fuerza: { Icon: FuerzaIcon, color: '#9B7FD4' },
+  cardio: { Icon: CardioIcon, color: '#4ade80' },
+  clase:  { Icon: ClaseIcon,  color: '#60a5fa' },
+}
+```
+
+Estos mismos valores hex se repiten (no están centralizados en un único archivo de tema) en `App.jsx`, `Inicio.jsx`, `FatigueChart.jsx`, `Logros.jsx`, `BibliotecaTab.jsx` y `FuerzaFlow.jsx` para el morado `#9B7FD4`. **Si se cambia la paleta de un tipo de workout, hay que actualizar cada uno de estos archivos individualmente** — no hay una constante compartida (ej. un `theme.js`) que centralice estos colores.
+
+### Dónde se usan
+
+- **`ProgresoPage.jsx`** (bloque "Últimas Sesiones"): `WorkoutIcon` con el color de `TYPE_COLORS[type]` para identificar visualmente cada entrada del historial.
+- **`WorkoutWizard.jsx`** (Step 0, selector de tipo de entrenamiento): `FuerzaIcon`/`CardioIcon`/`ClaseIcon` importados directamente (no vía el helper `WorkoutIcon`) junto al color de `TYPE_ICON_MAP`, dentro de las `TYPE_CARDS`.
+
+---
+
+## 9. DECISIONES DE PRODUCTO
+
+### Racha basada en semanas, no días
+**Decisión**: la racha se mide en semanas consecutivas, no en días consecutivos de entrenamiento.
+**Motivo**: el entrenamiento de fuerza requiere descanso entre sesiones. Una racha de días consecutivos penalizaría el descanso necesario y empujaría a sobreentrenar.
+**Alternativa descartada**: racha de días consecutivos estilo Duolingo. Descartada porque incentiva entrenar todos los días, contraproducente para el desarrollo de fuerza.
+
+### Mínimo 3 días para semana válida
+**Decisión**: una semana cuenta para la racha (`isActive`) solo si tiene ≥3 días únicos de entrenamiento real.
+**Motivo**: 1 o 2 días es un inicio pero no refleja una semana de entrenamiento consistente. 3 días es además el default del objetivo del perfil (`diasSemana = 3` cuando no está seteado).
+**Alternativa descartada**: 1 día = semana válida. Descartada porque inflaba la racha artificialmente sin reflejar un hábito real.
+
+### Cualquier entrenamiento descongela la racha (no se requiere mínimo)
+**Decisión**: con 1 solo workout en la semana actual tras una pausa/frozen, el override cambia el estado a `active` de inmediato — sin exigir los 3 días que sí exige el criterio de "semana activa".
+**Motivo**: el objetivo del override es reflejar el **regreso al entrenamiento**, no medir si la semana completa ya cumplió el mínimo. Ver el ícono 🔥 después de la primera sesión tras una enfermedad es motivador; esperar a completar 3 días sería punitivo justo cuando el usuario más necesita el refuerzo positivo.
+**Alternativa descartada**: requerir 3 días para descongelar, igual que para calificar una semana. Descartada porque el usuario podría estar recién arrancando la semana y aún tener días por delante.
+
+### Pausa sin botón de "descongelar manual"
+**Decisión**: no existe ningún botón para marcar la pausa como "terminada". El entrenamiento real la descongela automáticamente.
+**Motivo**: reducir fricción — el usuario no tiene que "administrar" el estado de su pausa, simplemente vuelve a entrenar y el sistema lo detecta.
+**Alternativa descartada**: modal de "¿Ya te recuperaste?" al registrar el primer workout post-pausa. Descartada por complejidad de UX innecesaria para un problema que se resuelve solo con datos.
+
+### Fechas como strings `YYYY-MM-DD` (no Timestamps de Firestore)
+**Decisión**: todos los campos de fecha en workouts (`date`, `pausaInicio`, `pausaFin`) son strings, no Firestore Timestamps.
+**Motivo**: los Timestamps dependen del timezone del dispositivo que los lee para su visualización — riesgo real de bugs de "un día de diferencia". Con strings, la fecha es exacta y portable, y las comparaciones son simples comparaciones de strings (`date >= mondayStr`).
+**Alternativa descartada**: Timestamps de Firestore. Descartada tras bugs de timezone observados en dispositivos iOS con UTC-3.
+
+### Recomendaciones con API de Claude eliminadas de ProgresoPage
+**Decisión**: se removió la sección de "Recomendaciones" (que llamaba a la API de Claude) de `ProgresoPage.jsx`.
+**Motivo**: la complejidad de integrar y mantener llamadas a una API externa no se justificaba para el espacio y valor que aportaba en una app personal de uso diario. Las sugerencias diarias en `Inicio.jsx` (`getDailySuggestion()`) ya cubren el caso de uso principal de "qué entreno hoy".
+**Posible reimplementación futura**: si se retoma, debería pasar por una Cloud Function de Firebase que actúe como proxy — nunca exponer la API key de Claude en el bundle del frontend (ver decisión siguiente).
+
+### API key de Claude descartada en el frontend
+**Decisión**: no se integra la API de Claude directamente desde código cliente.
+**Motivo**: cualquier API key hardcodeada en JavaScript que corre en el navegador puede extraerse del bundle público e ser usada sin restricciones por terceros — riesgo de seguridad y de costo no controlado.
+**Alternativa descartada**: hardcodear la key en `.env` y subirla al build de Vite. Descartada por seguridad. La alternativa viable a futuro es una Cloud Function que reciba la request del cliente, la reenvíe a la API de Claude con la key guardada server-side, y devuelva la respuesta.
+
+### Sistema de recomendaciones reemplazado por algoritmo local (pendiente de implementar)
+**Decisión**: en lugar de reintroducir una API externa, la idea es reemplazar las recomendaciones por un algoritmo local basado en criterios de ciencia del entrenamiento (volumen, frecuencia por grupo muscular, fatiga acumulada, tiempo desde el último PR, etc.), corriendo enteramente en el cliente sin llamadas a IA.
+**Motivo**: evita el costo, la latencia y el riesgo de seguridad de una API externa, y da control total sobre la lógica de sugerencias.
+**Estado**: pendiente de implementar (ver sección 11).
+
+### UI de favoritos y lista negra de ejercicios descartada por ahora
+**Decisión**: aunque la lógica de datos existe en Firestore (`getFavorites`, `toggleFavorite`, `getNeverList`, `toggleNever` en `db.js`), no hay ninguna UI que permita al usuario marcar ejercicios como favoritos o "nunca sugerir".
+**Motivo**: se priorizaron otras features; la lógica de backend se dejó lista para cuando se decida construir la UI correspondiente.
+**Estado**: backend listo, UI no construida — no es un bug, es una feature incompleta a propósito.
+
+---
+
+## 10. ARCHIVOS CLAVE DEL PROYECTO
+
+### `src/hooks/useWorkouts.js`
+**Qué hace**: hook central de la app. Gestiona el array `workouts` con cache en `localStorage`, operaciones de escritura a Firestore, integración con el borrador offline, y contiene `getCurrentStreak()`.
+**Por qué es crítico**: cualquier cambio en la lógica de carga, guardado o racha pasa por acá. Tiene estado propio por instancia — `Inicio.jsx` y `WorkoutWizard.jsx` crean instancias separadas del hook, lo cual fue la causa raíz del bug de race condition documentado en la sección 6 (el fix fue el optimistic update en `saveWorkout`).
+
+### `src/context/AuthContext.jsx`
+**Qué hace**: provee `user`, `profile`, `settings`, `loading`, `authTimedOut` vía Context. Maneja el timeout de 15s de Auth. Distingue `user === undefined` de `user === null`.
+**Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida.
+
+### `src/pages/Inicio.jsx`
+**Qué hace**: home de la app. Llama `getCurrentStreak()`, calcula `rachaState`, y lo propaga como prop a `StatsCards` y `Logros`. Contiene `computeWeeklyStats()` (resumen semanal) y `getDailySuggestion()`.
+**Por qué es crítico**: es el único consumidor que invoca `getCurrentStreak()` y decide qué `streakState` se propaga al resto de la UI — los componentes hijos (`Logros.jsx`) no la llaman directamente.
+
+### `src/components/inicio/WeekCalendar.jsx`
+**Qué hace**: calendario semanal con puntos de color por tipo de workout. Pinta días de pausa en celeste (`enfermedad`/`lesión`) o gris (`descanso`) mediante 3 pasadas de prioridad (real > descanso > pausa). Incluye leyenda dinámica explicativa.
+**Por qué es crítico**: la lógica de prioridad visual debe mantenerse al agregar nuevos tipos de workout — cualquier tipo nuevo debe decidirse explícitamente en qué pasada entra.
+
+### `src/components/inicio/Logros.jsx`
+**Qué hace**: sistema de logros permanentes (35, `ACHIEVEMENTS_META`) y medallas semanales (4 de un pool de 12, `MEDAL_POOL`). Recibe `streakState` como prop — **no** llama `getCurrentStreak()` directamente.
+**Por qué es crítico**: `computeWeeklyMedals` y el algoritmo de selección 1-por-categoría con rotación semanal (`weekNum % pool.length`) es delicado — cambiar criterios de medallas acá requiere entender las reglas de exclusión (sección 3) y la prioridad de completadas sobre no completadas dentro de cada categoría.
+
+### `src/components/registro/WorkoutWizard.jsx`
+**Qué hace**: flujo de pasos para registrar un workout (tipo → detalle → sensación), incluyendo el flujo separado de pausa (`PausaFlow` + `InlineRangePicker`). Llama `workoutsHook.saveWorkout()` y muestra `WorkoutSummary`. Maneja el draft persistente del formulario (distinto del draft offline de `draftQueue.js`) y el timer de sesión.
+**Por qué es crítico**: el orden de operaciones al guardar (save a Firestore → optimistic update de cache → navegación) afecta directamente lo que ve `getCurrentStreak()` cuando el usuario llega a `Inicio` inmediatamente después de guardar.
+
+### `src/components/registro/WorkoutSummary.jsx`
+**Qué hace**: pantalla post-guardado con confetti, stats, PRs (`detectPRs`), mejoras vs. sesión anterior (`detectImprovements`, filtrando duplicados con `prs`), logros nuevos y frase del día. Auto-cierra a los 8s.
+**Por qué es crítico**: es el único lugar donde se muestran mejoras incrementales vs. la sesión anterior. Los `workouts` que recibe como prop son los del hook de `WorkoutWizard` capturados antes de que se agregue el workout recién guardado — por eso `detectPRs`/`detectImprovements` comparan correctamente contra el historial previo y no contra sí mismos.
+
+### `src/components/progreso/ProgresoPage.jsx`
+**Qué hace**: página de progreso con múltiples bloques — "Tu camino" (stats agregadas), "Tus victorias", historial en calendario mensual, progresión de ejercicios, gráficos de fatiga y volumen, "Últimas Sesiones" (usa `WorkoutIcon` + `TYPE_COLORS` + `detectPRs`).
+**Por qué es crítico**: llama `getCurrentStreak()` propia (instancia distinta del hook), a diferencia de `Inicio.jsx`. Contiene su propia lógica de expansión de rango de pausa para el calendario mensual (duplica parcialmente la lógica de `WeekCalendar.jsx`).
+
+### `src/utils/prUtils.js`
+**Qué hace**: exporta `detectPRs` (vs. máximo histórico absoluto) y `detectImprovements` (vs. sesión inmediatamente anterior). Archivo pequeño pero crítico para no confundir ambas semánticas.
+**Por qué es crítico**: las dos funciones parecen similares a simple vista pero comparan contra bases distintas — ver sección 4 antes de modificar cualquiera de las dos.
+
+### `src/utils/draftQueue.js`
+**Qué hace**: sistema de borrador local para guardado offline. `saveDraft`, `getDrafts`, `removeDraft`, `syncDrafts`. Usa `localStorage` con prefijo `workout_draft_{uid}`.
+**Por qué es crítico**: los workouts con `_pendingSync: true` en el array de `workouts` **no están en Firestore todavía**. Cualquier operación que asuma que todos los workouts tienen un ID válido de Firestore puede fallar silenciosamente con drafts sin sincronizar.
+
+### `src/utils/dates.js`
+**Qué hace**: helpers de fechas timezone-safe — `getTodayLocal`, `getWeekStartLocal`, `dateToLocal`, `parseLocalDate`, `toDateStr`, `weekKey`, `getWeekDays`, `getMonthDays`, `getLast12Weeks`. Ver sección 5 para el razonamiento completo.
+**Por qué es crítico**: usar `new Date().toISOString().split('T')[0]` en vez de `getTodayLocal()` produce bugs de timezone reales en dispositivos con UTC negativo (verificado en iOS UTC-3).
+
+### `src/services/db.js`
+**Qué hace**: todas las operaciones de lectura/escritura a Firestore — `getWorkouts`, `saveWorkout`, `getCustomExercises`, `saveCustomExercise`, `getUserProfile`, `getSettings`, `getFavorites`/`toggleFavorite`, `getNeverList`/`toggleNever`, `getCustomRoutines` y CRUD relacionado, `saveTabataRecord`/`getTabataRecordCount`, etc.
+**Por qué es crítico**: `getWorkouts` limita a los últimos 100 documentos (`limitN = 50` default en la firma, pero se llama con `100` desde `useWorkouts.js`). Agregar campos nuevos a los documentos puede requerir índices compuestos nuevos en Firestore si se combinan con `where`/`orderBy` adicionales.
+
+### `src/utils/achievements.js`
+**Qué hace**: `ACHIEVEMENTS_META` (35 logros con `key`, `label`, `desc`), `runAchievementCheck` (función async que evalúa y desbloquea logros nuevos), helpers de cálculo de criterios.
+**Por qué es crítico**: `runAchievementCheck` se llama tanto en `WorkoutWizard.jsx` (tras cada guardado, `.then().catch()` sin bloquear el flujo) como en `Logros.jsx` (al montar, para revalidar). Los logros recurrentes (`hamburguesaMerecida`, `rachaFuerza`, `semanaPerfecta`) tienen lógica de cooldown para poder desbloquearse más de una vez.
+
+### `src/components/icons/WorkoutIcons.jsx`
+**Qué hace**: los 5 componentes SVG custom (`FuerzaIcon`, `CardioIcon`, `ClaseIcon`, `TabataIcon`, `DescansIcon`) y el helper `WorkoutIcon({ type, size, className })`. Ver sección 8 para el detalle completo.
+**Por qué es crítico**: si se agrega un nuevo tipo de workout, el ícono correspondiente debe definirse acá y registrarse en el `map` interno de `WorkoutIcon` — de lo contrario cae al fallback `FuerzaIcon`.
+
+---
+
+## 11. PENDIENTES Y PRÓXIMOS PASOS
+
+En orden de prioridad sugerido:
+
+1. **Resumen semanal (`WeeklySummaryModal`) no debe contar pausas como días entrenados.**
+   Bug confirmado en código actual: `computeWeeklyStats()` en [Inicio.jsx:57](src/pages/Inicio.jsx:57) filtra `w.type !== 'descanso'` pero **no filtra `w.type !== 'pausa'`**, por lo que `daysTrained = new Set(lastWeek.map(w => w.date)).size` (línea 60) puede contar un documento de tipo `pausa` como si fuera un día entrenado. Fix sugerido: agregar `&& w.type !== 'pausa'` al filtro de `lastWeek`.
+
+2. **Flip cards en "Tu Camino" de `ProgresoPage.jsx`.**
+   Actualmente el bloque "Tu camino" (`ProgresoPage.jsx`, sección `CaminoCard`) usa tarjetas estáticas simples. `Logros.jsx` ya tiene un patrón de flip card funcionando (`TrophyCard`, con clases CSS `.flip-card`/`.flip-inner`/`.flip-front`/`.flip-back` definidas en `index.css`) que podría reutilizarse para mostrar más contexto al tocar cada `CaminoCard`.
+
+3. **Algoritmo local de recomendaciones basado en ciencia del entrenamiento (sin API externa).**
+   Reemplazo planeado del sistema de recomendaciones eliminado (ver sección 9). Debe correr enteramente en el cliente, sin llamadas a IA — criterios como volumen semanal por grupo muscular, frecuencia, fatiga acumulada y tiempo desde el último PR.
+
+4. **Revisión y optimización completa del onboarding.**
+   Sin alcance definido todavía — pendiente de diseño.
+
+5. **(Backend listo, sin UI)** Favoritos y lista negra de ejercicios — ver sección 9. No es estrictamente un pendiente de prioridad alta, pero queda registrado como funcionalidad con datos ya modelados en Firestore (`getFavorites`, `toggleFavorite`, `getNeverList`, `toggleNever` en `db.js`) esperando una UI.
+
+---
+
+## Documentación técnica extendida
+
+Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

@@ -1298,9 +1298,146 @@ if (equipCategory === 'bodyweight' && currentWeight === 0) {
   }
 }
 ```
-Si el ejercicio es de peso corporal (`equipCategory === 'bodyweight'`, resuelto vía `getEquipCategory(equip)`) y el usuario nunca le sumó peso (`currentWeight === 0`), no tiene sentido sugerir "subí a Xkg" — en su lugar la sugerencia es de **reps** (`suggestType: 'reps'`, `suggestedReps: repsThreshold + 2`). Para cualquier otro caso con `suggest: true`, `suggestType: 'weight'` y `newWeight` se calcula con `getNextWeight(currentWeight, learnedWeights, equipCategory)`. En [FuerzaFlow.jsx](src/components/registro/FuerzaFlow.jsx), `ExerciseCard` renderiza el mensaje según `suggestType`: `"📈 Sumá reps (objetivo X)"` para `'reps'`, o el mensaje de peso existente para `'weight'`.
+Si el ejercicio es de peso corporal (`equipCategory === 'bodyweight'`, resuelto vía `getEquipCategory(equip)`) y el usuario nunca le sumó peso (`currentWeight === 0`), no tiene sentido sugerir "subí a Xkg" — en su lugar la sugerencia es de **reps** (`suggestType: 'reps'`, `suggestedReps: repsThreshold + 2`). Para cualquier otro caso con `suggest: true`, `suggestType: 'weight'` y `newWeight` se calcula con `getNextWeight(currentWeight, learnedWeights, equipCategory)`. Desde la sección 13, `getProgressionAdvice` también expone `repsThreshold` en los casos `suggest: false` (siempre que `hasHistory: true`), para que `FuerzaFlow.jsx` pueda decidir si corresponde sumar +1 rep — ver esa sección para el detalle completo de cómo se consume este resultado.
 
 `learnedWeights` y el `equip` crudo del ejercicio se pasan a `getProgressionAdvice` desde `FuerzaFlow.jsx` (`getLearnedWeights(entry.exerciseId)` y `ex.equip`) — `progression.js` no conoce Firestore ni `exercises.js` directamente, solo recibe estos datos ya resueltos.
+
+---
+
+## 13. SUGERENCIAS PRECARGADAS (`src/components/registro/FuerzaFlow.jsx`)
+
+La sugerencia de progresión dejó de ser solo un texto informativo: cuando corresponde, se **precarga directamente** en las cajas de series/reps/peso, resaltada con un brillo violeta. La lógica vive en dos funciones puras al inicio de `FuerzaFlow.jsx` (antes de `ExerciseCard`), compartidas entre el armado del ejercicio (`buildEntry`) y el texto que se muestra (`ExerciseCard`).
+
+### `computeSuggestionPlan(advice, lastSets)` — reglas a-e
+
+```js
+function computeSuggestionPlan(advice, lastSets) {
+  if (!advice?.hasHistory || !lastSets?.length) return null
+  const pyramid = advice.pattern === 'pyramid'
+
+  if (advice.suggest && advice.suggestType === 'weight') {
+    return { type: 'weight', pyramid, value: advice.newWeight }
+  }
+  if (advice.suggest && advice.suggestType === 'reps') {
+    return { type: 'reps-target', pyramid, value: advice.suggestedReps }
+  }
+  if (!advice.suggest && advice.repsThreshold != null) {
+    const threshold = advice.repsThreshold
+    const under = (s) => (Number(s.reps) || 0) < threshold
+    const applies = pyramid ? under(lastSets[lastSets.length - 1]) : lastSets.some(under)
+    if (applies) return { type: 'reps-bump', pyramid, threshold }
+  }
+  return null
+}
+```
+
+Traduce el resultado de `getProgressionAdvice()` (sección "Sistema de pesos") en un **plan** describiendo qué campo tocar y en qué series:
+
+| Regla | Condición | `plan.type` | Qué se precarga |
+|---|---|---|---|
+| **a** | Descarga activa (`deloadActive`) | — (nunca se llama, `plan` se fuerza a `null`) | Nada — solo la reducción de deload existente, sin brillo |
+| **b** | `advice.suggest && suggestType === 'weight'` | `'weight'` | `pyramid` → `newWeight` solo en la **última** serie. `fixed` → `newWeight` en **todas**. Reps quedan igual que la última sesión |
+| **c** | `advice.suggest && suggestType === 'reps'` (peso corporal) | `'reps-target'` | `pyramid` → `suggestedReps` solo en la última serie. `fixed` → en todas |
+| **d** | `!advice.suggest` pero `hasHistory` y alguna serie no llegó a `repsThreshold` | `'reps-bump'` | `pyramid` → +1 rep solo si la **última** serie no llegó. `fixed` → +1 rep en **cada** serie individual que no llegó (las que ya llegaron quedan intactas) |
+| **e** | `!advice.hasHistory` (sin historial) o sin `lastSets` | `null` | Nada — comportamiento sin cambios, ninguna caja brilla |
+
+Nota sobre la regla **d**: puede no aplicar ningún cambio aunque `advice.suggest === false` — por ejemplo, si las reps de ambas sesiones ya llegaron al umbral pero el peso varió entre sesiones (por lo que `getProgressionAdvice` no dispara `suggest: true`), no hay ninguna serie "por debajo del umbral" para sumarle una rep, y `computeSuggestionPlan` devuelve `null` (sin brillo).
+
+### `applySuggestionPlan(setsArr, plan)` — aplicación y marcado
+
+```js
+function applySuggestionPlan(setsArr, plan) {
+  if (!plan) return
+  const lastIdx = setsArr.length - 1
+  const mark = (idx, field, value) => {
+    setsArr[idx] = { ...setsArr[idx], [field]: value, _suggested: { [field]: true } }
+  }
+  if (plan.type === 'weight') {
+    if (plan.pyramid) mark(lastIdx, 'weight', plan.value)
+    else setsArr.forEach((_, i) => mark(i, 'weight', plan.value))
+  } else if (plan.type === 'reps-target') {
+    if (plan.pyramid) mark(lastIdx, 'reps', plan.value)
+    else setsArr.forEach((_, i) => mark(i, 'reps', plan.value))
+  } else if (plan.type === 'reps-bump') {
+    if (plan.pyramid) {
+      const reps = Number(setsArr[lastIdx].reps) || 0
+      if (reps < plan.threshold) mark(lastIdx, 'reps', reps + 1)
+    } else {
+      setsArr.forEach((s, i) => {
+        const reps = Number(s.reps) || 0
+        if (reps < plan.threshold) mark(i, 'reps', reps + 1)
+      })
+    }
+  }
+}
+```
+
+Muta `setsArr` in-place y marca cada campo tocado con `_suggested: { weight: true }` o `_suggested: { reps: true }` — nunca ambos a la vez en el mismo set, porque cada rama de `computeSuggestionPlan` decide un único tipo de campo por ejercicio/sesión.
+
+### Dónde se invoca — `buildEntry` en `FuerzaFlow`
+
+```js
+if (!deloadActive) {
+  const advice = getProgressionAdvice(ex.id, ex.name, ex.level, history, learned, ex.equip)
+  applySuggestionPlan(setsArr, computeSuggestionPlan(advice, lastSets))
+}
+```
+
+`buildEntry(ex)` es el único punto de armado de un ejercicio con series precargadas desde el historial, y **todos** los flujos que arman o rearman un ejercicio pasan por ahí: carga manual (`addExercise`), rutinas pre-armadas y generadas (`loadRoutine`, `useGeneratedRoutine`), `swapToAlt` y `replaceWithExercise` — todos llaman `buildEntry` internamente, así que heredan la precarga de sugerencias automáticamente sin lógica duplicada.
+
+### El campo `_suggested` — solo UI, nunca persiste
+
+- **No se guarda en Firestore.** En [WorkoutWizard.jsx](src/components/registro/WorkoutWizard.jsx), `handleSave()` construye el workout final con `stripSuggestedFlags(detail.exercises)` antes de `sanitizeWorkout()`:
+  ```js
+  const stripSuggestedFlags = (exs) =>
+    (exs ?? []).map(ex => ({
+      ...ex,
+      sets: (ex.sets ?? []).map(({ _suggested, ...rest }) => rest),
+    }))
+  ```
+  El objeto `workout` resultante (ya sin `_suggested`) es el mismo que se pasa a `saveWorkout()` — por lo tanto tanto el documento de Firestore como la actualización optimista del cache/estado local (`useWorkouts.js`) y la pantalla `WorkoutSummary` quedan limpios. `detectPRs`, `detectImprovements`, `achievements.js` y los gráficos de `ProgresoPage.jsx` nunca ven este campo porque todos leen `workouts` (Firestore/cache), no el estado en vivo del wizard.
+- **Sobrevive al borrador de `sessionStorage`.** El draft del wizard (`WorkoutDraftContext`, clave `workoutDraft`) guarda `detail` tal cual — como el stripping solo ocurre sobre una copia al momento de guardar (`stripSuggestedFlags` no muta `detail.exercises`), el borrador conserva `_suggested` intacto, así que si el usuario recarga la pantalla a mitad de un registro, el brillo persiste.
+- **Se quita al editar.** `updateSet(i, field, val)` en `ExerciseCard` limpia la marca del campo editado:
+  ```js
+  if (next._suggested?.[field]) {
+    const { [field]: _cleared, ...restFlags } = next._suggested
+    if (Object.keys(restFlags).length) next._suggested = restFlags
+    else delete next._suggested
+  }
+  ```
+- **`addSet` nunca copia la marca.** Construye un objeto literal nuevo (`{ reps: sets[0]?.reps ?? 10, weight: sets[0]?.weight ?? 0 }`) sin spread del set de origen, así que una serie agregada a mano nunca hereda `_suggested`.
+
+### Estilo del brillo — `.input-suggested` (`src/index.css`)
+
+```css
+@keyframes suggestGlow {
+  0%, 100% { box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 8px rgba(155, 127, 212, 0.6); }
+  50%      { box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 12px rgba(155, 127, 212, 0.85); }
+}
+.input-suggested {
+  border-color: #9B7FD4 !important;
+  color: #C9B8ED !important;
+  box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 8px rgba(155, 127, 212, 0.6);
+  animation: suggestGlow 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .input-suggested { animation: none; }
+}
+```
+
+Usa el violeta de la paleta (`app-purple-light` / `#9B7FD4`). El "borde" de 1.5px es en realidad un `box-shadow: 0 0 0 1.5px` (técnica de anillo sin ancho de borde real) — así no reserva espacio ni desplaza el layout, a diferencia de cambiar el `border-width` del input. El pulso lento (`suggestGlow`, 2.6s) se desactiva completamente bajo `prefers-reduced-motion: reduce`. La clase se aplica condicionalmente en `ExerciseCard`: `s._suggested?.reps ? 'input-suggested' : ''` y `s._suggested?.weight ? 'input-suggested' : ''` en los inputs de reps y peso respectivamente.
+
+### Texto acompañante
+
+Badge y mensaje se derivan del mismo `plan` (recalculado en el render de `ExerciseCard` a partir de `progressionAdvice` y `lastSession.sets`, con `plan` forzado a `null` si `deloadActive`):
+
+| `plan.type` | Badge | Mensaje |
+|---|---|---|
+| `'weight'` | `📈 Subí el peso` | `📈 Hoy: {value}kg` (+ `' en la última serie'` si `pyramid`) |
+| `'reps-target'` | `📈 Sumá reps` | `📈 Sumá reps (objetivo {value})` |
+| `'reps-bump'` | `📈 +1 rep` | `📈 Hoy: +1 rep` |
+| `null` con historial | — | `✓ Mantené el peso, vas bien.` |
+| sin historial | — | `💡 Primera vez con este ejercicio...` |
 
 ---
 

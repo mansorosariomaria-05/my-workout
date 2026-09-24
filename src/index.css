@@ -48,6 +48,21 @@ html, body, #root {
 .animate-slideUp   { animation: slideUp 0.35s ease-out; }
 .animate-pulse-slow { animation: pulse 2s ease-in-out infinite; }
 
+/* Sugerencia de progresión precargada en un input (FuerzaFlow) */
+@keyframes suggestGlow {
+  0%, 100% { box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 8px rgba(155, 127, 212, 0.6); }
+  50%      { box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 12px rgba(155, 127, 212, 0.85); }
+}
+.input-suggested {
+  border-color: #9B7FD4 !important;
+  color: #C9B8ED !important;
+  box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 8px rgba(155, 127, 212, 0.6);
+  animation: suggestGlow 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .input-suggested { animation: none; }
+}
+
 /* Flip cards 3D — VitrinaTrofeos */
 .flip-card { perspective: 600px; width: 100%; }
 .flip-inner {

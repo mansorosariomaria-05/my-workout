@@ -33,7 +33,7 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
   const equipCategory = getEquipCategory(equip)
 
   if (sessionHistory.length < 2 || !sessionHistory[1]?.sets?.length) {
-    return { hasHistory: true, suggest: false, pattern }
+    return { hasHistory: true, suggest: false, pattern, repsThreshold }
   }
 
   const sets1 = sessionHistory[0].sets
@@ -58,7 +58,7 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
     hitThreshold  = Math.abs(avgWt1 - avgWt2) < 0.5 && avgReps1 >= repsThreshold && avgReps2 >= repsThreshold
   }
 
-  if (!hitThreshold) return { hasHistory: true, suggest: false, pattern }
+  if (!hitThreshold) return { hasHistory: true, suggest: false, pattern, repsThreshold }
 
   if (equipCategory === 'bodyweight' && currentWeight === 0) {
     return {

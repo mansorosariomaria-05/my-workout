@@ -319,6 +319,12 @@ export default function WorkoutWizard({ initialType }) {
     return Array.from(muscles)
   }
 
+  const stripSuggestedFlags = (exs) =>
+    (exs ?? []).map(ex => ({
+      ...ex,
+      sets: (ex.sets ?? []).map(({ _suggested, ...rest }) => rest),
+    }))
+
   const sanitizeWorkout = (w) => {
     const clean = {}
     for (const [k, v] of Object.entries(w)) {
@@ -362,7 +368,7 @@ export default function WorkoutWizard({ initialType }) {
       deload:       settings?.deloadActive ?? false,
       muscleGroups: getMuscleGroups(),
       ...(type === 'fuerza' ? {
-        exercises: detail.exercises,
+        exercises: stripSuggestedFlags(detail.exercises),
         cinta: detail.cintas ? {
           tipo:        detail.cintaTipo || null,
           min:         detail.cintaMin        ? Number(detail.cintaMin)        : null,

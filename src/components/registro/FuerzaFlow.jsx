@@ -169,6 +169,53 @@ function ExerciseHistoryModal({ sessions }) {
   )
 }
 
+// Decide qué campos precargar como sugerencia a partir del advice de progresión y las series de la última sesión.
+// pyramid: solo la última serie recibe la sugerencia. fixed: todas las series la reciben.
+function computeSuggestionPlan(advice, lastSets) {
+  if (!advice?.hasHistory || !lastSets?.length) return null
+  const pyramid = advice.pattern === 'pyramid'
+
+  if (advice.suggest && advice.suggestType === 'weight') {
+    return { type: 'weight', pyramid, value: advice.newWeight }
+  }
+  if (advice.suggest && advice.suggestType === 'reps') {
+    return { type: 'reps-target', pyramid, value: advice.suggestedReps }
+  }
+  if (!advice.suggest && advice.repsThreshold != null) {
+    const threshold = advice.repsThreshold
+    const under = (s) => (Number(s.reps) || 0) < threshold
+    const applies = pyramid ? under(lastSets[lastSets.length - 1]) : lastSets.some(under)
+    if (applies) return { type: 'reps-bump', pyramid, threshold }
+  }
+  return null
+}
+
+// Muta setsArr in-place aplicando el plan, marcando cada campo tocado con _suggested (solo UI, se limpia antes de guardar).
+function applySuggestionPlan(setsArr, plan) {
+  if (!plan) return
+  const lastIdx = setsArr.length - 1
+  const mark = (idx, field, value) => {
+    setsArr[idx] = { ...setsArr[idx], [field]: value, _suggested: { [field]: true } }
+  }
+  if (plan.type === 'weight') {
+    if (plan.pyramid) mark(lastIdx, 'weight', plan.value)
+    else setsArr.forEach((_, i) => mark(i, 'weight', plan.value))
+  } else if (plan.type === 'reps-target') {
+    if (plan.pyramid) mark(lastIdx, 'reps', plan.value)
+    else setsArr.forEach((_, i) => mark(i, 'reps', plan.value))
+  } else if (plan.type === 'reps-bump') {
+    if (plan.pyramid) {
+      const reps = Number(setsArr[lastIdx].reps) || 0
+      if (reps < plan.threshold) mark(lastIdx, 'reps', reps + 1)
+    } else {
+      setsArr.forEach((s, i) => {
+        const reps = Number(s.reps) || 0
+        if (reps < plan.threshold) mark(i, 'reps', reps + 1)
+      })
+    }
+  }
+}
+
 function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, allSessions }) {
   const lastSets    = lastSession?.sets
   const defaultSecs = TIME_EXERCISES.some(n => ex.name.includes(n))
@@ -179,9 +226,19 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   const [showHistory, setShowHistory]       = useState(false)
   const { sets } = exData
   const currentRestSecs = exData.restSecs ?? restSec
+  const plan = deloadActive ? null : computeSuggestionPlan(progressionAdvice, lastSets)
 
   const updateSet = (i, field, val) => {
-    const updated = sets.map((s, idx) => idx === i ? { ...s, [field]: val === '' ? '' : Number(val) } : s)
+    const updated = sets.map((s, idx) => {
+      if (idx !== i) return s
+      const next = { ...s, [field]: val === '' ? '' : Number(val) }
+      if (next._suggested?.[field]) {
+        const { [field]: _cleared, ...restFlags } = next._suggested
+        if (Object.keys(restFlags).length) next._suggested = restFlags
+        else delete next._suggested
+      }
+      return next
+    })
     onChange({ ...exData, sets: updated })
   }
   const addSet    = () => onChange({ ...exData, sets: [...sets, { reps: sets[0]?.reps ?? 10, weight: sets[0]?.weight ?? 0 }] })
@@ -243,9 +300,9 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         {pr > 0 && maxWeight > 0 && maxWeight >= pr && (
           <span className="text-xs bg-app-gold/20 text-app-gold px-2 py-0.5 rounded-full font-medium">¡Nuevo récord! 🏆</span>
         )}
-        {progressionAdvice?.suggest && (
+        {plan && (
           <span className="text-xs bg-app-green/20 text-app-green-light px-2 py-0.5 rounded-full font-medium border border-app-green-light/20">
-            {progressionAdvice.suggestType === 'reps' ? '📈 Sumá reps' : '📈 Subí el peso'}
+            {plan.type === 'weight' ? '📈 Subí el peso' : plan.type === 'reps-bump' ? '📈 +1 rep' : '📈 Sumá reps'}
           </span>
         )}
       </div>
@@ -256,13 +313,21 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
             💡 Primera vez con este ejercicio. Empezá con las reps sugeridas y elegí un peso con el que puedas completarlas con buena forma.
           </p>
         </div>
-      ) : progressionAdvice?.suggest ? (
+      ) : plan?.type === 'weight' ? (
         <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-green-light text-xs font-medium">
-            {progressionAdvice.suggestType === 'reps'
-              ? `📈 Sumá reps (objetivo ${progressionAdvice.suggestedReps})`
-              : `📈 Sugerencia: subí a ${progressionAdvice.newWeight}kg${progressionAdvice.pattern === 'pyramid' ? ' en tu última serie' : ''}. Llegaste a ${progressionAdvice.repsThreshold} reps dos veces seguidas.`}
+            📈 Hoy: {plan.value}kg{plan.pyramid ? ' en la última serie' : ''}
           </p>
+        </div>
+      ) : plan?.type === 'reps-target' ? (
+        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
+          <p className="text-app-green-light text-xs font-medium">
+            📈 Sumá reps (objetivo {plan.value})
+          </p>
+        </div>
+      ) : plan?.type === 'reps-bump' ? (
+        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
+          <p className="text-app-green-light text-xs font-medium">📈 Hoy: +1 rep</p>
         </div>
       ) : (
         <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>
@@ -286,11 +351,11 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
             <div className={`grid gap-1 items-center ${useSeconds ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <button onClick={() => removeSet(i)} className="bg-app-bg rounded-lg py-2 text-xs text-app-muted font-medium">{i + 1}</button>
               <input type="number" value={s.reps ?? ''} onChange={e => updateSet(i, 'reps', e.target.value)}
-                className="bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50"
+                className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.reps ? 'input-suggested' : ''}`}
               />
               <input type="number" step="0.5" value={s.weight ?? ''} onChange={e => updateSet(i, 'weight', e.target.value)}
                 placeholder={lastSets?.[0]?.weight ?? '0'}
-                className="bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50"
+                className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.weight ? 'input-suggested' : ''}`}
               />
               {useSeconds && (
                 <button
@@ -458,6 +523,11 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       reps:   s.reps ?? '',
       weight: deloadActive ? getDeloadWeight(Number(s.weight) || 0, learned) : (s.weight ?? ''),
     }))
+
+    if (!deloadActive) {
+      const advice = getProgressionAdvice(ex.id, ex.name, ex.level, history, learned, ex.equip)
+      applySuggestionPlan(setsArr, computeSuggestionPlan(advice, lastSets))
+    }
 
     return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }
   }

@@ -192,11 +192,11 @@ function computeSuggestionPlan(advice, lastSets) {
   if (advice.suggest && advice.suggestType === 'reps') {
     return { type: 'reps-target', pyramid, value: advice.suggestedReps }
   }
-  if (!advice.suggest && advice.repsThreshold != null) {
-    const threshold = advice.repsThreshold
+  if (!advice.suggest && advice.effectiveThreshold != null) {
+    const threshold = advice.effectiveThreshold
     const under = (s) => (Number(s.reps) || 0) < threshold
     const applies = pyramid ? under(lastSets[lastSets.length - 1]) : lastSets.some(under)
-    if (applies) return { type: 'reps-bump', pyramid, threshold }
+    if (applies) return { type: 'reps-bump', pyramid, threshold, jumpBonus: advice.jumpBonus, nextWeight: advice.nextWeight }
   }
   return null
 }
@@ -351,7 +351,11 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         </div>
       ) : plan?.type === 'reps-bump' ? (
         <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-green-light text-xs font-medium">📈 Hoy: +1 rep</p>
+          <p className="text-app-green-light text-xs font-medium">
+            {plan.jumpBonus > 0
+              ? `📈 Hoy: +1 rep (objetivo ${plan.threshold} para subir a ${plan.nextWeight} kg)`
+              : '📈 Hoy: +1 rep'}
+          </p>
         </div>
       ) : (
         <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>

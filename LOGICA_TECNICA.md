@@ -1349,7 +1349,7 @@ Traduce el resultado de `getProgressionAdvice()` (sección "Sistema de pesos") e
 | **a** | Descarga activa (`deloadActive`) | — (nunca se llama, `plan` se fuerza a `null`) | Nada — solo la reducción de deload existente, sin brillo |
 | **b** | `advice.suggest && suggestType === 'weight'` | `'weight'` | `pyramid` → `newWeight` solo en la **última** serie. `fixed` → `newWeight` en **todas**. En las series donde cambia el peso, las **reps también bajan** a un valor realista (Epley — ver subsección abajo); las series donde no cambia el peso no se tocan |
 | **c** | `advice.suggest && suggestType === 'reps'` (peso corporal) | `'reps-target'` | `pyramid` → `suggestedReps` solo en la última serie. `fixed` → en todas |
-| **d** | `!advice.suggest` pero `hasHistory` y alguna serie no llegó a `repsThreshold` | `'reps-bump'` | `pyramid` → +1 rep solo si la **última** serie no llegó. `fixed` → +1 rep en **cada** serie individual que no llegó (las que ya llegaron quedan intactas) |
+| **d** | `!advice.suggest` pero `hasHistory` y alguna serie no llegó a `effectiveThreshold` (`repsThreshold` + bono por salto de peso, ver subsección abajo) | `'reps-bump'` | `pyramid` → +1 rep solo si la **última** serie no llegó. `fixed` → +1 rep en **cada** serie individual que no llegó (las que ya llegaron quedan intactas) |
 | **e** | `!advice.hasHistory` (sin historial) o sin `lastSets` | `null` | Nada — comportamiento sin cambios, ninguna caja brilla |
 
 Nota sobre la regla **d**: puede no aplicar ningún cambio aunque `advice.suggest === false` — por ejemplo, si las reps de ambas sesiones ya llegaron al umbral pero el peso varió entre sesiones (por lo que `getProgressionAdvice` no dispara `suggest: true`), no hay ninguna serie "por debajo del umbral" para sumarle una rep, y `computeSuggestionPlan` devuelve `null` (sin brillo).
@@ -1392,6 +1392,47 @@ estimateRepsAtWeight(18, 10, 20)
 clamp(6, repsMin=6, prevReps=10) = 6
 ```
 Resultado: las dos primeras series quedan intactas (`12×10kg`, `10×14kg`), y la última pasa a `20kg × 6`, con **ambos campos** (peso y reps) marcados `_suggested` y brillando.
+
+### Bono de reps por tamaño del salto de peso — `getJumpRepBonus`
+
+**Problema que resuelve**: el ACSM (American College of Sports Medicine) recomienda incrementos de carga de **2-10%** por progresión. Con discos y máquinas de gimnasio ese rango es fácil de respetar (18→20kg es +11%). Pero con **mancuernas livianas**, el salto disponible entre pesos consecutivos es fijo en kg y termina siendo *proporcionalmente* enorme: 3→4kg es +33%, muy por encima de lo recomendado. Exigir el mismo `repsThreshold` sin importar el tamaño del salto significa que, con mancuernas livianas, el sistema sugiere saltos de peso desproporcionados tan pronto como se cumple el umbral normal — subestimando el esfuerzo real que representa ese salto. La solución: exigir **más reps** en las últimas 2 sesiones antes de sugerir el salto, proporcional a qué tan grande es ese salto.
+
+```js
+// src/utils/progression.js
+export function getJumpRepBonus(currentWeight, nextWeight) {
+  if (!currentWeight || !nextWeight) return 0
+  const jump = (nextWeight - currentWeight) / currentWeight
+  if (jump <= 0.15) return 0
+  if (jump <= 0.25) return 2
+  return 4
+}
+```
+
+| Salto proporcional (`jump`) | Bono (`jumpBonus`) | Ejemplo |
+|---|---|---|
+| ≤ 15% | +0 reps | 18→20kg (+11%), 8→9kg (+12.5%) |
+| 15%–25% | +2 reps | 10→12kg (+20%), 4→5kg (+25%) |
+| > 25% | +4 reps | 3→4kg (+33%), 1→2kg (+100%) |
+
+`getJumpRepBonus` devuelve `0` si `currentWeight` o `nextWeight` son `0`/inválidos — esto es lo que hace que el bono **no aplique al caso de peso corporal con peso 0** (`equipCategory === 'bodyweight' && currentWeight === 0`, sección anterior): con `currentWeight = 0` el guard dispara antes de siquiera calcular `jump`, así que `effectiveThreshold` para ese caso termina siendo igual al `repsThreshold` de siempre, sin necesidad de un caso especial adicional.
+
+**Dónde se calcula, y por qué antes del chequeo de umbral**: en `getProgressionAdvice()`, `currentWeight` se deriva únicamente de la sesión más reciente (`sessionHistory[0]`, sin necesitar todavía una segunda sesión) — `pyramid` → peso máximo de esa sesión, `fixed` → promedio. Con eso ya se puede calcular:
+```js
+const nextWeight = getNextWeight(currentWeight, learnedWeights, equipCategory)
+const jumpBonus = getJumpRepBonus(currentWeight, nextWeight)
+const effectiveThreshold = repsThreshold + jumpBonus
+```
+`effectiveThreshold` (no `repsThreshold`) es lo que se compara contra las reps de las **2 últimas sesiones** (mismo criterio de antes: pyramid compara la última serie, fixed compara el promedio) para decidir `hitThreshold`. `newWeight` en el resultado final reutiliza el mismo `nextWeight` ya calculado, sin recalcularlo. `getProgressionAdvice` expone `effectiveThreshold`, `jumpBonus` y `nextWeight` en el objeto de retorno siempre que `hasHistory: true` (excepto en la rama de peso corporal con peso 0, que no los necesita).
+
+**Ejemplos** (verificados en la implementación):
+
+| Escenario | nivel | peso | reps (2 sesiones iguales) | `nextWeight` | `jumpBonus` | `effectiveThreshold` | Resultado |
+|---|---|---|---|---|---|---|---|
+| fijo | A/B | 10kg | 3×10 | 12kg | +2 (salto 20%) | 12 | **No** sugiere subir (10 reps < 12) → regla d: +1 rep, objetivo 12 |
+| fijo | A/B | 10kg | 3×12 | 12kg | +2 (salto 20%) | 12 | Sugiere subir a **12kg** (12 reps ≥ 12), con reps ajustadas por Epley + clamp |
+| fijo | A/B | 18kg | 3×10 | 20kg | +0 (salto 11%) | 10 | Sugiere subir a **20kg** (10 reps ≥ 10) — sin bono, igual que antes |
+
+**Regla d actualizada**: el objetivo de reps para "+1 rep" pasa a ser `effectiveThreshold` en vez de `repsThreshold` — así la app sigue pidiendo una rep más mientras no se alcance el umbral *efectivo* (el que ya incluye el bono por salto de peso), no el umbral base. El mensaje también cambia cuando corresponde: si `jumpBonus > 0`, `"📈 Hoy: +1 rep (objetivo {effectiveThreshold} para subir a {nextWeight} kg)"`; si `jumpBonus === 0`, se mantiene el mensaje corto `"📈 Hoy: +1 rep"` sin aclaración adicional (el próximo peso está a un salto razonable, no hace falta justificarlo).
 
 ### `applySuggestionPlan(setsArr, plan)` — aplicación y marcado
 
@@ -1486,7 +1527,7 @@ Badge y mensaje se derivan del mismo `plan` (recalculado en el render de `Exerci
 |---|---|---|
 | `'weight'` | `📈 Subí el peso` | `📈 Hoy: {value}kg × {reps} en la última serie` si `pyramid`; en `fixed`, `📈 Hoy: {value}kg × {reps}` si las reps quedaron iguales en todas las series, o solo `📈 Hoy: {value}kg` (sin `× reps`) si quedaron distintas entre series |
 | `'reps-target'` | `📈 Sumá reps` | `📈 Sumá reps (objetivo {value})` |
-| `'reps-bump'` | `📈 +1 rep` | `📈 Hoy: +1 rep` |
+| `'reps-bump'` | `📈 +1 rep` | `📈 Hoy: +1 rep (objetivo {effectiveThreshold} para subir a {nextWeight} kg)` si `jumpBonus > 0`; si no, `📈 Hoy: +1 rep` |
 | `null` con historial | — | `✓ Mantené el peso, vas bien.` |
 | sin historial | — | `💡 Primera vez con este ejercicio...` |
 

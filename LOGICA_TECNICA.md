@@ -1287,6 +1287,8 @@ Pool = pesos aprendidos **∪ lista estándar completa** (sin el tope de 25kg qu
 ### Progresión por reps en ejercicios de peso corporal
 
 En `getProgressionAdvice()` ([progression.js](src/utils/progression.js)), la doble progresión (2 sesiones seguidas llegando al umbral de reps, mismo peso) se mantiene igual, pero al momento de decidir **qué sugerir**:
+
+`repsThreshold` **es exactamente el `max` de `REP_RANGES[level]`** (ver sección 13 para el rango completo por nivel: A/B → 10, C/D → 15) — no es un valor independiente, es el mismo número que ya se usaba antes, solo que ahora nombrado y derivado de una tabla explícita (`REP_RANGES`) en lugar de un ternario inline (`['A','B'].includes(level) ? 10 : 15`). El criterio de **cuándo** sugerir subir peso no cambió.
 ```js
 if (equipCategory === 'bodyweight' && currentWeight === 0) {
   return {
@@ -1316,7 +1318,16 @@ function computeSuggestionPlan(advice, lastSets) {
   const pyramid = advice.pattern === 'pyramid'
 
   if (advice.suggest && advice.suggestType === 'weight') {
-    return { type: 'weight', pyramid, value: advice.newWeight }
+    // Series donde se aplica newWeight: pyramid → solo la última, fixed → todas.
+    // Sus reps bajan a un valor realista (Epley), acotado entre repsMin del nivel y las reps que hizo esa serie la última vez.
+    const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
+    const reps = {}
+    idxList.forEach(i => {
+      const prevWeight = Number(lastSets[i]?.weight) || 0
+      const prevReps   = Number(lastSets[i]?.reps) || 0
+      reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
+    })
+    return { type: 'weight', pyramid, value: advice.newWeight, reps }
   }
   if (advice.suggest && advice.suggestType === 'reps') {
     return { type: 'reps-target', pyramid, value: advice.suggestedReps }
@@ -1336,12 +1347,51 @@ Traduce el resultado de `getProgressionAdvice()` (sección "Sistema de pesos") e
 | Regla | Condición | `plan.type` | Qué se precarga |
 |---|---|---|---|
 | **a** | Descarga activa (`deloadActive`) | — (nunca se llama, `plan` se fuerza a `null`) | Nada — solo la reducción de deload existente, sin brillo |
-| **b** | `advice.suggest && suggestType === 'weight'` | `'weight'` | `pyramid` → `newWeight` solo en la **última** serie. `fixed` → `newWeight` en **todas**. Reps quedan igual que la última sesión |
+| **b** | `advice.suggest && suggestType === 'weight'` | `'weight'` | `pyramid` → `newWeight` solo en la **última** serie. `fixed` → `newWeight` en **todas**. En las series donde cambia el peso, las **reps también bajan** a un valor realista (Epley — ver subsección abajo); las series donde no cambia el peso no se tocan |
 | **c** | `advice.suggest && suggestType === 'reps'` (peso corporal) | `'reps-target'` | `pyramid` → `suggestedReps` solo en la última serie. `fixed` → en todas |
 | **d** | `!advice.suggest` pero `hasHistory` y alguna serie no llegó a `repsThreshold` | `'reps-bump'` | `pyramid` → +1 rep solo si la **última** serie no llegó. `fixed` → +1 rep en **cada** serie individual que no llegó (las que ya llegaron quedan intactas) |
 | **e** | `!advice.hasHistory` (sin historial) o sin `lastSets` | `null` | Nada — comportamiento sin cambios, ninguna caja brilla |
 
 Nota sobre la regla **d**: puede no aplicar ningún cambio aunque `advice.suggest === false` — por ejemplo, si las reps de ambas sesiones ya llegaron al umbral pero el peso varió entre sesiones (por lo que `getProgressionAdvice` no dispara `suggest: true`), no hay ninguna serie "por debajo del umbral" para sumarle una rep, y `computeSuggestionPlan` devuelve `null` (sin brillo).
+
+### Rangos de reps por nivel y ajuste con Epley (regla b)
+
+Antes de este ajuste, cuando se sugería subir el peso las reps quedaban iguales a la sesión anterior — con el peso nuevo, esas reps eran casi imposibles de completar. Ahora, cada serie donde se aplica `newWeight` recalcula sus reps con la fórmula de Epley, acotadas a un rango realista por nivel del ejercicio:
+
+```js
+// src/utils/progression.js
+export const REP_RANGES = {
+  A: { min: 6,  max: 10 },
+  B: { min: 6,  max: 10 },
+  C: { min: 10, max: 15 },
+  D: { min: 10, max: 15 },
+}
+
+export function estimateRepsAtWeight(prevWeight, prevReps, newWeight) {
+  if (!prevWeight || !newWeight) return prevReps
+  const oneRM = prevWeight * (1 + prevReps / 30)
+  // +1e-9: corrige el error de punto flotante de JS (ej. 24 puede representarse como 23.999999999999996)
+  // que haría que Math.floor redondee un resultado matemáticamente entero hacia el entero anterior.
+  return Math.floor(30 * (oneRM / newWeight - 1) + 1e-9)
+}
+```
+
+`repsThreshold` (el umbral que dispara la sugerencia de subir peso, sección "Sistema de pesos") **es exactamente `REP_RANGES[level].max`** — 10 para A/B, 15 para C/D. `repsMin` (`REP_RANGES[level].min` — 6 para A/B, 10 para C/D) es el piso al que nunca deben bajar las reps sugeridas, sin importar cuánto suba el peso.
+
+Para cada serie donde `computeSuggestionPlan` aplica `newWeight`, las reps sugeridas son:
+```js
+clamp(estimateRepsAtWeight(pesoAnteriorDeEsaSerie, repsAnterioresDeEsaSerie, newWeight), repsMin, repsAnterioresDeEsaSerie)
+```
+`clamp(valor, min, max) = Math.min(Math.max(valor, min), max)` — nunca por debajo de `repsMin` del nivel, y nunca por encima de las reps que esa serie hizo la sesión anterior (subir de peso no debería pedir *más* reps que antes).
+
+**Ejemplo** (el mismo que verifica la implementación): pirámide `12×10kg / 10×14kg / 10×18kg`, nivel A/B (`repsMin=6`, `repsThreshold=10`), 2 sesiones iguales. `hitThreshold` se cumple (última serie llegó a 10 reps en ambas sesiones, mismo peso máximo 18kg) → `suggest: true`, `newWeight = getNextWeight(18, ...) = 20`. Como el patrón es `pyramid`, solo la última serie recibe el peso nuevo:
+```
+estimateRepsAtWeight(18, 10, 20)
+  oneRM = 18 * (1 + 10/30) = 24
+  reps  = floor(30 * (24/20 - 1)) = floor(6) = 6
+clamp(6, repsMin=6, prevReps=10) = 6
+```
+Resultado: las dos primeras series quedan intactas (`12×10kg`, `10×14kg`), y la última pasa a `20kg × 6`, con **ambos campos** (peso y reps) marcados `_suggested` y brillando.
 
 ### `applySuggestionPlan(setsArr, plan)` — aplicación y marcado
 
@@ -1349,30 +1399,31 @@ Nota sobre la regla **d**: puede no aplicar ningún cambio aunque `advice.sugges
 function applySuggestionPlan(setsArr, plan) {
   if (!plan) return
   const lastIdx = setsArr.length - 1
-  const mark = (idx, field, value) => {
-    setsArr[idx] = { ...setsArr[idx], [field]: value, _suggested: { [field]: true } }
+  const mark = (idx, fields) => {
+    setsArr[idx] = { ...setsArr[idx], ...fields, _suggested: Object.fromEntries(Object.keys(fields).map(f => [f, true])) }
   }
   if (plan.type === 'weight') {
-    if (plan.pyramid) mark(lastIdx, 'weight', plan.value)
-    else setsArr.forEach((_, i) => mark(i, 'weight', plan.value))
+    const applyIdx = (idx) => mark(idx, { weight: plan.value, reps: plan.reps[idx] })
+    if (plan.pyramid) applyIdx(lastIdx)
+    else setsArr.forEach((_, i) => applyIdx(i))
   } else if (plan.type === 'reps-target') {
-    if (plan.pyramid) mark(lastIdx, 'reps', plan.value)
-    else setsArr.forEach((_, i) => mark(i, 'reps', plan.value))
+    if (plan.pyramid) mark(lastIdx, { reps: plan.value })
+    else setsArr.forEach((_, i) => mark(i, { reps: plan.value }))
   } else if (plan.type === 'reps-bump') {
     if (plan.pyramid) {
       const reps = Number(setsArr[lastIdx].reps) || 0
-      if (reps < plan.threshold) mark(lastIdx, 'reps', reps + 1)
+      if (reps < plan.threshold) mark(lastIdx, { reps: reps + 1 })
     } else {
       setsArr.forEach((s, i) => {
         const reps = Number(s.reps) || 0
-        if (reps < plan.threshold) mark(i, 'reps', reps + 1)
+        if (reps < plan.threshold) mark(i, { reps: reps + 1 })
       })
     }
   }
 }
 ```
 
-Muta `setsArr` in-place y marca cada campo tocado con `_suggested: { weight: true }` o `_suggested: { reps: true }` — nunca ambos a la vez en el mismo set, porque cada rama de `computeSuggestionPlan` decide un único tipo de campo por ejercicio/sesión.
+Muta `setsArr` in-place y marca cada campo tocado dentro de `_suggested`. Para `'weight'` marca **ambos** campos a la vez (`_suggested: { weight: true, reps: true }`, ya que la regla b siempre toca peso y reps juntos); para `'reps-target'` y `'reps-bump'` marca solo `{ reps: true }`. `mark()` construye el objeto `_suggested` dinámicamente a partir de las claves que efectivamente cambiaron, así que un set nunca queda con una marca en un campo que no se tocó.
 
 ### Dónde se invoca — `buildEntry` en `FuerzaFlow`
 
@@ -1433,11 +1484,13 @@ Badge y mensaje se derivan del mismo `plan` (recalculado en el render de `Exerci
 
 | `plan.type` | Badge | Mensaje |
 |---|---|---|
-| `'weight'` | `📈 Subí el peso` | `📈 Hoy: {value}kg` (+ `' en la última serie'` si `pyramid`) |
+| `'weight'` | `📈 Subí el peso` | `📈 Hoy: {value}kg × {reps} en la última serie` si `pyramid`; en `fixed`, `📈 Hoy: {value}kg × {reps}` si las reps quedaron iguales en todas las series, o solo `📈 Hoy: {value}kg` (sin `× reps`) si quedaron distintas entre series |
 | `'reps-target'` | `📈 Sumá reps` | `📈 Sumá reps (objetivo {value})` |
 | `'reps-bump'` | `📈 +1 rep` | `📈 Hoy: +1 rep` |
 | `null` con historial | — | `✓ Mantené el peso, vas bien.` |
 | sin historial | — | `💡 Primera vez con este ejercicio...` |
+
+El mensaje de `'weight'` se arma en `ExerciseCard` a partir de `plan.reps` (el mapa `{ índice: reps }` que ya calculó `computeSuggestionPlan`): en `pyramid` siempre hay un solo valor (la última serie); en `fixed` se compara si todos los valores de `plan.reps` son iguales (`Object.values(plan.reps).every(r => r === repsValues[0])`) para decidir si mostrar `× reps` o solo el peso.
 
 ---
 

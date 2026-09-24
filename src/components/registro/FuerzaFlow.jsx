@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
-import { getRestTimer, getProgressionAdvice } from '../../utils/progression'
+import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
 import { useAuthContext } from '../../context/AuthContext'
 import { getCustomExercises, saveCustomExercise, deleteCustomExercise, getCustomRoutines } from '../../services/db'
 import { Plus } from 'lucide-react'
@@ -169,6 +169,8 @@ function ExerciseHistoryModal({ sessions }) {
   )
 }
 
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+
 // Decide qué campos precargar como sugerencia a partir del advice de progresión y las series de la última sesión.
 // pyramid: solo la última serie recibe la sugerencia. fixed: todas las series la reciben.
 function computeSuggestionPlan(advice, lastSets) {
@@ -176,7 +178,16 @@ function computeSuggestionPlan(advice, lastSets) {
   const pyramid = advice.pattern === 'pyramid'
 
   if (advice.suggest && advice.suggestType === 'weight') {
-    return { type: 'weight', pyramid, value: advice.newWeight }
+    // Series donde se aplica newWeight: pyramid → solo la última, fixed → todas.
+    // Sus reps bajan a un valor realista (Epley), acotado entre repsMin del nivel y las reps que hizo esa serie la última vez.
+    const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
+    const reps = {}
+    idxList.forEach(i => {
+      const prevWeight = Number(lastSets[i]?.weight) || 0
+      const prevReps   = Number(lastSets[i]?.reps) || 0
+      reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
+    })
+    return { type: 'weight', pyramid, value: advice.newWeight, reps }
   }
   if (advice.suggest && advice.suggestType === 'reps') {
     return { type: 'reps-target', pyramid, value: advice.suggestedReps }
@@ -194,23 +205,25 @@ function computeSuggestionPlan(advice, lastSets) {
 function applySuggestionPlan(setsArr, plan) {
   if (!plan) return
   const lastIdx = setsArr.length - 1
-  const mark = (idx, field, value) => {
-    setsArr[idx] = { ...setsArr[idx], [field]: value, _suggested: { [field]: true } }
+  const mark = (idx, fields) => {
+    setsArr[idx] = { ...setsArr[idx], ...fields, _suggested: Object.fromEntries(Object.keys(fields).map(f => [f, true])) }
   }
   if (plan.type === 'weight') {
-    if (plan.pyramid) mark(lastIdx, 'weight', plan.value)
-    else setsArr.forEach((_, i) => mark(i, 'weight', plan.value))
+    // Las series donde no cambia el peso no se tocan.
+    const applyIdx = (idx) => mark(idx, { weight: plan.value, reps: plan.reps[idx] })
+    if (plan.pyramid) applyIdx(lastIdx)
+    else setsArr.forEach((_, i) => applyIdx(i))
   } else if (plan.type === 'reps-target') {
-    if (plan.pyramid) mark(lastIdx, 'reps', plan.value)
-    else setsArr.forEach((_, i) => mark(i, 'reps', plan.value))
+    if (plan.pyramid) mark(lastIdx, { reps: plan.value })
+    else setsArr.forEach((_, i) => mark(i, { reps: plan.value }))
   } else if (plan.type === 'reps-bump') {
     if (plan.pyramid) {
       const reps = Number(setsArr[lastIdx].reps) || 0
-      if (reps < plan.threshold) mark(lastIdx, 'reps', reps + 1)
+      if (reps < plan.threshold) mark(lastIdx, { reps: reps + 1 })
     } else {
       setsArr.forEach((s, i) => {
         const reps = Number(s.reps) || 0
-        if (reps < plan.threshold) mark(i, 'reps', reps + 1)
+        if (reps < plan.threshold) mark(i, { reps: reps + 1 })
       })
     }
   }
@@ -227,6 +240,19 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   const { sets } = exData
   const currentRestSecs = exData.restSecs ?? restSec
   const plan = deloadActive ? null : computeSuggestionPlan(progressionAdvice, lastSets)
+
+  let weightMsg = null
+  if (plan?.type === 'weight') {
+    const repsValues = Object.values(plan.reps)
+    const uniform = repsValues.every(r => r === repsValues[0])
+    if (plan.pyramid) {
+      weightMsg = `📈 Hoy: ${plan.value}kg × ${plan.reps[lastSets.length - 1]} en la última serie`
+    } else if (uniform) {
+      weightMsg = `📈 Hoy: ${plan.value}kg × ${repsValues[0]}`
+    } else {
+      weightMsg = `📈 Hoy: ${plan.value}kg`
+    }
+  }
 
   const updateSet = (i, field, val) => {
     const updated = sets.map((s, idx) => {
@@ -315,9 +341,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         </div>
       ) : plan?.type === 'weight' ? (
         <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-green-light text-xs font-medium">
-            📈 Hoy: {plan.value}kg{plan.pyramid ? ' en la última serie' : ''}
-          </p>
+          <p className="text-app-green-light text-xs font-medium">{weightMsg}</p>
         </div>
       ) : plan?.type === 'reps-target' ? (
         <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">

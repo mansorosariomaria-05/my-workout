@@ -13,11 +13,28 @@ export const getRestTimer = (objetivo) =>
 
 // ─── Doble progresión ─────────────────────────────────────────────────────────
 
+// Rango de reps "realista" por nivel de ejercicio. repsThreshold (umbral para subir peso) = max de este rango.
+export const REP_RANGES = {
+  A: { min: 6,  max: 10 },
+  B: { min: 6,  max: 10 },
+  C: { min: 10, max: 15 },
+  D: { min: 10, max: 15 },
+}
+
 export function detectPattern(sets) {
   if (!sets?.length || sets.length < 2) return 'fixed'
   const ws = sets.map(s => Number(s.weight) || 0)
   if (ws.every(w => w === ws[0])) return 'fixed'
   return ws.every((w, i) => i === 0 || w >= ws[i - 1]) ? 'pyramid' : 'fixed'
+}
+
+// Fórmula de Epley: estima cuántas reps rendirían a newWeight dado un desempeño previo (prevWeight, prevReps).
+export function estimateRepsAtWeight(prevWeight, prevReps, newWeight) {
+  if (!prevWeight || !newWeight) return prevReps
+  const oneRM = prevWeight * (1 + prevReps / 30)
+  // +1e-9: corrige el error de punto flotante de JS (ej. 24 puede representarse como 23.999999999999996)
+  // que haría que Math.floor redondee un resultado matemáticamente entero hacia el entero anterior.
+  return Math.floor(30 * (oneRM / newWeight - 1) + 1e-9)
 }
 
 // sessionHistory: [{date, sets: [{reps, weight}], fatigue}, ...]
@@ -28,12 +45,12 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
     return { hasHistory: false, suggest: false }
   }
 
-  const repsThreshold = ['A', 'B'].includes(level) ? 10 : 15
+  const { min: repsMin, max: repsThreshold } = REP_RANGES[level] ?? REP_RANGES.D
   const pattern = detectPattern(sessionHistory[0].sets)
   const equipCategory = getEquipCategory(equip)
 
   if (sessionHistory.length < 2 || !sessionHistory[1]?.sets?.length) {
-    return { hasHistory: true, suggest: false, pattern, repsThreshold }
+    return { hasHistory: true, suggest: false, pattern, repsThreshold, repsMin }
   }
 
   const sets1 = sessionHistory[0].sets
@@ -58,7 +75,7 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
     hitThreshold  = Math.abs(avgWt1 - avgWt2) < 0.5 && avgReps1 >= repsThreshold && avgReps2 >= repsThreshold
   }
 
-  if (!hitThreshold) return { hasHistory: true, suggest: false, pattern, repsThreshold }
+  if (!hitThreshold) return { hasHistory: true, suggest: false, pattern, repsThreshold, repsMin }
 
   if (equipCategory === 'bodyweight' && currentWeight === 0) {
     return {
@@ -66,17 +83,17 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
       suggestType: 'reps',
       currentWeight: 0,
       suggestedReps: repsThreshold + 2,
-      repsThreshold,
+      repsThreshold, repsMin,
     }
   }
 
-  if (currentWeight <= 0) return { hasHistory: true, suggest: false, pattern }
+  if (currentWeight <= 0) return { hasHistory: true, suggest: false, pattern, repsThreshold, repsMin }
 
   return {
     hasHistory: true, suggest: true, pattern,
     suggestType: 'weight',
     currentWeight,
     newWeight: getNextWeight(currentWeight, learnedWeights, equipCategory),
-    repsThreshold,
+    repsThreshold, repsMin,
   }
 }

@@ -377,7 +377,22 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         {sets.map((s, i) => (
           <div key={i}>
             <div className={`grid gap-1 items-center ${useSeconds ? 'grid-cols-4' : 'grid-cols-3'}`}>
-              <button onClick={() => removeSet(i)} className="bg-app-bg rounded-lg py-2 text-xs text-app-muted font-medium">{i + 1}</button>
+              <button
+                onClick={() => removeSet(i)}
+                aria-label={`Eliminar serie ${i + 1}`}
+                className="relative bg-app-bg rounded-lg py-2 text-xs text-app-muted font-medium"
+              >
+                {i + 1}
+                {sets.length > 1 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-white"
+                    style={{ width: 12, height: 12, fontSize: 8, lineHeight: 1, backgroundColor: '#E57373' }}
+                  >
+                    ✕
+                  </span>
+                )}
+              </button>
               <input type="number" value={s.reps ?? ''} onChange={e => updateSet(i, 'reps', e.target.value)}
                 className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.reps ? 'input-suggested' : ''}`}
               />

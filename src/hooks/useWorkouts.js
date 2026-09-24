@@ -108,6 +108,21 @@ export function useWorkouts(uid) {
     return pr
   }
 
+  const getLearnedWeights = (exerciseId) => {
+    const weights = new Set()
+    workouts.forEach(w => {
+      if (w.type !== 'fuerza') return
+      w.exercises?.forEach(e => {
+        if (e.exerciseId !== exerciseId) return
+        e.sets?.forEach(s => {
+          const n = Number(s.weight) || 0
+          if (n > 0) weights.add(n)
+        })
+      })
+    })
+    return [...weights].sort((a, b) => a - b)
+  }
+
   const getLastFatigueForExercise = (exerciseId) => {
     const relevant = workouts
       .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === exerciseId))
@@ -245,7 +260,7 @@ export function useWorkouts(uid) {
 
   return {
     workouts, loading, saveWorkout,
-    getLastWeightsForExercise, getPRForExercise,
+    getLastWeightsForExercise, getPRForExercise, getLearnedWeights,
     getLastFatigueForExercise, getTrainedMusclesRecovery,
     getWeekWorkouts, getCurrentStreak, reload: load,
   }

@@ -12,7 +12,7 @@ export function useDeload(settings, workouts) {
     return avg >= 7
   }
 
-  const getDeloadWeight = (weight) => isActive ? applyDeloadMultiplier(weight) : weight
+  const getDeloadWeight = (weight, learnedWeights = []) => isActive ? applyDeloadMultiplier(weight, learnedWeights) : weight
   const getDeloadSets = (sets) => isActive ? Math.max(2, sets - 1) : sets
 
   return { isActive, shouldSuggestDeload, getDeloadWeight, getDeloadSets }

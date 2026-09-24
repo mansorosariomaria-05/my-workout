@@ -1205,6 +1205,105 @@ En orden de prioridad sugerido:
 
 ---
 
+## 12. SISTEMA DE PESOS (`src/utils/weights.js`)
+
+Única fuente de verdad para todo lo relacionado a pesos sugeridos — reemplaza al sistema anterior de deltas fijos por keyword (`getWeightIncrement`) y a los helpers legacy de `GYM_WEIGHTS`. Se apoya en dos ideas: una **lista estándar** de pesos de gimnasio como base, y el **aprendizaje** de los pesos que el propio usuario ya usó en cada ejercicio.
+
+### Lista estándar
+
+```js
+// src/utils/weights.js
+export const STANDARD_WEIGHTS = [1, 2, 2.5, 3, 4, 5, 6, 7, 7.5, 8, 9, 10, 12, 12.5, 14, 15, 16, 17.5, 18, 20, 22, 24, 25]
+```
+Es la unión de los pesos disponibles en dos gimnasios distintos (mancuernas/discos típicos hasta 25kg). Por encima de 25kg (máquinas, barras cargadas) esta lista deja de ser representativa, así que las funciones la excluyen del cálculo cuando el peso actual ya supera ese umbral (ver `getNextWeight` más abajo).
+
+### Categoría de equipamiento — `getEquipCategory(equip)`
+
+Mapea el campo `equip` de `exercises.js` (string libre, ej. `'Mancuernas'`, `'Sin equipamiento'`, `'Polea/Banda'`) a una de 4 categorías: `'bodyweight' | 'barra' | 'maquina' | 'libre'`. Usa una tabla estática con los ~35 valores reales encontrados en `exercises.js` (`Sin equipamiento`, `Barra dominadas`, `Cajón`, `Fitball`, `Banco`, etc. → `bodyweight`; `Barra`, `Barra Z`, `Banco + Barra` → `barra`; `Máquina`, `Polea`, `Polea/Banda` → `maquina`; mancuernas, kettlebell y combinaciones ambiguas → `libre`), más un fallback por keyword (`incluye 'máquina'/'polea'` → maquina, `incluye 'sin equipamiento'` → bodyweight, `=== 'barra'` → barra, cualquier otro caso o `equip` vacío → `libre`) para ejercicios custom o valores nuevos no contemplados en la tabla.
+
+### Aprendizaje por ejercicio desde el historial — `getLearnedWeights(exerciseId)`
+
+En [useWorkouts.js](src/hooks/useWorkouts.js):
+```js
+const getLearnedWeights = (exerciseId) => {
+  const weights = new Set()
+  workouts.forEach(w => {
+    if (w.type !== 'fuerza') return
+    w.exercises?.forEach(e => {
+      if (e.exerciseId !== exerciseId) return
+      e.sets?.forEach(s => {
+        const n = Number(s.weight) || 0
+        if (n > 0) weights.add(n)
+      })
+    })
+  })
+  return [...weights].sort((a, b) => a - b)
+}
+```
+Recorre **todo** el historial (sin el límite de 5 sesiones de `getLastWeightsForExercise`), junta los pesos distintos > 0 que el usuario efectivamente usó en ese ejercicio, y los devuelve ordenados ascendente. Es el insumo principal (`learnedWeights`) de `getNextWeight` y `floorWeight` — así la app aprende, por ejemplo, que en un gimnasio en particular las mancuernas de ese usuario saltan de a 4kg en vez de seguir la lista estándar.
+
+### Regla de subida — `getNextWeight(current, learnedWeights, equipCategory)`
+
+```js
+export function getNextWeight(current, learnedWeights = [], equipCategory) {
+  const pool = new Set(learnedWeights)
+  if (current <= 25) STANDARD_WEIGHTS.forEach(w => pool.add(w))
+
+  const cap = Math.max(current * 1.25, current + 2.5)
+  const candidates = [...pool].filter(w => w > current && w <= cap + 1e-9)
+  if (candidates.length) return Math.min(...candidates)
+
+  const step = getTypicalStep(learnedWeights, current) ?? (equipCategory === 'maquina' ? 5 : 2.5)
+  return round2(current + step)
+}
+```
+1. **Pool**: pesos aprendidos del ejercicio, más la lista estándar completa **solo si el peso actual todavía es ≤25kg** (por encima de eso la lista estándar ya no aporta candidatos realistas).
+2. **Tope del +25%**: busca en el pool el menor peso que sea mayor al actual pero no se pase de `max(current*1.25, current+2.5)` — evita saltos absurdos como pasar de 12kg a un peso aprendido de 60kg en otro ejercicio (caso de test: `getNextWeight(12, [12, 60], 'barra')` → `12.5`, no `60`).
+3. **Salto típico** (`getTypicalStep`): si no hay ningún candidato dentro del tope (típico en pesos de máquina/barra por encima de 25kg), calcula la **moda de las diferencias entre pesos aprendidos distintos consecutivos** (considerando solo los que son ≥ 50% del peso actual, y requiriendo al menos 3 pesos distintos en ese filtro — si no hay suficientes, `null`). Empate → se queda con la diferencia menor.
+4. **Fallback final**: si ni siquiera hay salto típico calculable, usa un delta fijo por categoría de equipo — `5` para `maquina`, `2.5` para cualquier otro.
+
+### Regla de bajada — `floorWeight(target, learnedWeights)`
+
+```js
+export function floorWeight(target, learnedWeights = []) {
+  const t = round2(target)
+  const pool = new Set(learnedWeights)
+  STANDARD_WEIGHTS.forEach(w => pool.add(w))
+
+  const below = [...pool].filter(w => w <= t + 1e-9)
+  if (below.length) {
+    const candidate = Math.max(...below)
+    if (candidate >= t * 0.85 - 1e-9) return candidate
+  }
+
+  const rounded = Math.floor(t / 2.5) * 2.5
+  return Math.max(1, round2(rounded))
+}
+```
+Pool = pesos aprendidos **∪ lista estándar completa** (sin el tope de 25kg que sí tiene `getNextWeight`, porque acá el objetivo es encontrar un peso real/conocido igual o menor al target). Busca el mayor peso del pool que sea ≤ `target` — pero solo lo acepta si no se aleja más de un 15% hacia abajo (`>= target * 0.85`); si el candidato más cercano igual queda demasiado lejos (ej. `target=78` con pool `{..., 25, 100, 110, 120}` → el mayor ≤78 es `25`, muy lejos de `78*0.85=66.3`), descarta la idea de "peso conocido" y en su lugar redondea `target` hacia abajo al múltiplo de 2.5 más cercano (`78 → 77.5`), con un piso de `1`.
+
+`applyDeloadMultiplier(weight, learnedWeights)` es simplemente `floorWeight(weight * 0.65, learnedWeights)` — la reducción del 65% para la semana de descarga, ahora resuelta contra pesos reales/conocidos en vez de redondear ciegamente a la lista estándar (`nearestWeight`, eliminada).
+
+### Progresión por reps en ejercicios de peso corporal
+
+En `getProgressionAdvice()` ([progression.js](src/utils/progression.js)), la doble progresión (2 sesiones seguidas llegando al umbral de reps, mismo peso) se mantiene igual, pero al momento de decidir **qué sugerir**:
+```js
+if (equipCategory === 'bodyweight' && currentWeight === 0) {
+  return {
+    hasHistory: true, suggest: true, pattern,
+    suggestType: 'reps',
+    currentWeight: 0,
+    suggestedReps: repsThreshold + 2,
+    repsThreshold,
+  }
+}
+```
+Si el ejercicio es de peso corporal (`equipCategory === 'bodyweight'`, resuelto vía `getEquipCategory(equip)`) y el usuario nunca le sumó peso (`currentWeight === 0`), no tiene sentido sugerir "subí a Xkg" — en su lugar la sugerencia es de **reps** (`suggestType: 'reps'`, `suggestedReps: repsThreshold + 2`). Para cualquier otro caso con `suggest: true`, `suggestType: 'weight'` y `newWeight` se calcula con `getNextWeight(currentWeight, learnedWeights, equipCategory)`. En [FuerzaFlow.jsx](src/components/registro/FuerzaFlow.jsx), `ExerciseCard` renderiza el mensaje según `suggestType`: `"📈 Sumá reps (objetivo X)"` para `'reps'`, o el mensaje de peso existente para `'weight'`.
+
+`learnedWeights` y el `equip` crudo del ejercicio se pasan a `getProgressionAdvice` desde `FuerzaFlow.jsx` (`getLearnedWeights(entry.exerciseId)` y `ex.equip`) — `progression.js` no conoce Firestore ni `exercises.js` directamente, solo recibe estos datos ya resueltos.
+
+---
+
 ## Documentación técnica extendida
 
 Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

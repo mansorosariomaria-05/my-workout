@@ -244,7 +244,9 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
           <span className="text-xs bg-app-gold/20 text-app-gold px-2 py-0.5 rounded-full font-medium">¡Nuevo récord! 🏆</span>
         )}
         {progressionAdvice?.suggest && (
-          <span className="text-xs bg-app-green/20 text-app-green-light px-2 py-0.5 rounded-full font-medium border border-app-green-light/20">📈 Subí el peso</span>
+          <span className="text-xs bg-app-green/20 text-app-green-light px-2 py-0.5 rounded-full font-medium border border-app-green-light/20">
+            {progressionAdvice.suggestType === 'reps' ? '📈 Sumá reps' : '📈 Subí el peso'}
+          </span>
         )}
       </div>
 
@@ -257,7 +259,9 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       ) : progressionAdvice?.suggest ? (
         <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-green-light text-xs font-medium">
-            📈 Sugerencia: subí a {progressionAdvice.newWeight}kg{progressionAdvice.pattern === 'pyramid' ? ' en tu última serie' : ''}. Llegaste a {progressionAdvice.repsThreshold} reps dos veces seguidas.
+            {progressionAdvice.suggestType === 'reps'
+              ? `📈 Sumá reps (objetivo ${progressionAdvice.suggestedReps})`
+              : `📈 Sugerencia: subí a ${progressionAdvice.newWeight}kg${progressionAdvice.pattern === 'pyramid' ? ' en tu última serie' : ''}. Llegaste a ${progressionAdvice.repsThreshold} reps dos veces seguidas.`}
           </p>
         </div>
       ) : (
@@ -385,7 +389,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [newExFormMuscle, setNewExFormMuscle] = useState('')
   const [routineLoading, setRoutineLoading]   = useState(false)
   const [routineLoadError, setRoutineLoadError] = useState(null)
-  const { getLastWeightsForExercise, getPRForExercise, workouts } = workoutsHook
+  const { getLastWeightsForExercise, getPRForExercise, getLearnedWeights, workouts } = workoutsHook
   const { getDeloadWeight, getDeloadSets, isActive: deloadActive } = deloadHook
 
   useEffect(() => {
@@ -441,6 +445,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
 
   const buildEntry = (ex) => {
     const history = getLastWeightsForExercise(ex.id)
+    const learned = getLearnedWeights(ex.id)
     const defaultReps = ['A', 'B'].includes(ex.level) ? 10 : 12
 
     if (!history.length || !history[0]?.sets?.length) {
@@ -451,7 +456,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     const lastSets = history[0].sets
     const setsArr  = lastSets.map(s => ({
       reps:   s.reps ?? '',
-      weight: deloadActive ? getDeloadWeight(Number(s.weight) || 0) : (s.weight ?? ''),
+      weight: deloadActive ? getDeloadWeight(Number(s.weight) || 0, learned) : (s.weight ?? ''),
     }))
 
     return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }
@@ -948,7 +953,8 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
               ?? { id: entry.exerciseId, name: entry.name, muscle: entry.muscle, level: 'C', custom: true }
             const lastSetsHistory = getLastWeightsForExercise(entry.exerciseId)
             const pr      = getPRForExercise(entry.exerciseId)
-            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, lastSetsHistory)
+            const learned = getLearnedWeights(entry.exerciseId)
+            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, lastSetsHistory, learned, ex.equip)
             const origExName = entry.originalExerciseId
               ? (allExercises.find(e => e.id === entry.originalExerciseId)?.name ?? null)
               : null

@@ -49,7 +49,7 @@ src/
     inicio/
       HeroPortada.jsx          # Hero con saludo y foto de portada
       Logros.jsx               # Sistema de logros (compact en home, vitrina completa)
-      WeekCalendar.jsx         # Calendario semanal de entrenamientos
+      WeekCalendar.jsx         # Calendario semanal — tocar un día con check abre el detalle (solo lectura) de ese día
       MuscleBalance.jsx        # Balance muscular semanal
       Streak.jsx               # Racha semanal
       ValenciaCountdown.jsx    # Countdown especial

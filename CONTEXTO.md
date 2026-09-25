@@ -67,7 +67,7 @@ src/
       TabataPage.jsx / TabataCard.jsx / TabataDetail.jsx
 
     ui/
-      Button.jsx / Card.jsx / Modal.jsx / RestTimer.jsx
+      Button.jsx / Card.jsx / Modal.jsx / RestTimer.jsx / FlipCard.jsx
 
     layout/
       Layout.jsx               # Shell con BottomNav
@@ -382,6 +382,8 @@ Guardado en Firestore: `users/{uid}/data/achievements → { [key]: { unlocked: t
 Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con grid 3 columnas, flip card frente/reverso).
 
 **Racha semanal** (`utils/streak.js` → `computeStreak`): sin estados — no hay racha "congelada" ni "en pausa". Cada semana con 3+ días de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`) suma 1 a la racha; las semanas con 1-2 días no suman ni cortan; la racha vuelve a 0 solo si se completan 4 semanas calendario seguidas sin ningún entrenamiento real. Ver `LOGICA_TECNICA.md` sección 1 para el detalle y la justificación.
+
+**Tarjeta de racha con dorso** (Inicio, `StatsCards`): la tarjeta de racha se da vuelta al tocarla (`FlipCard.jsx`, genérico y reutilizable, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`). Frente: solo `🔥 {racha actual}`. Dorso (`computeStreakStats`, `streak.js`): récord, promedio de días/semana, barras por cantidad de días semanales (1 a 5+) y el reparto de sesiones por tipo, todo sobre las últimas 12 semanas completas (o menos si el usuario tiene menos historial).
 
 ---
 

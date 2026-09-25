@@ -28,7 +28,7 @@ Consumida por `getCurrentStreak()` en [useWorkouts.js](src/hooks/useWorkouts.js:
 ```js
 // src/utils/streak.js
 import { parseISO } from 'date-fns'
-import { weekKey, getWeekStartLocal, dateToLocal } from './dates'
+import { weekKey, getWeekStartLocal, dateToLocal } from './dates.js'
 
 export const REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
 
@@ -104,10 +104,28 @@ El sistema anterior caminaba desde hoy hacia atrás, semana por semana, y cortab
 ### Consumidores del resultado
 
 - [useWorkouts.js](src/hooks/useWorkouts.js:154): `getCurrentStreak()` (wrapper de `computeStreak(workouts)`).
-- [Inicio.jsx](src/pages/Inicio.jsx): `const { current: semanasRacha, record: rachaRecord } = getCurrentStreak()` → `<StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} />`. La card de racha muestra `🔥 {semanasRacha} semanas` y debajo `Récord: {rachaRecord} sem.` (o `"Empezá tu racha"` si `semanasRacha === 0 && rachaRecord === 0`).
+- [Inicio.jsx](src/pages/Inicio.jsx): `const { current: semanasRacha } = getCurrentStreak()` para el frente de la tarjeta (`🔥 {semanasRacha}`), y `computeStreakStats(workouts, getTodayLocal())` por separado para el dorso (ver subsección siguiente) — ambos pasados a `<StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} streakStats={streakStats} />`.
 - [ProgresoPage.jsx](src/components/progreso/ProgresoPage.jsx): llama a la **misma** `getCurrentStreak()` del hook (`const { record } = useMemo(() => getCurrentStreak(), [workouts])`) para `CaminoCard`/`VictoriaCard` — **ya no tiene su propio cálculo de `record` duplicado** dentro de `computeAll()` (fue eliminado; antes eran dos implementaciones independientes que podían mostrar números distintos entre Inicio y Progreso — ver sección 9). Ambas pantallas muestran siempre 🔥, sin distinción de color/ícono por estado.
 - [Logros.jsx](src/components/inicio/Logros.jsx): la medalla `w_racha_viva` ya no recibe `streakState` como prop — `Logros`/`computeWeeklyMedals` perdieron ese parámetro por completo. Ver sección 4 para el nuevo criterio de `w_racha_viva`.
 - [achievements.js](src/utils/achievements.js): `rachaFuego`/`rachaElite` usan `computeStreak(workouts).record` (mismos umbrales: ≥4 y ≥12). `computeMaxStreak()` (usada por `checkPiernasAcero`) y el chequeo inline de `dosSemanas` ahora filtran por `REAL_WORKOUT_TYPES` — antes contaban cualquier `type`, incluyendo `'pausa'`/`'descanso'`, como día "entrenado" (bug histórico, ver sección 9).
+
+### Estadísticas de la tarjeta de racha (`computeStreakStats()`)
+
+La tarjeta de racha de `Inicio.jsx` es ahora una tarjeta que se da vuelta (`FlipCard`, `src/components/ui/FlipCard.jsx` — genérica y reutilizable, envuelve un `<button aria-pressed aria-label>`, reusa las clases `.flip-card`/`.flip-inner`/`.flip-front`/`.flip-back` de `index.css` que ya usaba `TrophyCard` en `Logros.jsx`, y respeta `prefers-reduced-motion` — `.flip-inner` pierde la transición, así el giro es instantáneo en vez de animado). El frente solo muestra `🔥 {current}` + "racha semanal"; el dorso muestra estadísticas calculadas por `computeStreakStats(workouts, today)`, función pura en `src/utils/streak.js`.
+
+**Período**: las últimas 12 semanas **completas** (lunes a domingo), sin incluir la semana en curso — `lastCompleteMonday = mondayOf(today) - 7 días`, y las 12 semanas van desde `lastCompleteMonday - 11×7` hasta `lastCompleteMonday`. Si el primer entrenamiento real del usuario es más reciente que ese inicio nominal, el período se acorta a las semanas desde esa primera semana (`startMonday = max(firstMonday, nominalStartMonday)`) — así un usuario nuevo con 3 semanas de historial ve estadísticas de 3 semanas, no 12 con 9 vacías. Solo cuenta `type` en `REAL_WORKOUT_TYPES` (`'pausa'`/`'descanso'` quedan afuera, igual que en `computeStreak`).
+
+**Buckets**: cantidad de semanas del período con exactamente 1, 2, 3, 4, o 5+ días únicos de entrenamiento real. Las semanas de 0 días no entran en ningún bucket (pero sí cuentan para el promedio).
+
+**`average`**: `(suma de días únicos de todas las semanas del período) / (cantidad de semanas del período, incluyendo las de 0 días)`, redondeado a 1 decimal. La función devuelve un número plano (ej. `3`, `2.5`) — el `,` decimal (`"3,0"`) es formato de UI (`formatAverage()` en `Inicio.jsx`), no de la función pura.
+
+**`typePercents`**: porcentaje de sesiones por `type` (`fuerza`/`cardio`/`clase`/`tabata`) sobre el total de sesiones reales del período — no días, sesiones. Redondeo por **método de restos mayores** (largest remainder): se calcula el porcentaje exacto de cada tipo, se toma el piso de cada uno, y los puntos que faltan para llegar a 100 se reparten de a uno entre los tipos con mayor resto decimal (así 1/1/1 sesiones da `34/33/33`, no `33/33/33` que suma 99 o `33,3/33,3/33,3` con decimales). Empates de resto se desempatan por el orden fijo de `REAL_WORKOUT_TYPES`, para que el resultado sea determinístico.
+
+**`record`**: se reusa directamente `computeStreak(workouts).record` (el récord histórico completo, no acotado a las 12 semanas) — se muestra igual aunque el período de abajo esté vacío.
+
+**Sin sesiones en el período** (`isEmpty: true` — usuario sin ningún entrenamiento real todavía, o cuyo primer entrenamiento cae dentro de la semana en curso, sin ninguna semana completa aún): el dorso muestra "Todavía no hay semanas completas para mostrar" en vez de las barras/promedio/tipos, pero el récord se sigue mostrando igual.
+
+Verificado con corridas sintéticas: 12 semanas con distribución mixta de días (buckets y promedio exactos), reparto de sesiones por tipo con y sin empates, usuario con historial corto (período acortado), la semana en curso sin efecto en el resultado, y documentos `pausa`/`descanso` mezclados sin ningún efecto.
 
 ### Por qué se eliminaron los estados (`active`/`frozen`/`paused`/`broken`)
 

@@ -3,10 +3,11 @@ import { parseISO, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
-import { getTodayLocal, dateToLocal, getWeekStartLocal } from '../../utils/dates'
+import { getTodayLocal, dateToLocal } from '../../utils/dates'
+import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 import { ChevronDown } from 'lucide-react'
 
-const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
+const REAL_TYPES = new Set(REAL_WORKOUT_TYPES)
 import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
 import { detectPRs } from '../../utils/prUtils'
@@ -16,7 +17,6 @@ const GREEN    = '#22c55e'
 const RED      = '#ef4444'
 const AMBER    = '#eab308'
 const PURPLE   = '#9B7FD4'
-const ICE_BLUE = '#38bdf8'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -231,22 +231,10 @@ function WeekRow({ workouts }) {
   const today  = getTodayLocal()
   const days   = getThisWeekDays()
 
-  // Build byDate with explicit priority: real workout > descanso > pausa
+  // Solo días con entrenamiento real — pausas/descansos se ignoran.
   const byDate = {}
   workouts.forEach(w => {
     if (REAL_TYPES.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
-  })
-  workouts.forEach(w => {
-    if (w.type === 'descanso' && w.date && !byDate[w.date]) byDate[w.date] = w
-  })
-  workouts.forEach(w => {
-    if (w.type !== 'pausa') return
-    const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')
-    const end   = parseISO((w.pausaFin   || w.date) + 'T12:00:00')
-    for (let d = new Date(start.getTime()); d <= end; d.setDate(d.getDate() + 1)) {
-      const ds = dateToLocal(d)
-      if (!byDate[ds]) byDate[ds] = w
-    }
   })
 
   return (
@@ -254,11 +242,8 @@ function WeekRow({ workouts }) {
       {days.map((dateStr, i) => {
         const w        = byDate[dateStr]
         const trained  = w && REAL_TYPES.has(w.type)
-        const isPausa  = w?.type === 'pausa'
         const isToday  = dateStr === today
         const future   = dateStr > today
-        const isFrozen = isPausa && (w.pausaMotivo === 'enfermedad' || w.pausaMotivo === 'lesion')
-        const pausaColor = isFrozen ? '#38bdf8' : '#4B5563'
 
         return (
           <div key={i} className="flex flex-col items-center gap-1.5" style={{ flex: 1 }}>
@@ -271,14 +256,6 @@ function WeekRow({ workouts }) {
                   <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
                     <path d="M2.5 7.5L5.5 10.5L11.5 4.5" stroke="white" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                </div>
-              ) : isPausa ? (
-                <div style={{ width: 32, height: 32, borderRadius: '50%', border: `2px solid ${pausaColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{
-                    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-                    backgroundColor: isFrozen ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)',
-                    border: `1.5px solid ${pausaColor}`,
-                  }} />
                 </div>
               ) : isToday ? (
                 <div className="animate-pulse" style={{ width: 32, height: 32, borderRadius: '50%', border: `2px dashed ${PURPLE}` }} />
@@ -429,20 +406,8 @@ export default function ProgresoPage() {
     ? '¡arrancá hoy!'
     : semanaOK ? '¡vas bien!' : '¡vamos!'
 
-  const mondayStr = getWeekStartLocal()
-  const pausaThisWeek = workouts.find(w =>
-    w.type === 'pausa' &&
-    w.date >= mondayStr
-  )
-  const pausaMotivo = pausaThisWeek?.pausaMotivo
-
-  const semanaAsideText = pausaThisWeek
-    ? pausaMotivo === 'enfermedad' || pausaMotivo === 'lesion'
-      ? 'Descansá · La próxima semana volvés 💙'
-      : 'Semana de descanso · Volvés más fuerte'
-    : `${thisDays} de ${diasSemana} días · ${semanaMsg}`
-
-  const semanaAsideColor = pausaThisWeek ? ICE_BLUE : (semanaOK && thisDays > 0 ? GREEN : AMBER)
+  const semanaAsideText  = `${thisDays} de ${diasSemana} días · ${semanaMsg}`
+  const semanaAsideColor = semanaOK && thisDays > 0 ? GREEN : AMBER
 
   return (
     <div className="min-h-screen bg-app-bg">

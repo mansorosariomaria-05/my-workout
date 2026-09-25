@@ -7,6 +7,7 @@ import { useAuthContext } from '../context/AuthContext'
 import { useWorkouts } from '../hooks/useWorkouts'
 import { getWorkouts } from '../services/db'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
+import { REAL_WORKOUT_TYPES } from '../utils/streak'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
 import { builtinRoutines } from '../data/routines'
 import HeroPortada from '../components/inicio/HeroPortada'
@@ -32,7 +33,7 @@ function fechaRelativa(dateStr) {
 function getThisWeekCount(workouts) {
   const mondayStr = getWeekStartLocal()
   const dates = new Set(
-    workouts.filter(w => w.date >= mondayStr && w.type !== 'descanso' && w.type !== 'pausa').map(w => w.date)
+    workouts.filter(w => w.date >= mondayStr && REAL_WORKOUT_TYPES.includes(w.type)).map(w => w.date)
   )
   return dates.size
 }
@@ -54,7 +55,7 @@ function getLastWeekBounds() {
 
 function computeWeeklyStats(workouts) {
   const { start, end } = getLastWeekBounds()
-  const lastWeek = workouts.filter(w => w.date >= start && w.date <= end && w.type !== 'descanso')
+  const lastWeek = workouts.filter(w => w.date >= start && w.date <= end && REAL_WORKOUT_TYPES.includes(w.type))
   if (!lastWeek.length) return null
 
   const daysTrained = new Set(lastWeek.map(w => w.date)).size
@@ -137,7 +138,7 @@ function WeeklySummaryModal({ stats, onClose, onViewProgress }) {
 // ─── Frase del día / post-entreno ────────────────────────────────────────────
 function FraseDiariaCard({ workouts }) {
   const today = getTodayLocal()
-  const trainedToday = workouts.some(w => w.date === today && w.type !== 'descanso')
+  const trainedToday = workouts.some(w => w.date === today && REAL_WORKOUT_TYPES.includes(w.type))
 
   let fraseObj
   if (trainedToday) {
@@ -195,7 +196,7 @@ function LastAndSuggestion({ workouts }) {
   const today = getTodayLocal()
   const [showNote, setShowNote] = useState(false)
 
-  const real = workouts.filter(w => w.type !== 'descanso' && w.type !== 'pausa' && w.date)
+  const real = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type) && w.date)
   if (!real.length) return null
 
   // workouts from db are ordered by date desc — first date is the most recent
@@ -292,7 +293,7 @@ async function getDailySuggestion(userId) {
     return { type: 'descanso', title: 'Descanso 💤', sub: 'Hoy es día de descanso. Recuperate para la semana que viene.' }
   }
 
-  const real = (workouts ?? []).filter(w => w.type !== 'descanso' && w.date)
+  const real = (workouts ?? []).filter(w => REAL_WORKOUT_TYPES.includes(w.type) && w.date)
 
   // Ya entrenó hoy
   if (real.some(w => w.date === today)) return { type: 'trained_today' }

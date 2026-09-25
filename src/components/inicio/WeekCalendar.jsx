@@ -1,12 +1,10 @@
 import { useState } from 'react'
-import { parseISO } from 'date-fns'
 import { toDateStr } from '../../utils/dates'
+import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 
 const DAY_LABELS    = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MONTH_SHORT   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 const MONTH_FULL_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-
-const ICE_BLUE = '#38bdf8'
 
 function getMondayOffset(offset) {
   const now = new Date()
@@ -29,27 +27,10 @@ export default function WeekCalendar({ workouts }) {
     return d
   })
 
-  // Build byDate with explicit priority: real workout > descanso > pausa
+  // Solo días con entrenamiento real (fuerza/cardio/clase/tabata) — pausas/descansos se ignoran.
   const byDate = {}
-  const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
-
-  // Pass 1: real workouts (highest priority — always win over pausa)
   workouts.forEach(w => {
-    if (REAL_TYPES.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
-  })
-  // Pass 2: descanso (fills only days without a real workout)
-  workouts.forEach(w => {
-    if (w.type === 'descanso' && w.date && !byDate[w.date]) byDate[w.date] = w
-  })
-  // Pass 3: pausa expands date range, fills only days not already covered
-  workouts.forEach(w => {
-    if (w.type !== 'pausa') return
-    const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')
-    const end   = parseISO((w.pausaFin   || w.date) + 'T12:00:00')
-    for (let d = new Date(start.getTime()); d <= end; d.setDate(d.getDate() + 1)) {
-      const ds = toDateStr(d)
-      if (!byDate[ds]) byDate[ds] = w
-    }
+    if (REAL_WORKOUT_TYPES.includes(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
   })
 
   const sunday = days[6]
@@ -87,17 +68,8 @@ export default function WeekCalendar({ workouts }) {
           const workout  = byDate[dateStr]
           const isToday  = dateStr === today
           const isFuture = dateStr > today
-          const isRest   = workout?.type === 'descanso'
-          const isPausa  = workout?.type === 'pausa'
 
-          // Pausa color + icon
-          const isFrozen = isPausa && (workout.pausaMotivo === 'enfermedad' || workout.pausaMotivo === 'lesion')
-          const pausaDotBg     = isFrozen ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)'
-          const pausaDotBorder = isFrozen ? '#38bdf8' : '#4B5563'
-
-          const bgColor = isRest ? '#3D5A80'
-            : workout && !isFuture && !isPausa ? '#40916C'
-            : 'transparent'
+          const bgColor = workout && !isFuture ? '#40916C' : 'transparent'
 
           return (
             <div key={i} className="flex flex-col items-center">
@@ -105,23 +77,11 @@ export default function WeekCalendar({ workouts }) {
                 <div
                   style={{
                     backgroundColor: bgColor,
-                    border: isToday && !isPausa ? '2px solid #7C5CBF' : isPausa ? `2px solid ${pausaDotBorder}` : 'none',
+                    border: isToday ? '2px solid #7C5CBF' : 'none',
                   }}
                   className="w-7 h-7 rounded-full flex items-center justify-center"
                 >
-                  {isRest ? (
-                    <span className="text-[9px] leading-none">💤</span>
-                  ) : isPausa ? (
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: 8, height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: pausaDotBg,
-                        border: `1.5px solid ${pausaDotBorder}`,
-                      }}
-                    />
-                  ) : workout && !isFuture ? (
+                  {workout && !isFuture ? (
                     <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
@@ -136,42 +96,6 @@ export default function WeekCalendar({ workouts }) {
           )
         })}
       </div>
-
-      {/* Pausa legend */}
-      {(() => {
-        const pausaMotivosVisible = new Set(
-          days
-            .map(d => byDate[toDateStr(d)])
-            .filter(w => w?.type === 'pausa')
-            .map(w => w.pausaMotivo)
-        )
-        if (pausaMotivosVisible.size === 0) return null
-        const lines = []
-        if (pausaMotivosVisible.has('enfermedad')) {
-          lines.push({ color: ICE_BLUE, text: 'Semana de pausa por enfermedad' })
-        }
-        if (pausaMotivosVisible.has('lesion')) {
-          lines.push({ color: ICE_BLUE, text: 'Semana de pausa por lesión' })
-        }
-        if ([...pausaMotivosVisible].some(m => m !== 'enfermedad' && m !== 'lesion')) {
-          lines.push({ color: '#4B5563', text: 'Semana de descanso registrada' })
-        }
-        if (lines.length === 0) return null
-        return (
-          <div className="mt-2 space-y-1">
-            {lines.map((line, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span style={{
-                  display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                  backgroundColor: line.color === ICE_BLUE ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)',
-                  border: `1.5px solid ${line.color}`,
-                }} />
-                <span className="text-[10px]" style={{ color: '#6B7280' }}>{line.text}</span>
-              </div>
-            ))}
-          </div>
-        )
-      })()}
     </div>
   )
 }

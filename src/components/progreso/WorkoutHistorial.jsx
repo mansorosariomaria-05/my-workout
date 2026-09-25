@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { getMonthDays, toDateStr } from '../../utils/dates'
+import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { CloudUpload } from 'lucide-react'
@@ -16,9 +17,8 @@ export default function WorkoutHistorial({ workouts }) {
   const [month, setMonth] = useState(new Date())
   const [selected, setSelected] = useState(null)
   const days = getMonthDays(month)
-  const REAL = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
   const byDate = {}
-  workouts.forEach(w => { if (REAL.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w })
+  workouts.forEach(w => { if (REAL_WORKOUT_TYPES.includes(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w })
 
   const prev = () => { const d = new Date(month); d.setMonth(d.getMonth() - 1); setMonth(d) }
   const next = () => { const d = new Date(month); d.setMonth(d.getMonth() + 1); setMonth(d) }

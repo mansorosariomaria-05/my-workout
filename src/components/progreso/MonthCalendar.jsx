@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { toDateStr, dateToLocal } from '../../utils/dates'
+import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const DAY_LABELS  = ['L','M','X','J','V','S','D']
 
 const TYPE_COLOR = {
-  fuerza:   '#40916C',
-  cardio:   '#4A9EDB',
-  clase:    '#7C5CBF',
-  tabata:   '#D49A3A',
-  descanso: '#3D5A80',
+  fuerza: '#40916C',
+  cardio: '#4A9EDB',
+  clase:  '#7C5CBF',
+  tabata: '#D49A3A',
 }
 
 function getWeekKey(dateStr) {
@@ -51,8 +51,9 @@ export default function MonthCalendar({ workouts, settings }) {
     }
   }
 
+  // Solo días con entrenamiento real — pausas/descansos se ignoran.
   const byDate = {}
-  workouts.forEach(w => { byDate[w.date] = w })
+  workouts.forEach(w => { if (REAL_WORKOUT_TYPES.includes(w.type)) byDate[w.date] = w })
 
   // Deload weeks
   const deloadWeeks = new Set(
@@ -65,7 +66,7 @@ export default function MonthCalendar({ workouts, settings }) {
     const key = getWeekKey(toDateStr(c.date))
     if (!weekBuckets[key]) weekBuckets[key] = { trained: 0, latestDate: null }
     const w = byDate[toDateStr(c.date)]
-    if (w && w.type !== 'descanso') weekBuckets[key].trained++
+    if (w) weekBuckets[key].trained++
     if (!weekBuckets[key].latestDate || c.date > weekBuckets[key].latestDate)
       weekBuckets[key].latestDate = c.date
   })
@@ -121,7 +122,6 @@ export default function MonthCalendar({ workouts, settings }) {
           const isSunday   = cell.date.getDay() === 0
           const weekK      = getWeekKey(dateStr)
           const isDeload   = deloadWeeks.has(weekK)
-          const isRest     = workout?.type === 'descanso'
           const bgColor    = workout && !isFuture
             ? (TYPE_COLOR[workout.type] ?? '#40916C')
             : 'transparent'
@@ -138,9 +138,7 @@ export default function MonthCalendar({ workouts, settings }) {
                 }}
                 className="w-7 h-7 rounded-full flex items-center justify-center"
               >
-                {isRest ? (
-                  <span className="text-[8px] leading-none">💤</span>
-                ) : workout && !isFuture ? (
+                {workout && !isFuture ? (
                   <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>

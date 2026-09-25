@@ -5,8 +5,6 @@ import { FRASES_POST } from '../../data/frases'
 import { detectPRs, detectImprovements } from '../../utils/prUtils'
 
 const CONFETTI_COLORS = ['#7C5CBF', '#40916C', '#4A9EDB', '#F59E0B', '#E57373', '#9B7FD4']
-const ICE_BLUE = '#38bdf8'
-const PURPLE   = '#9B7FD4'
 
 function Confetti() {
   const pieces = Array.from({ length: 24 }, (_, i) => ({
@@ -92,7 +90,6 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
   const goHome = () => { setVisible(false); onDone?.(); navigate('/') }
 
   useEffect(() => {
-    if (workout.type === 'pausa') return
     countdownRef.current = setInterval(() => {
       setSecondsLeft(s => {
         if (s <= 1) { clearInterval(countdownRef.current); return 0 }
@@ -105,34 +102,6 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
       clearTimeout(autoCloseRef.current)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Pausa: pantalla simple sin confetti ni cuenta regresiva ─────────────────
-  if (workout.type === 'pausa') {
-    const isFrozen = workout.pausaMotivo === 'enfermedad' || workout.pausaMotivo === 'lesion'
-    const color    = isFrozen ? ICE_BLUE : PURPLE
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-app-bg/95">
-        <div className="text-center px-8 py-10 w-full max-w-sm animate-scaleIn">
-          <div className="text-6xl mb-5">{isFrozen ? '🧊' : '⏸'}</div>
-          <p className="text-xl font-bold mb-3" style={{ color }}>
-            Registrado {isFrozen ? '🧊' : '⏸'}
-          </p>
-          <p className="text-sm leading-relaxed" style={{ color: '#94A3B8' }}>
-            {isFrozen
-              ? 'Que te mejores pronto. Tu racha está a salvo.'
-              : 'Descanso registrado. Volvés más fuerte.'}
-          </p>
-          <button
-            onClick={goHome}
-            className="mt-10 w-full py-3.5 rounded-2xl font-semibold text-white text-base"
-            style={{ backgroundColor: color }}
-          >
-            Volver al inicio
-          </button>
-        </div>
-      </div>
-    )
-  }
 
   // ─── Regular workout summary ──────────────────────────────────────────────────
   const totalSets      = workout.exercises?.reduce((a, e) => a + (e.sets?.length ?? 0), 0) ?? 0

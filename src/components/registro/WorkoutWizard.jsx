@@ -1,14 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  parseISO, format,
-  startOfMonth, endOfMonth,
-  startOfWeek, endOfWeek,
-  eachDayOfInterval,
-  addMonths, subMonths,
-  isSameMonth,
-} from 'date-fns'
-import { es } from 'date-fns/locale'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { useDeload } from '../../hooks/useDeload'
@@ -41,10 +32,9 @@ function SessionTimer({ startTs }) {
 }
 
 const TYPE_CARDS = [
-  { type: 'fuerza', label: 'Fuerza', sub: 'Pesas, rutinas, series y reps',        color: 'border-app-purple/50 bg-app-purple/10 text-app-purple-light' },
-  { type: 'cardio', label: 'Cardio', sub: 'Running, bici, rollers...',              color: 'border-app-green-light/50 bg-app-green/10 text-app-green-light' },
-  { type: 'clase',  label: 'Clase',  sub: 'Strong, HIIT, Funcional...',             color: 'border-app-blue-light/50 bg-app-blue/10 text-app-blue-light' },
-  { type: 'pausa',  label: 'Semana de pausa', sub: 'Enfermedad, lesión o descanso', color: 'border-white/20 bg-white/5 text-app-muted' },
+  { type: 'fuerza', label: 'Fuerza', sub: 'Pesas, rutinas, series y reps',   color: 'border-app-purple/50 bg-app-purple/10 text-app-purple-light' },
+  { type: 'cardio', label: 'Cardio', sub: 'Running, bici, rollers...',       color: 'border-app-green-light/50 bg-app-green/10 text-app-green-light' },
+  { type: 'clase',  label: 'Clase',  sub: 'Strong, HIIT, Funcional...',      color: 'border-app-blue-light/50 bg-app-blue/10 text-app-blue-light' },
 ]
 
 const TYPE_ICON_MAP = {
@@ -53,213 +43,7 @@ const TYPE_ICON_MAP = {
   clase:  { Icon: ClaseIcon,  color: '#60a5fa' },
 }
 
-const PAUSA_MOTIVOS = [
-  { key: 'enfermedad', icon: '🤒', label: 'Enfermedad' },
-  { key: 'lesion',     icon: '🤕', label: 'Lesión' },
-  { key: 'descanso',   icon: '🧘', label: 'Descanso intencional' },
-]
-
 const STEPS = ['tipo', 'detalle', 'sensacion']
-
-const ICE_BLUE  = '#38bdf8'
-const ICE_DARK  = '#0ea5e9'
-const ICE_LIGHT = 'rgba(56,189,248,0.12)'
-const DAY_LABELS_CAL = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do']
-
-function InlineRangePicker({ startDate, endDate, onChange }) {
-  const todayFmt = format(new Date(), 'yyyy-MM-dd')
-  const [viewDate, setViewDate] = useState(() =>
-    startDate ? startOfMonth(parseISO(startDate + 'T12:00:00')) : startOfMonth(new Date())
-  )
-
-  const monthStart = startOfMonth(viewDate)
-  const monthEnd   = endOfMonth(viewDate)
-  const calStart   = startOfWeek(monthStart, { weekStartsOn: 1 })
-  const calEnd     = endOfWeek(monthEnd,     { weekStartsOn: 1 })
-  const days       = eachDayOfInterval({ start: calStart, end: calEnd })
-  const canGoNext  = !isSameMonth(viewDate, new Date())
-
-  const handleDayClick = (day) => {
-    const dayStr = format(day, 'yyyy-MM-dd')
-    if (dayStr > todayFmt) return
-    if (!startDate || (startDate && endDate && startDate !== endDate)) {
-      onChange(dayStr, dayStr)
-    } else {
-      if (dayStr < startDate) onChange(dayStr, startDate)
-      else onChange(startDate, dayStr)
-    }
-  }
-
-  const formatRangeText = () => {
-    if (!startDate) return null
-    const s = parseISO(startDate + 'T12:00:00')
-    if (!endDate || endDate === startDate)
-      return format(s, "EEEE d 'de' MMMM", { locale: es })
-    const e = parseISO(endDate + 'T12:00:00')
-    const sameMonth = format(s, 'MM-yyyy') === format(e, 'MM-yyyy')
-    return sameMonth
-      ? `Del ${format(s, 'EEEE d', { locale: es })} al ${format(e, "EEEE d 'de' MMMM", { locale: es })}`
-      : `Del ${format(s, "d 'de' MMMM", { locale: es })} al ${format(e, "d 'de' MMMM", { locale: es })}`
-  }
-
-  return (
-    <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ backgroundColor: '#13131A' }}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
-        <button
-          onClick={() => setViewDate(subMonths(viewDate, 1))}
-          className="w-8 h-8 flex items-center justify-center rounded-xl text-app-muted text-lg hover:bg-white/5"
-        >‹</button>
-        <span className="text-sm font-medium text-app-text capitalize">
-          {format(viewDate, 'MMMM yyyy', { locale: es })}
-        </span>
-        <button
-          onClick={() => canGoNext && setViewDate(addMonths(viewDate, 1))}
-          className={`w-8 h-8 flex items-center justify-center rounded-xl text-lg ${canGoNext ? 'text-app-muted hover:bg-white/5' : 'opacity-20 cursor-default text-app-muted'}`}
-        >›</button>
-      </div>
-
-      {/* Day labels */}
-      <div className="grid grid-cols-7 px-3 pt-2 pb-1">
-        {DAY_LABELS_CAL.map(d => (
-          <div key={d} className="text-center" style={{ fontSize: 9, color: 'rgba(144,144,168,0.5)' }}>{d}</div>
-        ))}
-      </div>
-
-      {/* Days grid */}
-      <div className="grid grid-cols-7 px-3 pb-3">
-        {days.map((day, i) => {
-          const dayStr   = format(day, 'yyyy-MM-dd')
-          const inMonth  = isSameMonth(day, viewDate)
-          const future   = dayStr > todayFmt
-          const isStart  = dayStr === startDate
-          const isEnd    = dayStr === endDate
-          const isSingle = startDate && endDate && startDate === endDate
-          const isMid    = startDate && endDate && dayStr > startDate && dayStr < endDate
-
-          return (
-            <div key={i} className="relative flex items-center justify-center" style={{ height: 36 }}>
-              {/* Band: full for middle days */}
-              {isMid && (
-                <div style={{ position: 'absolute', top: 4, bottom: 4, left: 0, right: 0, backgroundColor: ICE_LIGHT }} />
-              )}
-              {/* Band: right half for start (connects right) */}
-              {isStart && !isSingle && (
-                <div style={{ position: 'absolute', top: 4, bottom: 4, left: '50%', right: 0, backgroundColor: ICE_LIGHT }} />
-              )}
-              {/* Band: left half for end (connects left) */}
-              {isEnd && !isSingle && (
-                <div style={{ position: 'absolute', top: 4, bottom: 4, left: 0, right: '50%', backgroundColor: ICE_LIGHT }} />
-              )}
-              <button
-                onClick={() => handleDayClick(day)}
-                disabled={future}
-                style={{
-                  position: 'relative', zIndex: 1,
-                  width: 30, height: 30,
-                  borderRadius: '50%',
-                  backgroundColor: (isStart || isEnd) ? ICE_DARK : 'transparent',
-                  color: future || !inMonth
-                    ? 'rgba(255,255,255,0.18)'
-                    : (isStart || isEnd) ? '#fff'
-                    : isMid ? ICE_BLUE
-                    : '#F0EEF8',
-                  fontSize: 12,
-                  fontWeight: (isStart || isEnd) ? '600' : '400',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: future ? 'default' : 'pointer',
-                  flexShrink: 0,
-                }}
-              >
-                {format(day, 'd')}
-              </button>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Range text */}
-      {startDate && (
-        <div className="px-4 pb-3 pt-1 text-center border-t border-white/[0.06]">
-          <p className="text-xs capitalize leading-snug" style={{ color: ICE_BLUE }}>
-            {formatRangeText()}
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PausaFlow({ pausaMotivo, setPausaMotivo, pausaInicio, setPausaInicio, pausaFin, setPausaFin, notes, setNotes, onSave, saving, saveError }) {
-  const handleRangeChange = (start, end) => {
-    setPausaInicio(start)
-    setPausaFin(end)
-  }
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <p className="text-app-muted text-sm mb-3">Motivo</p>
-        <div className="space-y-2">
-          {PAUSA_MOTIVOS.map(({ key, icon, label }) => (
-            <button
-              key={key}
-              onClick={() => setPausaMotivo(key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 text-left transition-all ${
-                pausaMotivo === key
-                  ? 'border-app-purple/60 bg-app-purple/10'
-                  : 'border-white/10 bg-app-surface'
-              }`}
-            >
-              <span className="text-2xl">{icon}</span>
-              <span className={`font-medium text-sm ${pausaMotivo === key ? 'text-app-purple-light' : 'text-app-text'}`}>
-                {label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="text-app-muted text-xs mb-2">Período de pausa</p>
-        <InlineRangePicker
-          startDate={pausaInicio}
-          endDate={pausaFin}
-          onChange={handleRangeChange}
-        />
-      </div>
-
-      <div>
-        <label className="text-app-muted text-sm block mb-2">¿Querés agregar algún detalle? (opcional)</label>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Ej: gripe, fiebre 3 días"
-          rows={3}
-          className="w-full bg-app-surface border border-white/10 rounded-xl px-4 py-3 text-app-text text-sm placeholder-app-muted/40 focus:outline-none focus:border-app-purple/50 resize-none"
-        />
-      </div>
-
-      {saveError && (
-        <div className="bg-app-coral/10 border border-app-coral/30 rounded-xl px-4 py-3 text-app-coral text-sm text-center">
-          {saveError}
-        </div>
-      )}
-
-      <Button size="xl" onClick={onSave} disabled={!pausaMotivo || saving}>
-        {saving ? (
-          <span className="flex items-center justify-center gap-2">
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-            </svg>
-            Guardando...
-          </span>
-        ) : 'Guardar pausa'}
-      </Button>
-    </div>
-  )
-}
 
 export default function WorkoutWizard({ initialType }) {
   const { user, profile, settings } = useAuthContext()
@@ -276,9 +60,6 @@ export default function WorkoutWizard({ initialType }) {
   const [fatigue, setFatigue]   = useState(savedDraft?.fatigue ?? 5)
   const [notes, setNotes]       = useState(savedDraft?.notes ?? '')
   const [date, setDate]         = useState(savedDraft?.date ?? todayStr())
-  const [pausaMotivo, setPausaMotivo] = useState(savedDraft?.pausaMotivo ?? '')
-  const [pausaInicio, setPausaInicio] = useState(savedDraft?.pausaInicio ?? todayStr())
-  const [pausaFin, setPausaFin]       = useState(savedDraft?.pausaFin ?? todayStr())
   const [saving, setSaving]     = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saved, setSaved]       = useState(null)
@@ -298,8 +79,8 @@ export default function WorkoutWizard({ initialType }) {
       setStartTime(null)
       return
     }
-    setDraft({ step, type, detail, fatigue, notes, date, pausaMotivo, pausaInicio, pausaFin })
-  }, [step, type, detail, fatigue, notes, date, pausaMotivo, pausaInicio, pausaFin]) // eslint-disable-line react-hooks/exhaustive-deps
+    setDraft({ step, type, detail, fatigue, notes, date })
+  }, [step, type, detail, fatigue, notes, date]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startTimer = () => {
     if (startTime) return
@@ -333,28 +114,6 @@ export default function WorkoutWizard({ initialType }) {
       else clean[k] = v
     }
     return clean
-  }
-
-  const handleSavePausa = async () => {
-    setSaving(true)
-    setSaveError(null)
-    const workout = sanitizeWorkout({
-      type: 'pausa',
-      pausaMotivo,
-      pausaInicio,
-      pausaFin,
-      date: pausaInicio,
-      notes: notes || '',
-    })
-    try {
-      await workoutsHook.saveWorkout(workout)
-      clearDraft()
-      setSaved(workout)
-    } catch {
-      setSaveError('No se pudo guardar. Revisá tu conexión e intentá de nuevo.')
-    } finally {
-      setSaving(false)
-    }
   }
 
   const handleSave = async () => {
@@ -409,21 +168,19 @@ export default function WorkoutWizard({ initialType }) {
     <div className="min-h-screen bg-app-bg flex flex-col">
       <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          {type !== 'pausa' && (
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              className="bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none"
-            />
-          )}
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none"
+          />
           {settings?.deloadActive && (
             <span className="text-xs bg-app-gold/20 text-app-gold px-2.5 py-1 rounded-full border border-app-gold/30">
               🔄 Descarga
             </span>
           )}
         </div>
-        {step >= 1 && startTime && type !== 'pausa' && <SessionTimer startTs={startTime} />}
+        {step >= 1 && startTime && <SessionTimer startTs={startTime} />}
         <button
           onClick={() => setShowCancelConfirm(true)}
           className="text-app-muted/60 text-xs px-3 py-1.5 rounded-xl border border-white/10"
@@ -455,10 +212,7 @@ export default function WorkoutWizard({ initialType }) {
                       type === t ? color : 'border-white/10 bg-app-surface'
                     }`}
                   >
-                    {Icon
-                      ? <div style={{ color: iconColor }}><Icon size={40} /></div>
-                      : <span className="text-4xl">⏸</span>
-                    }
+                    <div style={{ color: iconColor }}><Icon size={40} /></div>
                     <div>
                       <p className={`font-bold text-lg ${type === t ? '' : 'text-app-text'}`}>{label}</p>
                       <p className="text-app-muted text-xs mt-0.5">{sub}</p>
@@ -478,9 +232,7 @@ export default function WorkoutWizard({ initialType }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <h2 className="text-app-text font-bold text-base">
-                {type === 'pausa' ? 'Registrar pausa' : 'Detalle del entrenamiento'}
-              </h2>
+              <h2 className="text-app-text font-bold text-base">Detalle del entrenamiento</h2>
             </div>
             {type === 'fuerza' && (
               <FuerzaFlow
@@ -495,21 +247,9 @@ export default function WorkoutWizard({ initialType }) {
             )}
             {type === 'cardio' && <CardioFlow data={detail} onChange={setDetail} />}
             {type === 'clase'  && <ClaseFlow data={detail} onChange={setDetail} deloadActive={settings?.deloadActive} />}
-            {type === 'pausa'  && (
-              <PausaFlow
-                pausaMotivo={pausaMotivo} setPausaMotivo={setPausaMotivo}
-                pausaInicio={pausaInicio} setPausaInicio={setPausaInicio}
-                pausaFin={pausaFin}       setPausaFin={setPausaFin}
-                notes={notes}             setNotes={setNotes}
-                onSave={handleSavePausa}  saving={saving}
-                saveError={saveError}
-              />
-            )}
-            {type !== 'pausa' && (
-              <div className="pt-4">
-                <Button size="lg" onClick={() => { startTimer(); setStep(2) }}>Continuar</Button>
-              </div>
-            )}
+            <div className="pt-4">
+              <Button size="lg" onClick={() => { startTimer(); setStep(2) }}>Continuar</Button>
+            </div>
           </div>
         )}
 

@@ -123,141 +123,35 @@ El sistema anterior caminaba desde hoy hacia atrás, semana por semana, y cortab
 
 ---
 
-## 2. SISTEMA DE PAUSA
+## 2. SISTEMA DE PAUSA — ELIMINADO (septiembre 2026)
 
-> **IMPORTANTE**: desde septiembre 2026 las pausas **ya no afectan el cálculo de racha** (sección 1) — el sistema de racha las ignora por completo, junto con `'descanso'`. Este sistema (registro, Firestore, calendario) sigue existiendo sin cambios; solo se desconectó de la racha. Una eliminación completa del flujo de pausas (formulario, calendario, `WorkoutSummary`) queda pendiente para un cambio posterior — ver sección 11.
+> **Estado: eliminado del código.** El sistema de pausas (registro, formulario, calendarios con tratamiento visual especial, pantalla de `WorkoutSummary`) fue removido por completo de la app. **Los documentos viejos `type: 'pausa'` y `type: 'descanso'` que ya existen en Firestore NO se borraron** — la app simplemente los ignora en todos lados, vía la constante compartida `REAL_WORKOUT_TYPES` (sección 1, `src/utils/streak.js`). La estructura exacta de esos documentos viejos queda documentada en la sección 7 (Estructura de datos Firebase), por si aparecen en el historial de un usuario.
 
-### Estructura exacta del documento en Firestore
+### Qué existía y ya no existe
 
-Colección: `users/{uid}/workouts/{id}`
+- **Registro**: `WorkoutWizard.jsx` ya no ofrece "Semana de pausa" como tipo de registro. Se eliminaron `PausaFlow`, `handleSavePausa`, el selector de motivos (🤒 enfermedad / 🤕 lesión / 🧘 descanso) y el componente `InlineRangePicker` (calendario inline con `date-fns` que solo usaba `PausaFlow` — no tenía otros consumidores, se eliminó entero).
+- **Calendarios**: `WeekCalendar.jsx` y el `WeekRow` de `ProgresoPage.jsx` ya no tienen las 3 pasadas de prioridad (real > descanso > pausa) ni la expansión de rango `pausaInicio`–`pausaFin`. Ahora solo pintan días con `REAL_WORKOUT_TYPES.includes(w.type)` — un día sin entrenamiento real queda vacío, sin importar si hay un documento `pausa`/`descanso` viejo en esa fecha. `MonthCalendar.jsx` (Progreso, calendario mensual) tenía el mismo problema mostrando `descanso` con 💤 y `pausa` cayendo al color verde por defecto — ahora filtra `byDate` por `REAL_WORKOUT_TYPES` antes de construir la grilla.
+- **`WorkoutSummary.jsx`**: se eliminó la rama `if (workout.type === 'pausa')` y su pantalla alternativa (🧊/⏸, "Que te mejores pronto. Tu racha está a salvo.") — ya no puede crearse un workout de tipo pausa, así que esa rama era inalcanzable.
+- **`ProgresoPage.jsx`**: se eliminaron `pausaThisWeek`, `pausaMotivo` y la lógica condicional de `semanaAsideText`/`semanaAsideColor` ("Descansá · La próxima semana volvés 💙" / "Semana de descanso · Volvés más fuerte"). El aside de "Esta semana" ahora siempre muestra el texto normal (`{thisDays} de {diasSemana} días · {semanaMsg}`).
+- **`ConfigPage.jsx`**: se eliminó el selector de UI "¿Volvés después de una pausa?" (`profile.pausa`, `PAUSA_OPTIONS`) — el campo no se usaba en ningún cálculo (confirmado por búsqueda). **El campo `pausa` no se borra de los documentos de perfil ya existentes en Firestore**, solo se removió la UI. *(Nota: `Onboarding.jsx` todavía tiene una pregunta equivalente que sigue guardando `profile.pausa` — no se tocó porque quedaba fuera del alcance explícito de este cambio; queda como posible limpieza futura.)*
 
-```js
-{
-  type: 'pausa',
-  pausaMotivo: 'enfermedad' | 'lesion' | 'descanso',
-  pausaInicio: 'YYYY-MM-DD',   // primer día de la pausa
-  pausaFin:    'YYYY-MM-DD',   // último día de la pausa (inclusive)
-  date:        'YYYY-MM-DD',   // siempre igual a pausaInicio (campo requerido por el resto del sistema)
-  notes:       '',             // texto libre opcional, placeholder: "Ej: gripe, fiebre 3 días"
-  createdAt:   serverTimestamp(),
-}
-```
+### Bugs corregidos de paso (contaban pausa/descanso como entrenamiento real)
 
-Se crea desde `handleSavePausa()` en [WorkoutWizard.jsx:332](src/components/registro/WorkoutWizard.jsx:332):
-```js
-const handleSavePausa = async () => {
-  setSaving(true)
-  setSaveError(null)
-  const workout = sanitizeWorkout({
-    type: 'pausa',
-    pausaMotivo,
-    pausaInicio,
-    pausaFin,
-    date: pausaInicio,
-    notes: notes || '',
-  })
-  try {
-    await workoutsHook.saveWorkout(workout)
-    clearDraft()
-    setSaved(workout)
-  } catch {
-    setSaveError('No se pudo guardar. Revisá tu conexión e intentá de nuevo.')
-  } finally {
-    setSaving(false)
-  }
-}
-```
+Varios filtros a lo largo del código excluían `'descanso'` pero no `'pausa'` (o directamente no filtraban nada), heredados de cuando el sistema de pausa todavía existía. Todos se unificaron para usar `REAL_WORKOUT_TYPES`:
 
-### Tres motivos y su efecto visual (ya no afectan la racha)
+| Archivo | Función | Bug |
+|---|---|---|
+| `Inicio.jsx` | `computeWeeklyStats()` | Una pausa en la semana contaba como día entrenado en el resumen semanal (`WeeklySummaryModal`) |
+| `Inicio.jsx` | `getDailySuggestion()` | Una pausa con fecha de hoy hacía que la función devolviera `{ type: 'trained_today' }`, suprimiendo la sugerencia diaria |
+| `Inicio.jsx` | `getThisWeekCount()`, `LastAndSuggestion` (`real`), `FraseDiariaCard` (`trainedToday`) | Mismo patrón, ya corregidos preventivamente |
+| `achievements.js` | `checkResiliencia()` | Una pausa "tapaba" un hueco real de 7+ días sin entrenar, impidiendo detectar el logro `resiliencia` |
+| `achievements.js` | chequeos de `medioAnio` y `aniversario` | Si el documento más viejo era una pausa, la fecha de "primer entrenamiento" quedaba mal calculada |
+| `achievements.js` | chequeo de `cienDias` | Una pausa contaba como uno de los "100 días únicos entrenados" |
+| `achievements.js` | chequeo de `semanaPerfecta` | Una pausa contaba como día cumplido del objetivo semanal |
+| `achievements.js` | `computeMaxStreak()`, chequeo de `dosSemanas` | Ya corregidos en el cambio anterior (sección 1) |
+| `WorkoutHistorial.jsx` | `byDate` | Tenía su propio `REAL = Set([...])` local duplicado — reemplazado por el import compartido |
 
-| pausaMotivo | Icono en el selector | Tratamiento visual en calendario |
-|-------------|-------|-----------------|
-| `enfermedad` | 🤒 | Celeste/hielo |
-| `lesion`     | 🤕 | Celeste/hielo (idéntico a enfermedad) |
-| `descanso`   | 🧘 | Gris |
-
-`enfermedad` y `lesion` comparten exactamente el mismo tratamiento visual (celeste/hielo) en `WeekCalendar.jsx`/`ProgresoPage.jsx`, mientras que `descanso` se pinta distinto (gris) — esta distinción es puramente visual/informativa, ya no dispara ningún efecto en el cálculo de racha (sección 1).
-
-### Lógica de prioridad en `WeekCalendar.jsx` — 3 pasadas
-
-El calendario semanal construye un mapa `byDate` con **3 pasadas explícitas**, en este orden de prioridad (código real, [WeekCalendar.jsx:32-53](src/components/inicio/WeekCalendar.jsx:32)):
-
-```js
-// Build byDate with explicit priority: real workout > descanso > pausa
-const byDate = {}
-const REAL_TYPES = new Set(['fuerza', 'cardio', 'clase', 'tabata'])
-
-// Pass 1: real workouts (highest priority — always win over pausa)
-workouts.forEach(w => {
-  if (REAL_TYPES.has(w.type) && w.date && !byDate[w.date]) byDate[w.date] = w
-})
-// Pass 2: descanso (fills only days without a real workout)
-workouts.forEach(w => {
-  if (w.type === 'descanso' && w.date && !byDate[w.date]) byDate[w.date] = w
-})
-// Pass 3: pausa expands date range, fills only days not already covered
-workouts.forEach(w => {
-  if (w.type !== 'pausa') return
-  const start = parseISO((w.pausaInicio || w.date) + 'T12:00:00')
-  const end   = parseISO((w.pausaFin   || w.date) + 'T12:00:00')
-  for (let d = new Date(start.getTime()); d <= end; d.setDate(d.getDate() + 1)) {
-    const ds = toDateStr(d)
-    if (!byDate[ds]) byDate[ds] = w
-  }
-})
-```
-
-Orden de prioridad real: **entrenamiento real (fuerza/cardio/clase/tabata) > descanso > pausa > vacío**. Cada pasada solo escribe en `byDate[fecha]` si esa fecha todavía no fue ocupada por una pasada anterior — por eso `pausa`, al ser la última pasada, nunca sobrescribe un día que ya tiene un entrenamiento real o un `descanso`.
-
-### Cómo se expande el rango `pausaInicio`–`pausaFin` para pintar el calendario
-
-La pasada 3 (arriba) itera día por día desde `pausaInicio` hasta `pausaFin` inclusive, y por cada día llama a `toDateStr(d)` para generar la clave y rellenar `byDate` solo si esa fecha está libre. El rango es **inclusivo en ambos extremos**.
-
-Renderizado visual por día ([WeekCalendar.jsx:90-133](src/components/inicio/WeekCalendar.jsx:90)):
-```js
-const isFrozen = isPausa && (workout.pausaMotivo === 'enfermedad' || workout.pausaMotivo === 'lesion')
-const pausaDotBg     = isFrozen ? 'rgba(56,189,248,0.25)' : 'rgba(75,85,99,0.4)'
-const pausaDotBorder = isFrozen ? '#38bdf8' : '#4B5563'
-```
-`enfermedad`/`lesion` → punto celeste (`#38bdf8`, ICE_BLUE). `descanso` → punto gris (`#4B5563`). El calendario también muestra una leyenda dinámica debajo con el texto correspondiente ("Semana de pausa por enfermedad/lesión" o "Semana de descanso registrada") solo si hay días de pausa visibles en la semana mostrada.
-
-### Comportamiento cuando se entrena dentro del rango de pausa
-
-- El workout real gana en la pasada 1 y se muestra normalmente en el calendario para ese día específico — la pausa sigue existiendo como documento en Firestore pero queda "tapada" visualmente ese día.
-- El cálculo de racha (sección 1) ni siquiera mira las pausas — ese día simplemente cuenta como día real de esa semana en `weekMap`, igual que cualquier otro entrenamiento.
-- La pausa **no se elimina ni se modifica** en Firestore — sigue expandiéndose sobre el resto de los días de su rango que no tengan un entrenamiento real.
-
-### El formulario de pausa: calendario inline con `date-fns`
-
-El formulario vive en `PausaFlow` dentro de [WorkoutWizard.jsx:193](src/components/registro/WorkoutWizard.jsx:193), y usa un componente `InlineRangePicker` ([WorkoutWizard.jsx:69](src/components/registro/WorkoutWizard.jsx:69)) construido **enteramente con `date-fns`, sin librerías adicionales de calendario**:
-
-```js
-import {
-  parseISO, format,
-  startOfMonth, endOfMonth,
-  startOfWeek, endOfWeek,
-  eachDayOfInterval,
-  addMonths, subMonths,
-  isSameMonth,
-} from 'date-fns'
-import { es } from 'date-fns/locale'
-```
-
-Mecánica de selección de rango (`handleDayClick`):
-```js
-const handleDayClick = (day) => {
-  const dayStr = format(day, 'yyyy-MM-dd')
-  if (dayStr > todayFmt) return   // no se pueden seleccionar días futuros
-  if (!startDate || (startDate && endDate && startDate !== endDate)) {
-    onChange(dayStr, dayStr)      // primer click → nuevo rango de 1 día
-  } else {
-    if (dayStr < startDate) onChange(dayStr, startDate)   // extiende hacia atrás
-    else onChange(startDate, dayStr)                       // extiende hacia adelante
-  }
-}
-```
-
-El grid de días se genera con `eachDayOfInterval({ start: calStart, end: calEnd })` donde `calStart`/`calEnd` vienen de `startOfWeek`/`endOfWeek` con `weekStartsOn: 1` (semana empieza lunes). La navegación entre meses usa `addMonths`/`subMonths`, y no se puede navegar a meses futuros (`canGoNext = !isSameMonth(viewDate, new Date())`). El texto del rango seleccionado ("Del lunes 8 al domingo 14 de junio") se genera con `format(..., "EEEE d 'de' MMMM", { locale: es })`.
+Ninguno de estos requirió tocar datos en Firestore — todos son filtros de lectura, así que el fix aplica retroactivamente a cualquier documento viejo apenas se despliega.
 
 ---
 
@@ -775,7 +669,7 @@ const saveWorkout = async (workout) => {
 }
 ```
 
-**Tipo `pausa`** (ver sección 2 para detalle completo):
+**Tipo `pausa`** (**legacy — sistema eliminado por completo, ver sección 2**. Ya no se puede crear desde la app. Documentos viejos con esta forma pueden seguir existiendo en Firestore de usuarios que los crearon antes de septiembre 2026 — la app los ignora en todos lados vía `REAL_WORKOUT_TYPES`, no se borraron ni se migraron):
 ```js
 {
   type: 'pausa',
@@ -788,7 +682,7 @@ const saveWorkout = async (workout) => {
 }
 ```
 
-**Tipo `descanso`** (legacy — ya no se registra activamente desde el wizard, pero el sistema de racha y calendario lo sigue soportando por compatibilidad con datos históricos):
+**Tipo `descanso`** (legacy — ya no se registra activamente desde el wizard, y desde septiembre 2026 tampoco recibe ningún tratamiento especial en calendarios/estadísticas/racha; se ignora exactamente igual que `pausa`, vía `REAL_WORKOUT_TYPES`):
 ```js
 { type: 'descanso', date: 'YYYY-MM-DD', createdAt: serverTimestamp() }
 ```
@@ -840,8 +734,10 @@ const saveWorkout = async (workout) => {
   nivel: 'Principiante' | 'Intermedio' | 'Avanzado',
   diasSemana: number,           // 3-6, objetivo de días de entrenamiento por semana
   tiposPreferidos: string[],    // ej: ['fuerza', 'cardio', 'clase']
-  pausa: boolean,               // legacy — flag simple de "en pausa" en ConfigPage; el sistema
-                                 // real de pausa (sección 2) usa documentos type:'pausa', no este campo
+  pausa: string,                 // legacy — 'Estoy activo/a' | '1-2 semanas' | '2-4 semanas' | '1-3 meses' | 'Más de 3 meses'.
+                                  // No tiene relación con los documentos type:'pausa' (sección 2, sistema eliminado).
+                                  // Se sigue preguntando en el onboarding, pero no se usa en ningún cálculo. El selector
+                                  // en ConfigPage.jsx se eliminó por no usarse; el campo en Firestore no se tocó.
   lesiones: string,             // texto libre de lesiones (solo relevante si lesionesYes === true)
   lesionesYes: boolean,
   equipamiento: 'Gym completo' | 'Casa' | string,
@@ -1006,10 +902,10 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Motivo**: simplicidad (4 estados + override eran difíciles de mantener y ya habían causado al menos un bug de producción), no castigar entrenar "un poco" igual que no entrenar nada, y perdonar la vida real (vacaciones, enfermedades, viajes) sin que el sistema necesite saber el motivo ni que el usuario registre nada.
 **Alternativa descartada**: mantener los estados y arreglar el bug puntual del override. Descartada porque el problema de fondo no era el bug sino la complejidad estructural de acoplar la racha a las pausas — cualquier cambio futuro en pausas volvería a arriesgar romper la racha.
 
-### Pausas desconectadas del cálculo de racha
-**Decisión**: las pausas (`type: 'pausa'`) dejaron de participar del cálculo de racha — ni la congelan, ni la pausan, ni la descongelan. El sistema de registro de pausas (formulario, Firestore, calendario) sigue existiendo sin cambios, solo se desconectó de la racha.
-**Motivo**: consecuencia directa de eliminar los estados — la tolerancia de 4 semanas vacías ya cubre el caso de uso que las pausas resolvían (avisar que no vas a entrenar por un tiempo), sin necesidad de que el usuario registre nada explícitamente.
-**Alternativa descartada**: mantener las pausas como señal opcional para "perdonar" semanas dentro de las 4 de tolerancia. Descartada por complejidad — reintroduciría el mismo acoplamiento racha↔pausa que se buscaba eliminar. Queda pendiente decidir si se elimina el flujo de pausas por completo (sección 11).
+### Sistema de pausas eliminado por completo
+**Decisión** (septiembre 2026, en dos pasos): primero se desconectaron las pausas del cálculo de racha — ni la congelaban, ni la pausaban, ni la descongelaban, pero el sistema de registro seguía existiendo. Después se eliminó el sistema entero: formulario de registro (`PausaFlow`, `InlineRangePicker`), tratamiento visual especial en los 3 calendarios (`WeekCalendar.jsx`, `MonthCalendar.jsx`, `WeekRow` de `ProgresoPage.jsx`), pantalla especial en `WorkoutSummary.jsx`, y el aside de "semana de pausa" en `ProgresoPage.jsx`. Los documentos viejos `type: 'pausa'`/`'descanso'` en Firestore no se tocaron — la app los ignora vía `REAL_WORKOUT_TYPES` (sección 2 para el detalle completo).
+**Motivo**: consecuencia directa de eliminar los estados de racha — la tolerancia de 4 semanas vacías ya cubre el caso de uso que las pausas resolvían (avisar que no vas a entrenar por un tiempo), sin necesidad de que el usuario registre nada explícitamente. Una vez que la racha dejó de necesitar las pausas, mantener todo el sistema (formulario, 3 calendarios con lógica duplicada, pantalla especial) era complejidad sin ningún consumidor real.
+**Alternativa descartada**: mantener el registro de pausas como funcionalidad informativa aunque no afectara la racha. Descartada porque duplicaba lógica de calendario en 3 archivos distintos sin aportar nada que la tolerancia de 4 semanas no cubriera ya.
 
 ### Fechas como strings `YYYY-MM-DD` (no Timestamps de Firestore)
 **Decisión**: todos los campos de fecha en workouts (`date`, `pausaInicio`, `pausaFin`) son strings, no Firestore Timestamps.
@@ -1057,15 +953,15 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: `ProgresoPage.jsx` también llama a `getCurrentStreak()` por su cuenta (misma función, instancia de hook separada) — ambas pantallas deben mostrar siempre los mismos números de racha, ya que las dos consumen exactamente `computeStreak()` sin ninguna lógica propia adicional.
 
 ### `src/components/inicio/WeekCalendar.jsx`
-**Qué hace**: calendario semanal con puntos de color por tipo de workout. Pinta días de pausa en celeste (`enfermedad`/`lesión`) o gris (`descanso`) mediante 3 pasadas de prioridad (real > descanso > pausa). Incluye leyenda dinámica explicativa.
-**Por qué es crítico**: la lógica de prioridad visual debe mantenerse al agregar nuevos tipos de workout — cualquier tipo nuevo debe decidirse explícitamente en qué pasada entra.
+**Qué hace**: calendario semanal con puntos de color por tipo de workout real. Desde septiembre 2026 ya no tiene tratamiento especial para pausa/descanso (sección 2) — un solo filtro por `REAL_WORKOUT_TYPES`, sin pasadas de prioridad ni leyenda.
+**Por qué es crítico**: es la referencia de cómo debería verse cualquier otro calendario de la app (`MonthCalendar.jsx`, `WeekRow` de `ProgresoPage.jsx`) — los tres deberían idealmente compartir esta lógica en vez de reimplementarla cada uno por su cuenta (deuda técnica pendiente, no se consolidó en este cambio).
 
 ### `src/components/inicio/Logros.jsx`
 **Qué hace**: sistema de logros permanentes (35, `ACHIEVEMENTS_META`) y medallas semanales (4 de un pool de 12, `MEDAL_POOL`). Ya no recibe ninguna prop de racha — `w_racha_viva` calcula "¿esta semana ya tiene 3+ días reales?" de forma independiente, sin llamar `getCurrentStreak()`/`computeStreak()`.
 **Por qué es crítico**: `computeWeeklyMedals` y el algoritmo de selección 1-por-categoría con rotación semanal (`weekNum % pool.length`) es delicado — cambiar criterios de medallas acá requiere entender las reglas de exclusión (sección 3) y la prioridad de completadas sobre no completadas dentro de cada categoría.
 
 ### `src/components/registro/WorkoutWizard.jsx`
-**Qué hace**: flujo de pasos para registrar un workout (tipo → detalle → sensación), incluyendo el flujo separado de pausa (`PausaFlow` + `InlineRangePicker`). Llama `workoutsHook.saveWorkout()` y muestra `WorkoutSummary`. Maneja el draft persistente del formulario (distinto del draft offline de `draftQueue.js`) y el timer de sesión.
+**Qué hace**: flujo de pasos para registrar un workout (tipo → detalle → sensación). Solo ofrece `fuerza`/`cardio`/`clase` como tipos — el flujo de pausa (`PausaFlow` + `InlineRangePicker`) se eliminó por completo (sección 2). Llama `workoutsHook.saveWorkout()` y muestra `WorkoutSummary`. Maneja el draft persistente del formulario (distinto del draft offline de `draftQueue.js`) y el timer de sesión.
 **Por qué es crítico**: el orden de operaciones al guardar (save a Firestore → optimistic update de cache → navegación) afecta directamente lo que ve `getCurrentStreak()` cuando el usuario llega a `Inicio` inmediatamente después de guardar.
 
 ### `src/components/registro/WorkoutSummary.jsx`
@@ -1074,7 +970,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 
 ### `src/components/progreso/ProgresoPage.jsx`
 **Qué hace**: página de progreso con múltiples bloques — "Tu camino" (stats agregadas), "Tus victorias", historial en calendario mensual, progresión de ejercicios, gráficos de fatiga y volumen, "Últimas Sesiones" (usa `WorkoutIcon` + `TYPE_COLORS` + `detectPRs`).
-**Por qué es crítico**: llama `getCurrentStreak()` propia (instancia distinta del hook, no comparte estado con `Inicio.jsx`) — pero desde septiembre 2026 ya no tiene su propio cálculo de `record` duplicado dentro de `computeAll()`, usa directamente el `record` de `getCurrentStreak()` para que ambas pantallas siempre coincidan (sección 1). Contiene su propia lógica de expansión de rango de pausa para el calendario mensual (duplica parcialmente la lógica de `WeekCalendar.jsx` — esto no cambió, las pausas siguen registrándose y mostrándose igual, solo se desconectaron de la racha).
+**Por qué es crítico**: llama `getCurrentStreak()` propia (instancia distinta del hook, no comparte estado con `Inicio.jsx`) — pero desde septiembre 2026 ya no tiene su propio cálculo de `record` duplicado dentro de `computeAll()`, usa directamente el `record` de `getCurrentStreak()` para que ambas pantallas siempre coincidan (sección 1). `MonthCalendar.jsx` (calendario mensual) y `WeekRow` (fila de "esta semana", dentro de este mismo archivo) ya no tienen tratamiento especial de pausa — ambos filtran por `REAL_WORKOUT_TYPES` como `WeekCalendar.jsx` (sección 2).
 
 ### `src/utils/prUtils.js`
 **Qué hace**: exporta `detectPRs` (vs. máximo histórico absoluto) y `detectImprovements` (vs. sesión inmediatamente anterior). Archivo pequeño pero crítico para no confundir ambas semánticas.
@@ -1106,21 +1002,18 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 
 En orden de prioridad sugerido:
 
-1. **Resumen semanal (`WeeklySummaryModal`) no debe contar pausas como días entrenados.**
-   Bug confirmado en código actual: `computeWeeklyStats()` en [Inicio.jsx:57](src/pages/Inicio.jsx:57) filtra `w.type !== 'descanso'` pero **no filtra `w.type !== 'pausa'`**, por lo que `daysTrained = new Set(lastWeek.map(w => w.date)).size` (línea 60) puede contar un documento de tipo `pausa` como si fuera un día entrenado. Fix sugerido: agregar `&& w.type !== 'pausa'` al filtro de `lastWeek`.
-
-2. **Flip cards en "Tu Camino" de `ProgresoPage.jsx`.**
+1. **Flip cards en "Tu Camino" de `ProgresoPage.jsx`.**
    Actualmente el bloque "Tu camino" (`ProgresoPage.jsx`, sección `CaminoCard`) usa tarjetas estáticas simples. `Logros.jsx` ya tiene un patrón de flip card funcionando (`TrophyCard`, con clases CSS `.flip-card`/`.flip-inner`/`.flip-front`/`.flip-back` definidas en `index.css`) que podría reutilizarse para mostrar más contexto al tocar cada `CaminoCard`.
 
-3. **Algoritmo local de recomendaciones basado en ciencia del entrenamiento (sin API externa).**
+2. **Algoritmo local de recomendaciones basado en ciencia del entrenamiento (sin API externa).**
    Reemplazo planeado del sistema de recomendaciones eliminado (ver sección 9). Debe correr enteramente en el cliente, sin llamadas a IA — criterios como volumen semanal por grupo muscular, frecuencia, fatiga acumulada y tiempo desde el último PR.
 
-4. **Revisión y optimización completa del onboarding.**
-   Sin alcance definido todavía — pendiente de diseño.
+3. **Revisión y optimización completa del onboarding.**
+   Sin alcance definido todavía — pendiente de diseño. De paso, `Onboarding.jsx` todavía pregunta "¿Hace cuánto no entrenás?" y guarda `profile.pausa`, campo que no se usa en ningún cálculo (ver sección 7) — podría eliminarse en esta revisión.
 
-5. **(Backend listo, sin UI)** Favoritos y lista negra de ejercicios — ver sección 9. No es estrictamente un pendiente de prioridad alta, pero queda registrado como funcionalidad con datos ya modelados en Firestore (`getFavorites`, `toggleFavorite`, `getNeverList`, `toggleNever` en `db.js`) esperando una UI.
+4. **(Backend listo, sin UI)** Favoritos y lista negra de ejercicios — ver sección 9. No es estrictamente un pendiente de prioridad alta, pero queda registrado como funcionalidad con datos ya modelados en Firestore (`getFavorites`, `toggleFavorite`, `getNeverList`, `toggleNever` en `db.js`) esperando una UI.
 
-6. **Eliminación completa del flujo de pausas** (formulario `PausaFlow`/`InlineRangePicker` en `WorkoutWizard.jsx`, tratamiento especial en `WeekCalendar.jsx`/`MonthCalendar.jsx`/`WeekRow` de `ProgresoPage.jsx`, pantalla especial en `WorkoutSummary.jsx`). Quedó pendiente tras desconectar las pausas del cálculo de racha (sección 1 y 2) — por ahora el registro de pausas sigue funcionando exactamente igual que antes, solo dejó de tener cualquier efecto sobre la racha.
+5. **Consolidar la lógica de calendario duplicada en 3 archivos** (`WeekCalendar.jsx`, `MonthCalendar.jsx`, `WeekRow` de `ProgresoPage.jsx`) — los tres filtran por `REAL_WORKOUT_TYPES` y pintan días de forma casi idéntica, pero son implementaciones separadas. Podrían compartir un solo helper.
 
 ---
 

@@ -184,7 +184,7 @@ function getWorkoutHour(w) {
 }
 
 function checkResiliencia(workouts) {
-  const real = workouts.filter(w => w.type !== 'descanso').sort((a, b) => a.date.localeCompare(b.date))
+  const real = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).sort((a, b) => a.date.localeCompare(b.date))
   for (let i = 1; i < real.length; i++) {
     const gap = Math.round((new Date(real[i].date) - new Date(real[i - 1].date)) / 86400000)
     if (gap >= 7) return true
@@ -316,7 +316,7 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
   if (!a.constanciaTotal?.unlocked && workouts.length >= 100) push('constanciaTotal', '100 entrenamientos completados')
 
   if (!a.medioAnio?.unlocked && workouts.length > 0) {
-    const real = workouts.filter(w => w.type !== 'descanso')
+    const real = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type))
     if (real.length > 0) {
       const first = new Date(real[real.length - 1].date + 'T12:00:00')
       if ((new Date() - first) >= 180 * 24 * 3600 * 1000) push('medioAnio', 'Más de 180 días desde el primer entrenamiento')
@@ -324,7 +324,7 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
   }
 
   if (!a.cienDias?.unlocked) {
-    const uniqueDates = new Set(workouts.filter(w => w.type !== 'descanso').map(w => w.date))
+    const uniqueDates = new Set(workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).map(w => w.date))
     if (uniqueDates.size >= 100) push('cienDias', `${uniqueDates.size} días únicos entrenados`)
   }
 
@@ -430,7 +430,7 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
   if (!a.resiliencia?.unlocked && checkResiliencia(workouts)) push('resiliencia', 'Vuelta después de 7+ días sin entrenar')
 
   if (!a.aniversario?.unlocked && workouts.length > 0) {
-    const real = workouts.filter(w => w.type !== 'descanso')
+    const real = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type))
     if (real.length > 0) {
       const first = new Date(real[real.length - 1].date + 'T12:00:00')
       if ((new Date() - first) >= 365 * 24 * 3600 * 1000) push('aniversario', 'Un año desde el primer entrenamiento')
@@ -456,7 +456,7 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
   if (!a.semanaPerfecta?.unlocked) {
     const diasObjetivo = profile?.diasSemana ?? 3
     const weeks = {}
-    workouts.filter(w => w.type !== 'descanso').forEach(w => {
+    workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).forEach(w => {
       const k = getWeekKey(w.date)
       if (!weeks[k]) weeks[k] = new Set()
       weeks[k].add(w.date)

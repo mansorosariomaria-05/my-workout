@@ -8,7 +8,6 @@ import Button from '../ui/Button'
 import Card from '../ui/Card'
 
 const OBJETIVO_OPTIONS = ['Tonificar', 'Ganar masa muscular', 'Ganar fuerza', 'Mejorar resistencia', 'Bienestar general']
-const PAUSA_OPTIONS    = ['Estoy activo/a', '1-2 semanas', '2-4 semanas', '1-3 meses', 'Más de 3 meses']
 const EQUIP_OPTIONS    = ['Gym completo', 'Solo mancuernas y bandas', 'Sin equipamiento']
 const NIVEL_OPTIONS    = ['Principiante (<1 año)', 'Intermedio (1-3 años)', 'Avanzado (>3 años)']
 
@@ -245,22 +244,6 @@ export default function ConfigPage() {
               </div>
             </div>
           )}
-        </Section>
-
-        <Section title="Pausa del entrenamiento">
-          <div>
-            <p className="text-app-text text-sm mb-3">¿Volvés después de una pausa?</p>
-            <div className="space-y-2">
-              {PAUSA_OPTIONS.map(p => (
-                <button key={p} onClick={() => updateProfile({ pausa: p })}
-                  className={`w-full text-left px-3 py-2.5 rounded-xl text-sm border transition-all ${
-                    profile?.pausa === p ? 'border-app-purple bg-app-purple/10 text-app-purple-light' : 'border-white/8 text-app-muted'
-                  }`}>
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
         </Section>
 
         <Section title="Semana de descarga">

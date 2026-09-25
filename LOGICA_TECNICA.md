@@ -111,21 +111,24 @@ El sistema anterior caminaba desde hoy hacia atrás, semana por semana, y cortab
 
 ### Estadísticas de la tarjeta de racha (`computeStreakStats()`)
 
-La tarjeta de racha de `Inicio.jsx` es ahora una tarjeta que se da vuelta (`FlipCard`, `src/components/ui/FlipCard.jsx` — genérica y reutilizable, envuelve un `<button aria-pressed aria-label>`, reusa las clases `.flip-card`/`.flip-inner`/`.flip-front`/`.flip-back` de `index.css` que ya usaba `TrophyCard` en `Logros.jsx`, y respeta `prefers-reduced-motion` — `.flip-inner` pierde la transición, así el giro es instantáneo en vez de animado). El frente solo muestra `🔥 {current}` + "racha semanal"; el dorso muestra estadísticas calculadas por `computeStreakStats(workouts, today)`, función pura en `src/utils/streak.js`.
+La tarjeta de racha de `Inicio.jsx` es una tarjeta que se da vuelta (`FlipCard`, `src/components/ui/FlipCard.jsx` — genérica y reutilizable, envuelve un `<button aria-pressed aria-label>`, reusa las clases `.flip-card`/`.flip-inner`/`.flip-front`/`.flip-back` de `index.css` que ya usaba `TrophyCard` en `Logros.jsx`, y respeta `prefers-reduced-motion` — `.flip-inner` pierde la transición, así el giro es instantáneo en vez de animado). Ambas caras usan una altura compacta fija (`STATS_CARD_HEIGHT = '108px'`, la misma que la card de días de al lado tenía de forma implícita antes de que existiera el flip — necesaria porque el truco CSS del flip posiciona el frente y el dorso en `absolute`, así que el contenedor necesita una altura explícita para no colapsar a 0).
+
+- **Frente**: solo `🔥 {current}`, con el número al **mismo tamaño y peso que el número grande de la card de días** (`text-4xl font-bold`) — antes era más chico (`text-2xl`), inconsistente con el recuadro de al lado. Debajo, "racha semanal" con el mismo estilo chico que ya tenía.
+- **Dorso**: grilla compacta de 2×2, un número destacado por celda (`text-lg font-bold`) con su etiqueta chica debajo — **0 días**, **1-2 días**, **3-4 días**, **5+ días** — nada más (sin récord, sin promedio, sin porcentajes por tipo, sin pie "Últimas 12 semanas": se sacaron para que el dorso entre holgado en la altura compacta).
+
+La card de días, además, ahora muestra "Esta semana" arriba a la izquierda (mismas clases que la etiqueta "días" del centro: `text-[9px] text-app-muted`) — existía en el pedido original pero nunca se había implementado.
+
+`computeStreakStats(workouts, today)` (función pura, `src/utils/streak.js`) calcula los 4 buckets:
 
 **Período**: las últimas 12 semanas **completas** (lunes a domingo), sin incluir la semana en curso — `lastCompleteMonday = mondayOf(today) - 7 días`, y las 12 semanas van desde `lastCompleteMonday - 11×7` hasta `lastCompleteMonday`. Si el primer entrenamiento real del usuario es más reciente que ese inicio nominal, el período se acorta a las semanas desde esa primera semana (`startMonday = max(firstMonday, nominalStartMonday)`) — así un usuario nuevo con 3 semanas de historial ve estadísticas de 3 semanas, no 12 con 9 vacías. Solo cuenta `type` en `REAL_WORKOUT_TYPES` (`'pausa'`/`'descanso'` quedan afuera, igual que en `computeStreak`).
 
-**Buckets**: cantidad de semanas del período con exactamente 1, 2, 3, 4, o 5+ días únicos de entrenamiento real. Las semanas de 0 días no entran en ningún bucket (pero sí cuentan para el promedio).
+**`buckets`**: `{ zero, oneTwo, threeFour, fivePlus }` — cantidad de semanas del período con 0, 1-2, 3-4, o 5+ días únicos de entrenamiento real. A diferencia del diseño anterior (que tenía un bucket por cada valor de 1 a 4 y excluía las semanas de 0 días), acá las semanas de 0 días sí se cuentan, en su propio bucket — la suma de los 4 buckets siempre da exactamente `weeksConsidered`.
 
-**`average`**: `(suma de días únicos de todas las semanas del período) / (cantidad de semanas del período, incluyendo las de 0 días)`, redondeado a 1 decimal. La función devuelve un número plano (ej. `3`, `2.5`) — el `,` decimal (`"3,0"`) es formato de UI (`formatAverage()` en `Inicio.jsx`), no de la función pura.
+**`record`**: se reusa directamente `computeStreak(workouts).record` (el récord histórico completo, no acotado a las 12 semanas) — la función lo sigue devolviendo, aunque ya no se muestra en el dorso (se sacó del diseño por espacio).
 
-**`typePercents`**: porcentaje de sesiones por `type` (`fuerza`/`cardio`/`clase`/`tabata`) sobre el total de sesiones reales del período — no días, sesiones. Redondeo por **método de restos mayores** (largest remainder): se calcula el porcentaje exacto de cada tipo, se toma el piso de cada uno, y los puntos que faltan para llegar a 100 se reparten de a uno entre los tipos con mayor resto decimal (así 1/1/1 sesiones da `34/33/33`, no `33/33/33` que suma 99 o `33,3/33,3/33,3` con decimales). Empates de resto se desempatan por el orden fijo de `REAL_WORKOUT_TYPES`, para que el resultado sea determinístico.
+`average` y `typePercents` (porcentaje de sesiones por tipo, redondeo por método de restos mayores) **se eliminaron** de `computeStreakStats` — quedaron sin ningún consumidor tras simplificar el dorso a la grilla de 4 números.
 
-**`record`**: se reusa directamente `computeStreak(workouts).record` (el récord histórico completo, no acotado a las 12 semanas) — se muestra igual aunque el período de abajo esté vacío.
-
-**Sin sesiones en el período** (`isEmpty: true` — usuario sin ningún entrenamiento real todavía, o cuyo primer entrenamiento cae dentro de la semana en curso, sin ninguna semana completa aún): el dorso muestra "Todavía no hay semanas completas para mostrar" en vez de las barras/promedio/tipos, pero el récord se sigue mostrando igual.
-
-Verificado con corridas sintéticas: 12 semanas con distribución mixta de días (buckets y promedio exactos), reparto de sesiones por tipo con y sin empates, usuario con historial corto (período acortado), la semana en curso sin efecto en el resultado, y documentos `pausa`/`descanso` mezclados sin ningún efecto.
+Verificado con corridas sintéticas: 12 semanas con distribución mixta de días (buckets exactos, sumando 12), y usuario con historial corto (período acortado, buckets sumando solo esas semanas). La primera corrida del script de verificación falló por un error del propio script (no anclaba el historial antes de la ventana de 12 semanas, así que el período se acortaba a partir de la primera semana con datos) — corregido el test, no la función.
 
 ### Por qué se eliminaron los estados (`active`/`frozen`/`paused`/`broken`)
 

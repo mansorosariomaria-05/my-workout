@@ -491,57 +491,24 @@ function LastWorkoutModal({ workout }) {
 }
 
 // ─── Stats cards ─────────────────────────────────────────────────────────────
-// Mismos colores que el anillo de días (ringColor más abajo) — así las barras del dorso de la
-// racha usan la misma paleta de "cuántos días por semana" que la card de al lado.
-const BUCKET_COLORS = { 1: '#E05252', 2: '#D49A3A', 3: '#4A9EDB', 4: '#40916C', '5+': '#F5C842' }
-const BUCKET_DEFS = [
-  { key: '1', label: '1 día' },
-  { key: '2', label: '2 días' },
-  { key: '3', label: '3 días' },
-  { key: '4', label: '4 días' },
-  { key: '5+', label: '5+ días' },
+// Grilla 2x2 del dorso de la racha — mismo orden que los buckets de computeStreakStats.
+const BACK_GRID_DEFS = [
+  { key: 'zero',      label: '0 días' },
+  { key: 'oneTwo',     label: '1-2 días' },
+  { key: 'threeFour',  label: '3-4 días' },
+  { key: 'fivePlus',   label: '5+ días' },
 ]
-const STATS_TYPE_LABELS = { fuerza: 'Fuerza', cardio: 'Cardio', clase: 'Clase', tabata: 'Tabata' }
-const STATS_CARD_HEIGHT = '184px'
-
-function formatAverage(n) {
-  return n.toFixed(1).replace('.', ',')
-}
+const STATS_CARD_HEIGHT = '108px'
 
 function RachaBack({ stats }) {
-  const maxBucket = Math.max(1, ...Object.values(stats.buckets))
-  const typeLine = REAL_WORKOUT_TYPES
-    .filter(t => (stats.typePercents[t] ?? 0) > 0)
-    .map(t => `${STATS_TYPE_LABELS[t]} ${stats.typePercents[t]}%`)
-    .join(' · ')
-
   return (
-    <div className="flex flex-col h-full justify-center gap-1 px-2 py-1.5">
-      <p className="text-[10px] text-app-text font-medium">Récord: {stats.record} sem.</p>
-      {stats.isEmpty ? (
-        <p className="text-app-muted text-[9px] leading-snug mt-0.5">Todavía no hay semanas completas para mostrar</p>
-      ) : (
-        <>
-          <p className="text-[10px] text-app-muted">Promedio: {formatAverage(stats.average)} días/sem</p>
-          <div className="space-y-0.5 mt-0.5">
-            {BUCKET_DEFS.map(({ key, label }) => {
-              const count = stats.buckets[key] ?? 0
-              const width = count ? (count / maxBucket) * 100 : 0
-              return (
-                <div key={key} className="flex items-center gap-1">
-                  <span className="text-[8px] text-app-muted/80 w-8 shrink-0">{label}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                    {count > 0 && <div className="h-full rounded-full" style={{ width: `${width}%`, backgroundColor: BUCKET_COLORS[key] }} />}
-                  </div>
-                  <span className="text-[8px] text-app-muted/80 w-3 text-right shrink-0">{count}</span>
-                </div>
-              )
-            })}
-          </div>
-          {typeLine && <p className="text-[9px] text-app-muted mt-0.5 leading-tight">{typeLine}</p>}
-        </>
-      )}
-      <p className="text-[8px] text-app-muted/50 text-center mt-1">Últimas 12 semanas</p>
+    <div className="grid grid-cols-2 h-full w-full gap-1 px-3 py-2">
+      {BACK_GRID_DEFS.map(({ key, label }) => (
+        <div key={key} className="flex flex-col items-center justify-center">
+          <span className="text-lg font-bold leading-none" style={{ color: '#9B7FD4' }}>{stats.buckets[key]}</span>
+          <span className="text-[8px] text-app-muted text-center leading-tight mt-0.5">{label}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -569,7 +536,8 @@ function StatsCards({ diasSemana, semanasRacha, streakStats }) {
     <div className="flex gap-3 mx-4">
 
       {/* Card izquierda — días */}
-      <div className="flex-1 py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center" style={{ backgroundColor: '#1a1625', height: STATS_CARD_HEIGHT }}>
+      <div className="relative flex-1 py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center" style={{ backgroundColor: '#1a1625', height: STATS_CARD_HEIGHT }}>
+        <span className="absolute top-1.5 left-2.5 text-[9px] text-app-muted">Esta semana</span>
         <div className="relative w-20 h-20 mb-1">
           <svg className="w-full h-full -rotate-90" viewBox="0 0 72 72">
             <circle cx="36" cy="36" r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
@@ -603,8 +571,8 @@ function StatsCards({ diasSemana, semanasRacha, streakStats }) {
               className="w-full h-full py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center"
               style={{ backgroundColor: '#1a1625' }}
             >
-              <span className="text-3xl font-bold leading-none flex items-center gap-1.5" style={{ color: '#9B7FD4' }}>
-                <span className="text-2xl">🔥</span>{semanasRacha}
+              <span className="text-4xl font-bold leading-none flex items-center gap-1.5" style={{ color: '#9B7FD4' }}>
+                <span className="text-3xl">🔥</span>{semanasRacha}
               </span>
               <p className="text-[10px] text-app-muted text-center mt-1 px-1 leading-tight">racha semanal</p>
             </div>

@@ -383,7 +383,7 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 
 **Racha semanal** (`utils/streak.js` → `computeStreak`): sin estados — no hay racha "congelada" ni "en pausa". Cada semana con 3+ días de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`) suma 1 a la racha; las semanas con 1-2 días no suman ni cortan; la racha vuelve a 0 solo si se completan 4 semanas calendario seguidas sin ningún entrenamiento real. Ver `LOGICA_TECNICA.md` sección 1 para el detalle y la justificación.
 
-**Tarjeta de racha con dorso** (Inicio, `StatsCards`): la tarjeta de racha se da vuelta al tocarla (`FlipCard.jsx`, genérico y reutilizable, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`). Frente: solo `🔥 {racha actual}`. Dorso (`computeStreakStats`, `streak.js`): récord, promedio de días/semana, barras por cantidad de días semanales (1 a 5+) y el reparto de sesiones por tipo, todo sobre las últimas 12 semanas completas (o menos si el usuario tiene menos historial).
+**Tarjeta de racha con dorso** (Inicio, `StatsCards`): la tarjeta de racha se da vuelta al tocarla (`FlipCard.jsx`, genérico y reutilizable, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`), con altura compacta fija (misma que la card de días de al lado). Frente: solo `🔥 {racha actual}`, número del mismo tamaño que el de la card de días. Dorso (`computeStreakStats`, `streak.js`): grilla 2×2 con la cantidad de semanas de 0, 1-2, 3-4 y 5+ días de entrenamiento real, sobre las últimas 12 semanas completas (o menos si el usuario tiene menos historial). La card de días muestra "Esta semana" arriba a la izquierda.
 
 ---
 

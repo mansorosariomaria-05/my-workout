@@ -84,10 +84,10 @@ src/
 
   hooks/
     useWorkouts.js             # Carga/guarda workouts con caché en localStorage
-    useProgression.js          # Wrapper de getProgressionSuggestion
     useDeload.js               # Semana de descarga
     useExercises.js            # Combina exercises.js + ejercicios custom del usuario
     useAuth.js                 # onAuthChange wrapper
+    useOnlineStatus.js         # Estado online/offline del navegador
 
   services/
     db.js                      # Todas las operaciones Firestore
@@ -100,8 +100,11 @@ src/
     tabatas.js                 # Protocolos Tabata predefinidos
 
   utils/
-    progression.js             # Lógica de progresión de carga
-    weights.js                 # GYM_WEIGHTS array, nextWeight, prevWeight, deload
+    progression.js             # Doble progresión, Epley, bono de reps por salto
+    weights.js                 # STANDARD_WEIGHTS, pesos aprendidos, nextWeight, floorWeight, deload
+    streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
+    inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
+    reentry.js                 # Vuelta suave: detección y reducción gradual por ejercicio
     dates.js                   # Helpers de fechas locales
     genero.js                  # textoGenero() para acordar género en textos
 ```
@@ -282,20 +285,9 @@ El campo `alt` en el objeto de rutina es **solo para display** en la pantalla de
 
 ---
 
-## Progresión de carga (utils/progression.js)
+## Sistema de pesos y progresión de carga
 
-### Sistema principal: `getSeriesSuggestion`
-
-Basado en **doble progresión** (subir peso solo cuando dos sesiones consecutivas completaron todas las reps en el máximo):
-
-```
-action = 'up'       → si última Y penúltima sesión: ALL sets >= repsMax Y fatigue <= 7
-action = 'down'     → si últimas sesión: 2+ sets fallaron repsMin
-action = 'maintain' → mantener peso
-action = 'first'    → sin historial
-```
-
-**Parámetros por objetivo** (`OBJETIVO_PARAMS`):
+**Parámetros por objetivo** (`OBJETIVO_PARAMS` en `progression.js`):
 | Objetivo | Series | Reps min-max | Descanso |
 |---|---|---|---|
 | Tonificar | 3 | 12-15 | 75s |
@@ -304,26 +296,24 @@ action = 'first'    → sin historial
 | Mejorar resistencia | 3 | 15-20 | 52s |
 | Bienestar general | 3 | 10-15 | 75s |
 
-**Pirámide intrasesión** (`PYRAMID`): reps descienden y peso sube por serie.
+### Pesos disponibles y aprendidos (`utils/weights.js`)
 
-**Objetivo por nivel de ejercicio** (`getObjetivoForLevel`):
-- Ejercicios A/B → objetivo de mayor prioridad del usuario
-- Ejercicios C/D → segundo objetivo si hay varios
+- `STANDARD_WEIGHTS`: unión de los pesos disponibles en los gimnasios del usuario (placas/mancuernas fijas).
+- Además de esos valores fijos, el sistema **aprende** qué pesos usó realmente el usuario en cada ejercicio (`getLearnedWeights` en `useWorkouts.js`) y los suma al pool de candidatos, así las sugerencias respetan las variantes propias de cada gimnasio/equipo y no solo la tabla estándar.
+- `getNextWeight(current, learnedWeights, equipCategory)`: prioriza el salto más chico disponible en el pool dentro de un tope de +25% (o +2.5kg); si no hay ninguno en rango, usa el salto típico histórico del usuario o un default por tipo de equipo.
+- `floorWeight(target, learnedWeights)`: redondea hacia el valor del pool más cercano por abajo (usado en deload y en vuelta suave).
 
-### Sistema secundario: `getProgressionAdvice`
+### Doble progresión (`getProgressionAdvice` en `progression.js`)
 
-Analiza dos últimas sesiones y sugiere si subir peso:
-- `pattern = 'pyramid'` → compara maxW entre sesiones + reps de la última serie
-- `pattern = 'fixed'` → compara avgReps y avgWeight entre sesiones
-- Threshold de reps: nivel A/B → 10, nivel C/D → 15
-- Incremento: tren inferior → +5kg, grandes de superior → +2.5kg, resto → +2kg
+Compara las dos últimas sesiones reales de cada ejercicio (ver "historial efectivo" en la sección de vuelta suave más abajo):
+- Sube el peso solo si **ambas** sesiones llegaron al umbral de reps del nivel del ejercicio (`REP_RANGES`: A/B 6-10, C/D 10-15) al mismo peso.
+- Al sugerir subir peso, las reps de la próxima sesión se recalculan con la **fórmula de Epley** (`estimateRepsAtWeight`) en vez de reiniciar al mínimo del rango, para que la sugerencia sea realista al nuevo peso.
+- **Bono de reps por salto** (`getJumpRepBonus`): si el próximo peso disponible implica un salto proporcionalmente grande respecto al actual (típico con mancuernas livianas), exige 2-4 reps extra antes de subir, para no forzar un salto demasiado grande.
+- Ejercicios de peso corporal (equipo "Sin equipamiento", peso actual 0): en vez de sugerir peso, sugiere sumar reps.
 
-### Pesos disponibles (weights.js)
+### Sugerencias precargadas (`FuerzaFlow.jsx`)
 
-```js
-GYM_WEIGHTS = [2, 4, 5, 6, 7.5, 8, 9, 10, 12, 12.5, 14, 15, 17.5, 20, 25]
-```
-Navegación siempre snap al valor más cercano del array.
+Al armar la sesión (`buildEntry`), las series se precargan directamente con la sugerencia de progresión cuando corresponde, marcadas con un **brillo violeta** (campo `_suggested`, solo UI — se limpia antes de guardar en Firestore). El botón de cada serie muestra una pequeña **cruz roja** cuando hay más de una serie cargada, para indicar que al tocarlo la elimina.
 
 ---
 
@@ -333,6 +323,15 @@ Navegación siempre snap al valor más cercano del array.
 - `shouldSuggestDeload()` → promedio de fatiga de últimas 40 sesiones >= 7
 - Cuando activo: peso × 0.65 (redondeado al más cercano), series -1 (mínimo 2)
 - El estado se guarda en Firestore (`settings.deloadActive`)
+- Si además un ejercicio está en vuelta suave (ver abajo), no se suman las dos reducciones: se usa el peso menor entre las dos.
+
+---
+
+## Aviso de inactividad y vuelta suave
+
+- **Aviso de inactividad** (`Inicio.jsx` + `utils/inactivity.js`): si pasaron 14+ días desde el último entrenamiento real, al abrir la app se pregunta el motivo (enfermedad, lesión, estrés, descanso) y se guarda en `profile.inactividad`. Es puramente informativo: no crea workouts, no crea documentos de pausa, no afecta la racha.
+- **Vuelta suave** (`utils/reentry.js`, integrada en `FuerzaFlow.jsx`): es **por ejercicio**, no global. Si pasaron 14+ días sin hacer ese ejercicio puntual, la precarga de la próxima sesión reduce peso (10-25% según el largo del parate, +5% y +1 sesión si el motivo fue enfermedad/lesión) y series (mínimo 2, partiendo de la última sesión antes del parate), y va subiendo gradualmente en 2-4 sesiones hasta volver a la carga normal. Se detecta 100% a partir de las fechas del historial de ese ejercicio, sin guardar ningún estado nuevo en Firestore. Mientras dura, no hay sugerencias de progresión (sin brillo violeta) para ese ejercicio.
+- Ver `LOGICA_TECNICA.md` sección 15 para el detalle completo (fórmulas, casos borde, justificación).
 
 ---
 
@@ -366,7 +365,7 @@ Guardado en Firestore: `users/{uid}/data/achievements → { [key]: { unlocked: t
 
 Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con grid 3 columnas, flip card frente/reverso).
 
-**Streak semanal** se cuenta hacia atrás desde la semana pasada: semana con 3+ días entrenados = 1 semana de racha.
+**Racha semanal** (`utils/streak.js` → `computeStreak`): sin estados — no hay racha "congelada" ni "en pausa". Cada semana con 3+ días de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`) suma 1 a la racha; las semanas con 1-2 días no suman ni cortan; la racha vuelve a 0 solo si se completan 4 semanas calendario seguidas sin ningún entrenamiento real. Ver `LOGICA_TECNICA.md` sección 1 para el detalle y la justificación.
 
 ---
 
@@ -380,7 +379,7 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 3. Si `!profile?.onboardingDone` → `Onboarding` (8 pasos)
 4. Si todo OK → rutas normales
 
-**Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `pausa`, `lesiones`, `equipamiento`, `onboardingDone`.
+**Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `tipoRutina`, `sesionesFuerzaObjetivo`, `lesionesYes`, `lesiones`, `equipamiento`, `onboardingDone`, `inactividad` (último parate detectado — ver "Aviso de inactividad y vuelta suave"). Ya no existe el campo `pausa` (el onboarding no lo pregunta desde que se eliminó el sistema de pausas).
 
 **Settings**: `deloadActive`, `restTimerSeconds` (default 90), `coverUrl`.
 
@@ -438,3 +437,9 @@ Usado en logros, mensajes y saludos para adaptar terminaciones.
 - `originalExerciseId` se setea cuando se activa el alt, se limpia cuando se vuelve al original
 - Las fechas de workouts nunca se convierten a `Date` para comparaciones — se comparan como strings `'YYYY-MM-DD'`
 - El build siempre va a `dist/` (excluida de git), deploy con `firebase deploy --only hosting`
+
+---
+
+## Documentación técnica extendida
+
+Ver `LOGICA_TECNICA.md` para lógicas complejas, decisiones de producto, bugs conocidos y estructura de datos detallada.

@@ -86,9 +86,23 @@ export function useWorkouts(uid) {
   }, [uid, load])
 
   const getLastWeightsForExercise = (exerciseId) => {
+    // No asumir orden: los drafts offline pendientes de sync pueden anteponerse sin garantía de fecha.
     const relevant = workouts
       .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === exerciseId))
+      .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5)
+    return relevant.map(w => {
+      const ex = w.exercises.find(e => e.exerciseId === exerciseId)
+      return { date: w.date, sets: ex?.sets ?? [], fatigue: w.fatigue }
+    })
+  }
+
+  // Historial completo (sin slice) de un ejercicio, ordenado por fecha descendente — usado por
+  // el sistema de reentrada (src/utils/reentry.js), que necesita ver más allá de las últimas 5 sesiones.
+  const getExerciseSessions = (exerciseId) => {
+    const relevant = workouts
+      .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === exerciseId))
+      .sort((a, b) => b.date.localeCompare(a.date))
     return relevant.map(w => {
       const ex = w.exercises.find(e => e.exerciseId === exerciseId)
       return { date: w.date, sets: ex?.sets ?? [], fatigue: w.fatigue }
@@ -111,16 +125,20 @@ export function useWorkouts(uid) {
 
   const getLearnedWeights = (exerciseId) => {
     const weights = new Set()
-    workouts.forEach(w => {
-      if (w.type !== 'fuerza') return
-      w.exercises?.forEach(e => {
-        if (e.exerciseId !== exerciseId) return
-        e.sets?.forEach(s => {
-          const n = Number(s.weight) || 0
-          if (n > 0) weights.add(n)
+    // No asumir orden (ver getLastWeightsForExercise) — acá no cambia el resultado (es una unión de
+    // pesos, sin importar orden), pero se ordena explícitamente por consistencia con el resto.
+    workouts
+      .filter(w => w.type === 'fuerza')
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .forEach(w => {
+        w.exercises?.forEach(e => {
+          if (e.exerciseId !== exerciseId) return
+          e.sets?.forEach(s => {
+            const n = Number(s.weight) || 0
+            if (n > 0) weights.add(n)
+          })
         })
       })
-    })
     return [...weights].sort((a, b) => a - b)
   }
 
@@ -157,7 +175,7 @@ export function useWorkouts(uid) {
 
   return {
     workouts, loading, saveWorkout,
-    getLastWeightsForExercise, getPRForExercise, getLearnedWeights,
+    getLastWeightsForExercise, getExerciseSessions, getPRForExercise, getLearnedWeights,
     getLastFatigueForExercise, getTrainedMusclesRecovery,
     getWeekWorkouts, getCurrentStreak, reload: load,
   }

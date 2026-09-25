@@ -2,6 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
+import { floorWeight } from '../../utils/weights'
+import { getReentryState } from '../../utils/reentry'
+import { getInactivityInfo } from '../../utils/inactivity'
+import { todayStr } from '../../utils/dates'
 import { useAuthContext } from '../../context/AuthContext'
 import { getCustomExercises, saveCustomExercise, deleteCustomExercise, getCustomRoutines } from '../../services/db'
 import { Plus } from 'lucide-react'
@@ -229,7 +233,7 @@ function applySuggestionPlan(setsArr, plan) {
   }
 }
 
-function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, allSessions }) {
+function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, allSessions, reentry }) {
   const lastSets    = lastSession?.sets
   const defaultSecs = TIME_EXERCISES.some(n => ex.name.includes(n))
   const [useSeconds, setUseSeconds]         = useState(defaultSecs)
@@ -239,7 +243,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   const [showHistory, setShowHistory]       = useState(false)
   const { sets } = exData
   const currentRestSecs = exData.restSecs ?? restSec
-  const plan = deloadActive ? null : computeSuggestionPlan(progressionAdvice, lastSets)
+  const plan = (deloadActive || reentry?.inReentry) ? null : computeSuggestionPlan(progressionAdvice, lastSets)
 
   let weightMsg = null
   if (plan?.type === 'weight') {
@@ -333,7 +337,13 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         )}
       </div>
 
-      {!progressionAdvice?.hasHistory ? (
+      {reentry?.inReentry ? (
+        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
+          <p className="text-app-green-light text-xs font-medium">
+            🌱 Vuelta suave · sesión {reentry.sessionNumber} de {reentry.totalSessions} (−{Math.round(reentry.reduction)}%)
+          </p>
+        </div>
+      ) : !progressionAdvice?.hasHistory ? (
         <div className="bg-app-purple/10 border border-app-purple/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-purple-light text-xs">
             💡 Primera vez con este ejercicio. Empezá con las reps sugeridas y elegí un peso con el que puedas completarlas con buena forma.
@@ -497,7 +507,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [newExFormMuscle, setNewExFormMuscle] = useState('')
   const [routineLoading, setRoutineLoading]   = useState(false)
   const [routineLoadError, setRoutineLoadError] = useState(null)
-  const { getLastWeightsForExercise, getPRForExercise, getLearnedWeights, workouts } = workoutsHook
+  const { getLastWeightsForExercise, getExerciseSessions, getPRForExercise, getLearnedWeights, workouts } = workoutsHook
   const { getDeloadWeight, getDeloadSets, isActive: deloadActive } = deloadHook
 
   useEffect(() => {
@@ -551,10 +561,35 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     setAddMuscles([])
   }
 
+  // Estado de reentrada + historial efectivo (excluye las sesiones de vuelta suave) para un ejercicio.
+  const getReentryAndHistory = (exerciseId) => {
+    const allSessions = getExerciseSessions(exerciseId)
+    const inactividad = getInactivityInfo(profile)
+    const reentry = getReentryState(allSessions, todayStr(), inactividad)
+    const excludedDates = new Set(reentry.reentrySessionDates)
+    const history = allSessions.filter(s => !excludedDates.has(s.date)).slice(0, 5)
+    return { reentry, history }
+  }
+
   const buildEntry = (ex) => {
-    const history = getLastWeightsForExercise(ex.id)
+    const { reentry, history } = getReentryAndHistory(ex.id)
     const learned = getLearnedWeights(ex.id)
     const defaultReps = ['A', 'B'].includes(ex.level) ? 10 : 12
+
+    if (reentry.inReentry && reentry.baseline?.sets?.length) {
+      let baseSets = reentry.baseline.sets
+      if (baseSets.length >= 3) baseSets = baseSets.slice(0, -1)
+      const factor = 1 - reentry.reduction / 100
+      const setsArr = baseSets.map(s => {
+        const baseWeight    = Number(s.weight) || 0
+        const reentryWeight = floorWeight(baseWeight * factor, learned)
+        const weight = deloadActive
+          ? Math.min(reentryWeight, getDeloadWeight(baseWeight, learned))
+          : reentryWeight
+        return { reps: s.reps ?? '', weight }
+      })
+      return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr }
+    }
 
     if (!history.length || !history[0]?.sets?.length) {
       const setsArr = Array.from({ length: 3 }, () => ({ reps: defaultReps, weight: '' }))
@@ -1065,9 +1100,10 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
             const ex = exercises.find(e => e.id === entry.exerciseId)
               ?? { id: entry.exerciseId, name: entry.name, muscle: entry.muscle, level: 'C', custom: true }
             const lastSetsHistory = getLastWeightsForExercise(entry.exerciseId)
+            const { reentry, history: effectiveHistory } = getReentryAndHistory(entry.exerciseId)
             const pr      = getPRForExercise(entry.exerciseId)
             const learned = getLearnedWeights(entry.exerciseId)
-            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, lastSetsHistory, learned, ex.equip)
+            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, effectiveHistory, learned, ex.equip)
             const origExName = entry.originalExerciseId
               ? (allExercises.find(e => e.id === entry.originalExerciseId)?.name ?? null)
               : null
@@ -1083,12 +1119,13 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                 onReplace={() => setReplacingIndex(i)}
                 origExName={origExName}
                 pr={pr}
-                lastSession={lastSetsHistory[0]}
+                lastSession={effectiveHistory[0]}
                 progressionAdvice={advice}
                 restSec={restSec}
                 lesiones={lesiones}
                 deloadActive={deloadActive}
                 allSessions={lastSetsHistory}
+                reentry={reentry}
               />
             )
           })}

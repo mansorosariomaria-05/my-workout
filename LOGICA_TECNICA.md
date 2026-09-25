@@ -1452,6 +1452,73 @@ El aviso de inactividad es exclusivamente informativo/UX — no crea ningún wor
 
 ---
 
+## 15. VUELTA SUAVE / REENTRADA (`src/utils/reentry.js`, `src/components/registro/FuerzaFlow.jsx`)
+
+Cuando un usuario retoma un ejercicio puntual después de 14+ días sin hacerlo, la app precarga peso y series reducidos y los va subiendo gradualmente en las sesiones siguientes, en vez de asumir que puede arrancar directo donde lo dejó. Es **por ejercicio** (no por usuario ni por sesión global): cada ejercicio tiene su propio historial y su propio parate.
+
+### Por qué (Bosquet 2013 + decisión de producto)
+
+La fuerza máxima se mantiene razonablemente estable durante ~2-3 semanas de inactividad, pero la resistencia a la fuerza (aguantar el mismo volumen/reps a un peso dado) decae antes — por eso volver directo al peso y series de la última sesión puede llevar a fallar series o a una sesión de calidad mucho más baja de lo esperado, sin que el usuario lo anticipe. Se decidió aplicar la reducción también para paretes no fisiológicos (estrés, descanso, "sin_respuesta") y no solo para enfermedad/lesión: el motivo real de una pausa de 2+ semanas es difícil de auto-reportar con precisión, y una vuelta más suave no tiene costo real para quien sí mantuvo la forma, mientras evita una mala sesión para quien no. Por la misma razón (la memoria muscular permite recuperar el nivel previo rápido, no gradualmente en semanas), la reentrada dura solo 2-4 sesiones, no varias semanas.
+
+### 1. Escalones — `getReentrySteps(gapDays, motivo)`
+
+| Días sin hacer el ejercicio | Reducción (R) | Sesiones de reentrada (N) |
+|---|---|---|
+| 14–20 | 10% | 2 |
+| 21–28 | 15% | 2 |
+| 29–56 | 20% | 3 |
+| 57+   | 25% | 3 |
+
+Si el motivo del parate (ver abajo) es `'enfermedad'` o `'lesion'`: `R += 5`, `N += 1` (un escalón extra de cuidado). Cualquier otro motivo (`estres`, `descanso`, `sin_respuesta`, o sin motivo) usa la tabla tal cual.
+
+### 2. Detección por ejercicio — `getReentryState(exerciseSessions, today, inactividad)`
+
+No hay ningún campo nuevo en Firestore: todo se deriva en cada llamada a partir de las fechas del historial real de ese ejercicio (`exerciseSessions`, el historial **completo**, no las últimas 5) y, opcionalmente, de `profile.inactividad` (`getInactivityInfo(profile)`).
+
+Algoritmo (sesiones ordenadas de más reciente a más vieja):
+1. Si `today − sesión[0] ≥ 14` días → el usuario todavía no volvió a este ejercicio: `k = 0`, `baseline = sesión[0]`, `gapDays` = esa diferencia.
+2. Si no, se busca el gap de 14+ días más reciente entre sesiones consecutivas, mirando hasta 4 sesiones atrás (el N máximo posible es 3+1 por motivo médico): el primer `i` (0..3) tal que `sesión[i+1]` a `sesión[i]` tengan 14+ días de diferencia → `k = i+1`, `baseline = sesión[i+1]`, `gapDays` = esa diferencia.
+3. Si no se encuentra ningún gap en esa ventana, o `k ≥ N`, no está en reentrada (`inReentry: false`).
+4. El `motivo` de `profile.inactividad` solo se usa si su `lastWorkoutDate` cae dentro de la ventana del parate detectado (entre `baseline.date` y la primera sesión posterior al gap, o `today` si `k = 0`) — si no, es de otro parate o está obsoleto y se ignora.
+5. Con `gapDays` y `motivo` se calculan `R`/`N` (sección 1), y `sessionNumber = k + 1`.
+
+Devuelve `{ inReentry, sessionNumber, totalSessions, reduction, baseline, gapDays, motivo, reentrySessionDates }`.
+
+### 3. Reducción gradual
+
+Para la sesión `j` (1..N) del plan de reentrada, la reducción decrece linealmente: primera sesión con la reducción completa, última sesión casi sin reducción, preparando el regreso a la carga normal:
+
+```
+r_j = R × (N − j + 1) / N
+```
+
+### 4. Precarga — `buildEntry()` en `FuerzaFlow.jsx`
+
+Si `reentry.inReentry`, la precarga se arma desde el **baseline** (la última sesión antes del parate), no desde la última sesión real:
+- Si el baseline tiene 3+ series, se descarta la última (la más pesada en un esquema piramidal) — mínimo 2 series.
+- Peso por serie: `floorWeight(peso_baseline × (1 − r_j/100), learnedWeights)`.
+- Reps: iguales a las del baseline, sin ajuste.
+- **Sin sugerencias de progresión** en esta rama: no se llama a `getProgressionAdvice`/`computeSuggestionPlan`, así que no hay glow violeta ni reps recalculadas con Epley.
+- Si hay descarga (deload) activa a la vez, se usa el **menor** entre el peso de reentrada y el peso de descarga (`Math.min`), calculados ambos de forma independiente desde el peso original del baseline — las dos reducciones no se suman.
+
+En la tarjeta del ejercicio se muestra una línea sutil (verde, no violeta, para no confundirla con una sugerencia de progresión): `"🌱 Vuelta suave · sesión {sessionNumber} de {totalSessions} (−{reduction}%)"`.
+
+### 5. Historial efectivo
+
+Las fechas devueltas en `reentry.reentrySessionDates` (las sesiones de la propia reentrada) se excluyen del historial que alimenta la precarga y `getProgressionAdvice`, tanto **durante** como **después** de la reentrada — así, una vez terminada, la siguiente precarga vuelve a partir del baseline en vez de encadenar sobre sesiones ya reducidas, y la doble progresión no cuenta esas sesiones como si fueran a carga normal. Estas fechas **no** se excluyen de PRs, gráficos, logros ni del historial visual (modal "📊 Historial" de cada ejercicio): esas sesiones sí ocurrieron y cuentan como entrenamiento real a todos esos efectos.
+
+`reentrySessionDates` toma las sesiones **más cercanas al baseline** entre las `k` hechas desde la vuelta (no las más cercanas a hoy): así, si en algún momento se acumulan más de `N` sesiones normales después de que la reentrada terminó, la detección de gap dentro de la ventana de 4 sesiones deja de encontrar ese parate por sí sola y el sistema queda "expirado" de forma natural, sin excluir sesiones que ya son de carga normal.
+
+### 6. Qué NO toca
+
+El sistema de pesos, Epley (`estimateRepsAtWeight`), `REP_RANGES`, el bono por salto de peso (`getJumpRepBonus`), las reglas a-e de `computeSuggestionPlan`, el aviso de inactividad (sección 14) y la racha (sección 1) quedan sin cambios — la reentrada es una capa aparte que solo actúa sobre la precarga de peso/series y sobre qué sesiones ve la progresión.
+
+### 7. Orden del historial
+
+Igual que en el resto de la app (ver sección 5), nunca se asume que `workouts` está ordenado: tanto `getReentryState` como `getLastWeightsForExercise`/`getExerciseSessions`/`getLearnedWeights` (`useWorkouts.js`) ordenan explícitamente por fecha descendente (orden estable ante empates) antes de usar el historial, porque los borradores offline (`draftQueue.js`) pueden anteponerse al array sin garantía de orden.
+
+---
+
 ## Documentación técnica extendida
 
 Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

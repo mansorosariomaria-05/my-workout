@@ -103,6 +103,7 @@ src/
     progression.js             # Doble progresión, Epley, bono de reps por salto
     weights.js                 # STANDARD_WEIGHTS, pesos aprendidos, nextWeight, floorWeight, deload
     routineGenerator.js        # generateRoutine(): selección y orden por patrón de movimiento
+    dailySuggestion.js         # computeDailySuggestion(): sugerencia diaria (pura, sin fetch)
     streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Vuelta suave: detección y reducción gradual por ejercicio
@@ -354,23 +355,19 @@ Al armar la sesión (`buildEntry`), las series se precargan directamente con la 
 
 ---
 
-## Sugerencia diaria (Inicio.jsx → `getDailySuggestion`)
+## Sugerencia diaria (`utils/dailySuggestion.js` → `computeDailySuggestion`)
 
-Algoritmo en orden de prioridad:
+Función **pura** (sin fetch propio a Firestore) evaluada contra el historial ya cargado en memoria por `useWorkouts` — antes hacía su propio `getWorkouts(uid, 500)` y, si fallaba por estar offline, sugería siempre la primera rutina fija como si no hubiera historial. Orden de evaluación:
 
-1. **Domingo** → siempre "Descanso"
-2. **Ya entrenó hoy** → "¡Ya entrenaste!"
-3. **Sin historial** → primera rutina de `builtinRoutines`
-4. **Balance cardio/fuerza** de la semana actual:
-   - 0 cardio y 2+ fuerza → sugerir Cardio
-   - 1 cardio y quedan ≤2 días → sugerir Cardio
-5. **Elegir rutina de fuerza:**
-   - Excluye rutinas con músculos trabajados en últimas 48h
-   - Si todas están excluidas → usa todas (fallback)
-   - Puntúa por días desde la última vez que se trabajaron esos músculos
-   - La rutina con más días descansados gana
+1. **Ya entrenó hoy** → `trained_today`.
+2. **Descanso inteligente**: si ya cumplió `profile.diasSemana` (default 3) días distintos esta semana, o entrenó 3 días seguidos — ya no es un domingo fijo.
+3. **Balance cardio/fuerza** de la semana actual (regla sin cambios): 0 cardio y 2+ fuerza, o 1 cardio con ≤2 días para cerrar la semana → sugerir Cardio.
+4. **Elegir 2 músculos foco de fuerza**, solo entre `LOWER = [Glúteos, Isquios, Cuádriceps]` y `UPPER = [Espalda, Pecho, Hombros]` (nunca gemelos/abductores/brazos/core): excluye los entrenados ayer/anteayer, prioriza por menos volumen esta semana y más días sin entrenar, con tope de 14 días (así una rutina nunca entrenada no le gana siempre a todo lo demás, como pasaba antes).
+5. Si hay una `builtinRoutine` que coincide exactamente con esos 2 músculos y no toca nada reciente → la sugiere. Si no, **genera** una rutina de 5 ejercicios con el mismo generador de rutinas (`routineGenerator.js`, sección de más arriba).
 
-La sugerencia devuelve `{ type, emoji, title, routineId, sub }`. El botón "Empezar" navega a `/registro` con `state: { type, routineId }`.
+La sugerencia devuelve `{ type, routineId | generatedIds, routineName | title, muscles, reason }`. `Inicio.jsx` cachea el resultado en `localStorage` (`daily_suggestion_{uid}`) por día y por cantidad de entrenamientos reales, para no recalcular en cada render. El botón "Empezar": con `routineId` navega como antes; con `generatedIds` arma un draft con `pendingGeneratedIds` (mismo mecanismo que "Usar ahora" del generador) para que `FuerzaFlow` los arme con `buildEntry`.
+
+Ver `LOGICA_TECNICA.md` sección 17 para el algoritmo completo.
 
 ---
 

@@ -1591,6 +1591,64 @@ Recomienda un ejercicio a agregar a partir de lo ya cargado en la sesión en cur
 
 ---
 
+## 17. SUGERENCIA DIARIA (`src/utils/dailySuggestion.js`, `src/pages/Inicio.jsx`)
+
+### El bug que motivó la reescritura
+
+La versión anterior (`getDailySuggestion()`, eliminada) hacía su **propio fetch a Firestore** (`getWorkouts(uid, 500)`) en vez de usar el historial ya cargado en memoria por `useWorkouts`. Si ese fetch fallaba (sin red), `getWorkouts` atrapa el error y devuelve `[]` — `getDailySuggestion` entonces veía `real.length === 0` y caía en el fallback de "primer entrenamiento", sugiriendo siempre `builtinRoutines[0]` aunque el usuario tuviera meses de historial. Además: descanso fijo los domingos (sin mirar si el usuario ya cumplió sus días), solo eligiendo entre las 5 rutinas fijas, con un desempate (`days = 999` para "nunca entrenada") que siempre le ganaba a cualquier rutina con historial real, y sin mirar el volumen de la semana por músculo.
+
+### `computeDailySuggestion({ workouts, profile, today })` — función pura
+
+Sin fetch, sin `Date.now()` interno — recibe `today` (`'YYYY-MM-DD'`) inyectado, así es 100% testeable con fechas fijas. Solo considera `workouts` con `type` en `REAL_WORKOUT_TYPES` (`fuerza`/`cardio`/`clase`/`tabata`, de `streak.js`).
+
+1. **Ya entrenó hoy** (`real.some(w => w.date === today)`) → `{ type: 'trained_today' }`.
+2. **Descanso inteligente** (reemplaza el domingo fijo):
+   - `diasObjetivo = profile?.diasSemana ?? 3`. Si los días **distintos** con entrenamiento real de lunes a ayer ya llegan a `diasObjetivo` → `{ type: 'descanso', sub: 'Ya cumpliste tus {n} días de la semana 💜' }`.
+   - Si hubo entrenamiento real ayer, anteayer y hace 3 días (3 días consecutivos) → `{ type: 'descanso', sub: 'Llevás 3 días seguidos...' }`.
+   - Un domingo sin ninguna de estas dos condiciones **ya no** es descanso automático.
+3. **Cardio** — misma regla que la versión anterior, sin cambios: `cardioCount === 0 && fuerzaCount >= 2`, o `cardioCount === 1 && remainingWorkingDays <= 2` (semana actual, lunes a antes de hoy) → `{ type: 'cardio' }`.
+4. **Músculos de fuerza foco** — solo pueden ser foco:
+   ```js
+   const LOWER = ['Glúteos', 'Isquios', 'Cuádriceps']
+   const UPPER = ['Espalda', 'Pecho', 'Hombros']
+   ```
+   Nunca Gemelos, Abductores, Tríceps, Bíceps, Abdominales ni Core & Estabilidad — son accesorios, no el foco de una sesión completa.
+   - `recent`: músculos (`originalMuscle ?? muscle` de cada ejercicio, más `muscleGroups`) de sesiones de fuerza hechas ayer o anteayer — se excluyen de la elección.
+   - `weekCount[m]`: días distintos de esta semana (lunes a ayer) con fuerza de ese músculo.
+   - `daysSince[m]`: días desde la última sesión de fuerza con ese músculo, **tope 14** (nunca entrenado = 14 también, no `Infinity` ni `999` — así una rutina jamás entrenada no le gana automáticamente a todo lo demás, a diferencia del bug de la versión anterior).
+   - Elegibles = no están en `recent`, ordenados por `weekCount` ascendente → `daysSince` descendente → orden fijo de la lista (así el desempate es determinístico, no aleatorio).
+   - Se elige el mejor `LOWER` elegible y el mejor `UPPER` elegible; si un lado no tiene ninguno elegible, se toman los 2 mejores del otro lado. Si no hay 2 músculos elegibles en total → `{ type: 'descanso', sub: 'Tus músculos se están recuperando...' }`.
+5. **Prearmada solo si encaja exactamente**: se busca en `builtinRoutines` una rutina cuyo `r.muscles` incluya los 2 músculos elegidos **y** que ninguno de sus músculos (ni siquiera los que no fueron elegidos, ej. un tercer músculo de una rutina de 3+) esté en `recent`. Entre varias, gana la de menos músculos extra (más ajustada a lo elegido). Si hay match → `{ type: 'fuerza', routineId, routineName, muscles, reason }`.
+6. **Si ninguna prearmada encaja**: se genera con el mismo algoritmo del generador de rutinas (sección 16) — `generateRoutine({ muscles: [m1, m2], count: 5, equip: 'Gym completo', workouts })` → `{ type: 'fuerza', generatedIds, title: '{m1} + {m2}', muscles, reason }`.
+7. **`reason`**: una línea por músculo elegido, unidas con ` · ` — `"{m}: 0 veces esta semana"` si `weekCount[m] === 0`, si no `"{m}: {daysSince[m]} días sin entrenar"`.
+8. **Usuario sin ningún entrenamiento real todavía**: no hay un branch especial — corre la misma lógica normal (todo empata en `weekCount=0`/`daysSince=14`, así que elige `Glúteos` + `Espalda`, los primeros de cada lista) y, como ninguna `builtinRoutine` tiene exactamente esos dos, cae en el generador. Solo se le agrega `sub: '¡Tu primer entrenamiento! 💜'` al resultado.
+
+### Integración en `Inicio.jsx` — usa el historial local, no un fetch propio
+
+```js
+const { workouts, loading, ... } = useWorkouts(user?.uid)
+...
+const computed = computeDailySuggestion({ workouts, profile, today: getTodayLocal() })
+```
+
+Si `loading && !workouts.length` (sin caché local todavía y sin respuesta de Firestore) el `useEffect` no calcula nada — la card queda en un estado de carga explícito ("Buscando tu sugerencia del día...") en vez de mostrar por defecto el fallback de "primer entrenamiento" por falta de datos, que era exactamente el bug original.
+
+### Cache diaria (`localStorage`, clave `daily_suggestion_{uid}`)
+
+```js
+{ date: 'YYYY-MM-DD', realCount: number, suggestion: {...} }
+```
+Se reusa si `date === hoy` **y** `realCount` (cantidad de workouts reales en memoria) no cambió desde que se guardó — evita recalcular en cada render/remontaje de `Inicio.jsx` mientras nada relevante cambió. Si el usuario guarda un entrenamiento real (o cambia el día), `realCount` o `date` difieren y se recalcula. Lecturas/escrituras envueltas en `try/catch` (mismo patrón que el resto de la app — `localStorage` puede tirar en modo privado o con storage bloqueado).
+
+### UI (`DailySuggestionCard`)
+
+Muestra `suggestion.routineName ?? suggestion.title` (o `'Cardio o Clase 🏃'` para el tipo cardio) como título, y `suggestion.sub ?? suggestion.reason` como detalle expandible. Al tocar "Empezar":
+- `routineId` → navega a `/registro` con `state: { type: 'fuerza', routineId }`, igual que antes.
+- `generatedIds` → arma un draft con `pendingGeneratedIds` (mismo mecanismo que `GeneradorTab.useRoutine`, sección 16) y navega a `/registro` sin `state` — `FuerzaFlow.jsx` los detecta al montar y construye cada entrada con `buildEntry` (precarga, sugerencias con brillo, vuelta suave).
+- `cardio` → navega a `/registro` con `state: { type: 'cardio' }`.
+
+---
+
 ## Documentación técnica extendida
 
 Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

@@ -1,5 +1,5 @@
 import { parseISO } from 'date-fns'
-import { weekKey, getWeekStartLocal, dateToLocal } from './dates'
+import { weekKey, getWeekStartLocal, dateToLocal } from './dates.js'
 
 // Únicos tipos de workout que cuentan como "entrenamiento real" para racha, logros y estadísticas.
 export const REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']

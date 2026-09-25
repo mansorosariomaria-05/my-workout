@@ -5,16 +5,29 @@ import { es } from 'date-fns/locale'
 import { Lightbulb, ChevronRight, CloudUpload } from 'lucide-react'
 import { useAuthContext } from '../context/AuthContext'
 import { useWorkouts } from '../hooks/useWorkouts'
-import { getWorkouts } from '../services/db'
+import { useWorkoutDraft } from '../context/WorkoutDraftContext'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../utils/streak'
 import { getInactivityInfo } from '../utils/inactivity'
+import { computeDailySuggestion } from '../utils/dailySuggestion'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
-import { builtinRoutines } from '../data/routines'
 import HeroPortada from '../components/inicio/HeroPortada'
 import Logros from '../components/inicio/Logros'
 import WeekCalendar from '../components/inicio/WeekCalendar'
 import Modal from '../components/ui/Modal'
+
+const DAILY_SUGGESTION_KEY = (uid) => `daily_suggestion_${uid}`
+
+function readSuggestionCache(uid) {
+  try {
+    const raw = localStorage.getItem(DAILY_SUGGESTION_KEY(uid))
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function writeSuggestionCache(uid, entry) {
+  try { localStorage.setItem(DAILY_SUGGESTION_KEY(uid), JSON.stringify(entry)) } catch {}
+}
 
 const WEEKLY_SUMMARY_KEY = 'weekly_summary_'
 const TYPE_LABELS = { fuerza: 'Fuerza', cardio: 'Cardio', clase: 'Clase', tabata: 'Tabata' }
@@ -349,107 +362,21 @@ function LastAndSuggestion({ workouts }) {
 }
 
 // ─── Sugerencia del día ───────────────────────────────────────────────────────
-function getMusclesFromWorkout(w) {
-  return [...(w.muscleGroups ?? []), ...(w.exercises?.map(e => e.muscle).filter(Boolean) ?? [])]
-}
-
-async function getDailySuggestion(userId) {
-  const workouts = await getWorkouts(userId, 500)
-  const now = new Date()
-  const dayOfWeek = now.getDay()
-  const today = getTodayLocal()
-  const mondayStr = getWeekStartLocal()
-
-  // Domingo = descanso
-  if (dayOfWeek === 0) {
-    return { type: 'descanso', title: 'Descanso 💤', sub: 'Hoy es día de descanso. Recuperate para la semana que viene.' }
-  }
-
-  const real = (workouts ?? []).filter(w => REAL_WORKOUT_TYPES.includes(w.type) && w.date)
-
-  // Ya entrenó hoy
-  if (real.some(w => w.date === today)) return { type: 'trained_today' }
-
-  // Sin historial → primera rutina
-  if (!real.length) {
-    const first = builtinRoutines[0]
-    return { type: 'fuerza', emoji: '💪', title: first.name, routineId: first.id, sub: 'Es tu primer entrenamiento — empezá por acá.' }
-  }
-
-  // ── PASO 1: balance cardio / fuerza de la semana ───────────────────────────
-  const thisWeek = real.filter(w => w.date >= mondayStr && w.date < today)
-  const cardioCount = thisWeek.filter(w => w.type === 'cardio' || w.type === 'clase').length
-  const fuerzaCount = thisWeek.filter(w => w.type === 'fuerza').length
-  // Días hábiles restantes incluyendo hoy (lun=6, mar=5, ... sáb=1)
-  const remainingWorkingDays = 7 - dayOfWeek
-
-  let suggestCardio = false
-  let cardioReason = ''
-  if (cardioCount === 0 && fuerzaCount >= 2) {
-    suggestCardio = true
-    cardioReason = 'Todavía no hiciste cardio esta semana.'
-  } else if (cardioCount === 1 && remainingWorkingDays <= 2) {
-    suggestCardio = true
-    cardioReason = 'Solo hiciste 1 sesión de resistencia y quedan pocos días para completar la semana.'
-  }
-
-  if (suggestCardio) {
-    return { type: 'cardio', emoji: '🏃', title: 'Cardio o Clase', sub: cardioReason }
-  }
-
-  // ── PASO 2: elegir rutina de fuerza ───────────────────────────────────────
-  const d1 = new Date(); d1.setDate(d1.getDate() - 1)
-  const d2 = new Date(); d2.setDate(d2.getDate() - 2)
-  const yesterday  = dateToLocal(d1)
-  const twoDaysAgo = dateToLocal(d2)
-
-  const recentMuscles = new Set()
-  real
-    .filter(w => w.date === yesterday || w.date === twoDaysAgo)
-    .forEach(w => getMusclesFromWorkout(w).forEach(m => recentMuscles.add(m)))
-
-  const fuerzaWorkouts = real.filter(w => w.type === 'fuerza')
-
-  const lastTrainedDate = (muscleSet) => {
-    let latest = null
-    fuerzaWorkouts.forEach(w => {
-      if (getMusclesFromWorkout(w).some(m => muscleSet.has(m))) {
-        if (!latest || w.date > latest) latest = w.date
-      }
-    })
-    return latest
-  }
-
-  // Excluir rutinas con músculos trabajados en las últimas 48h
-  const available = builtinRoutines.filter(r =>
-    !(r.muscles ?? []).some(m => recentMuscles.has(m))
-  )
-  const pool = available.length > 0 ? available : builtinRoutines
-
-  // Puntuar por días sin trabajar (mayor = más descansada)
-  const scored = pool.map(r => {
-    const lastDate = lastTrainedDate(new Set(r.muscles ?? []))
-    const days = lastDate
-      ? Math.round((new Date(today + 'T12:00:00') - new Date(lastDate + 'T12:00:00')) / 86400000)
-      : 999
-    return { routine: r, days }
-  })
-  scored.sort((a, b) => b.days - a.days)
-
-  const { routine, days } = scored[0]
-  const muscles = routine.muscles ?? []
-  const muscleList = muscles.slice(0, 2).join(' + ')
-  const sub = days >= 999
-    ? 'Es tu primera vez con esta rutina — ¡dale para adelante!'
-    : `${muscleList} lleva${muscles.length > 1 ? 'n' : ''} ${days} día${days === 1 ? '' : 's'} sin trabajar.`
-
-  return { type: 'fuerza', emoji: '💪', title: routine.name, routineId: routine.id, sub }
-}
-
+// El cálculo puro vive en utils/dailySuggestion.js (computeDailySuggestion) — evaluado contra el
+// historial ya cargado en memoria (workouts de useWorkouts), sin fetch propio a Firestore. Ver el
+// useEffect de más abajo (dentro de Inicio()) para el cacheo diario en localStorage.
 function DailySuggestionCard({ suggestion }) {
   const [expanded, setExpanded] = useState(false)
   const navigate = useNavigate()
-  if (!suggestion) return null
+  const { setDraft } = useWorkoutDraft()
+
+  if (!suggestion) {
+    return (
+      <div className="mx-4 rounded-xl border border-white/[0.06] px-3 py-2.5 animate-pulse" style={{ backgroundColor: '#1a1625' }}>
+        <p className="text-app-muted text-xs">Buscando tu sugerencia del día...</p>
+      </div>
+    )
+  }
 
   if (suggestion.type === 'trained_today') {
     return (
@@ -462,21 +389,41 @@ function DailySuggestionCard({ suggestion }) {
   if (suggestion.type === 'descanso') {
     return (
       <div className="mx-4 rounded-xl border border-white/[0.06] px-3 py-2.5" style={{ backgroundColor: '#1a1625' }}>
-        <p className="text-app-text text-xs font-semibold">{suggestion.title}</p>
+        <p className="text-app-text text-xs font-semibold">Descanso 💤</p>
         <p className="text-[10px] mt-1 leading-snug" style={{ color: '#94A3B8' }}>{suggestion.sub}</p>
       </div>
     )
   }
 
-  const label = `Hoy te sugerimos: ${suggestion.title} ${suggestion.emoji ?? ''}`.trim()
+  const title = suggestion.type === 'cardio' ? 'Cardio o Clase 🏃' : (suggestion.routineName ?? suggestion.title)
+  const detail = suggestion.sub ?? suggestion.reason
+  const label = `Hoy te sugerimos: ${title}`
 
   const handleStart = () => {
-    if (suggestion.type === 'fuerza') {
-      navigate('/registro', { state: { type: 'fuerza', routineId: suggestion.routineId ?? null } })
-    } else if (suggestion.type === 'cardio') {
+    if (suggestion.type === 'cardio') {
       navigate('/registro', { state: { type: 'cardio' } })
-    } else if (suggestion.type === 'clase') {
-      navigate('/registro', { state: { type: 'clase' } })
+      return
+    }
+    if (suggestion.routineId) {
+      navigate('/registro', { state: { type: 'fuerza', routineId: suggestion.routineId } })
+      return
+    }
+    if (suggestion.generatedIds?.length) {
+      setDraft({
+        step: 1,
+        type: 'fuerza',
+        detail: {
+          exercises: [],
+          mode: 'libre',
+          selectedMuscles: suggestion.muscles ?? [],
+          selectedRoutine: '',
+          pendingGeneratedIds: suggestion.generatedIds,
+        },
+        fatigue: 5,
+        notes: '',
+        date: getTodayLocal(),
+      })
+      navigate('/registro')
     }
   }
 
@@ -501,8 +448,8 @@ function DailySuggestionCard({ suggestion }) {
             Empezar
           </button>
         </div>
-        {expanded && suggestion.sub && (
-          <p className="text-[10px] mt-1.5 leading-snug" style={{ color: '#94A3B8' }}>{suggestion.sub}</p>
+        {expanded && detail && (
+          <p className="text-[10px] mt-1.5 leading-snug" style={{ color: '#94A3B8' }}>{detail}</p>
         )}
       </div>
     </div>
@@ -657,8 +604,18 @@ export default function Inicio() {
 
   useEffect(() => {
     if (!user?.uid) return
-    getDailySuggestion(user.uid).then(setSuggestion).catch(err => console.error('Error sugerencia:', err))
-  }, [user?.uid]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (loading && !workouts.length) return // sin datos todavía — la card queda en estado de carga
+    const today = getTodayLocal()
+    const realCount = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).length
+    const cached = readSuggestionCache(user.uid)
+    if (cached && cached.date === today && cached.realCount === realCount) {
+      setSuggestion(cached.suggestion)
+      return
+    }
+    const computed = computeDailySuggestion({ workouts, profile, today })
+    setSuggestion(computed)
+    writeSuggestionCache(user.uid, { date: today, realCount, suggestion: computed })
+  }, [user?.uid, loading, workouts, profile]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return

@@ -70,3 +70,6 @@ node_modules/
 
 # Build output
 dist/
+
+# Scripts temporales de verificación (no forman parte del código de la app)
+*_tmp.mjs

@@ -106,7 +106,7 @@ src/
     dailySuggestion.js         # computeDailySuggestion(): sugerencia diaria (pura, sin fetch)
     streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
-    reentry.js                 # Vuelta suave: detección y reducción gradual por ejercicio
+    reentry.js                 # Vuelta suave: detección por ejercicio y por músculo/zona ("vuelta técnica")
     dates.js                   # Helpers de fechas locales
     genero.js                  # textoGenero() para acordar género en textos
 ```
@@ -350,7 +350,7 @@ Al armar la sesión (`buildEntry`), las series se precargan directamente con la 
 ## Aviso de inactividad y vuelta suave
 
 - **Aviso de inactividad** (`Inicio.jsx` + `utils/inactivity.js`): si pasaron 14+ días desde el último entrenamiento real, al abrir la app se pregunta el motivo (enfermedad, lesión, estrés, descanso) y se guarda en `profile.inactividad`. Es puramente informativo: no crea workouts, no crea documentos de pausa, no afecta la racha.
-- **Vuelta suave** (`utils/reentry.js`, integrada en `FuerzaFlow.jsx`): es **por ejercicio**, no global. Si pasaron 14+ días sin hacer ese ejercicio puntual, la precarga de la próxima sesión reduce peso (10-25% según el largo del parate, +5% y +1 sesión si el motivo fue enfermedad/lesión) y series (mínimo 2, partiendo de la última sesión antes del parate), y va subiendo gradualmente en 2-4 sesiones hasta volver a la carga normal. Se detecta 100% a partir de las fechas del historial de ese ejercicio, sin guardar ningún estado nuevo en Firestore. Mientras dura, no hay sugerencias de progresión (sin brillo violeta) para ese ejercicio.
+- **Vuelta suave** (`utils/reentry.js`, integrada en `FuerzaFlow.jsx`): es **por ejercicio**, no global. Si pasaron 14+ días sin hacer ese ejercicio puntual (`exerciseGap`), mira además si el mismo músculo o zona de fatiga (`PATTERN_ZONE`) siguió entrenado con otros ejercicios (`muscleGap`, sobre el historial completo de workouts). Si el músculo sigue fresco (`muscleGap < 14`) es **vuelta técnica**: solo −5% de peso, una sola sesión — no hay desentrenamiento muscular, solo se perdió la práctica puntual del movimiento. Si el músculo también quedó sin estímulo, aplica la tabla normal (10-25% según el largo del parate, +5% y +1 sesión si el motivo fue enfermedad/lesión), pero elegida por `muscleGap`, no por `exerciseGap`. En ningún caso se quitan series — solo se reduce el peso, manteniendo exactamente las series del baseline. Se detecta 100% a partir de fechas del historial, sin guardar ningún estado nuevo en Firestore. Mientras dura, no hay sugerencias de progresión (sin brillo violeta) para ese ejercicio.
 - Ver `LOGICA_TECNICA.md` sección 15 para el detalle completo (fórmulas, casos borde, justificación).
 
 ---

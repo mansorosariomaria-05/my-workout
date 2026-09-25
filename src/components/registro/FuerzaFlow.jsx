@@ -341,7 +341,9 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       {reentry?.inReentry ? (
         <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-green-light text-xs font-medium">
-            🌱 Vuelta suave · sesión {reentry.sessionNumber} de {reentry.totalSessions} (−{Math.round(reentry.reduction)}%)
+            {reentry.isTechnical
+              ? `🌱 Vuelta técnica · −${Math.round(reentry.reduction)}% (venís entrenando ${ex.muscle})`
+              : `🌱 Vuelta suave · sesión ${reentry.sessionNumber} de ${reentry.totalSessions} (−${Math.round(reentry.reduction)}%)`}
           </p>
         </div>
       ) : !progressionAdvice?.hasHistory ? (
@@ -565,23 +567,25 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   }
 
   // Estado de reentrada + historial efectivo (excluye las sesiones de vuelta suave) para un ejercicio.
-  const getReentryAndHistory = (exerciseId) => {
-    const allSessions = getExerciseSessions(exerciseId)
+  // ex: objeto completo del catálogo (o el fallback custom) — se usan su muscle/pattern para calcular
+  // muscleGap (¿el músculo/zona siguió entrenado con otros ejercicios?) en reentry.js.
+  const getReentryAndHistory = (ex) => {
+    const allSessions = getExerciseSessions(ex.id)
     const inactividad = getInactivityInfo(profile)
-    const reentry = getReentryState(allSessions, todayStr(), inactividad)
+    const reentry = getReentryState(allSessions, todayStr(), inactividad, { muscle: ex.muscle, pattern: ex.pattern, allWorkouts: workouts })
     const excludedDates = new Set(reentry.reentrySessionDates)
     const history = allSessions.filter(s => !excludedDates.has(s.date)).slice(0, 5)
     return { reentry, history }
   }
 
   const buildEntry = (ex) => {
-    const { reentry, history } = getReentryAndHistory(ex.id)
+    const { reentry, history } = getReentryAndHistory(ex)
     const learned = getLearnedWeights(ex.id)
     const defaultReps = ['A', 'B'].includes(ex.level) ? 10 : 12
 
     if (reentry.inReentry && reentry.baseline?.sets?.length) {
-      let baseSets = reentry.baseline.sets
-      if (baseSets.length >= 3) baseSets = baseSets.slice(0, -1)
+      // Nunca se quitan series durante la reentrada — solo se reduce el peso (ver LOGICA_TECNICA.md).
+      const baseSets = reentry.baseline.sets
       const factor = 1 - reentry.reduction / 100
       const setsArr = baseSets.map(s => {
         const baseWeight    = Number(s.weight) || 0
@@ -1103,7 +1107,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
             const ex = exercises.find(e => e.id === entry.exerciseId)
               ?? { id: entry.exerciseId, name: entry.name, muscle: entry.muscle, level: 'C', custom: true }
             const lastSetsHistory = getLastWeightsForExercise(entry.exerciseId)
-            const { reentry, history: effectiveHistory } = getReentryAndHistory(entry.exerciseId)
+            const { reentry, history: effectiveHistory } = getReentryAndHistory(ex)
             const pr      = getPRForExercise(entry.exerciseId)
             const learned = getLearnedWeights(entry.exerciseId)
             const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, effectiveHistory, learned, ex.equip)

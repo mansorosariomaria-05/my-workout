@@ -735,9 +735,16 @@ const saveWorkout = async (workout) => {
   diasSemana: number,           // 3-6, objetivo de días de entrenamiento por semana
   tiposPreferidos: string[],    // ej: ['fuerza', 'cardio', 'clase']
   pausa: string,                 // legacy — 'Estoy activo/a' | '1-2 semanas' | '2-4 semanas' | '1-3 meses' | 'Más de 3 meses'.
-                                  // No tiene relación con los documentos type:'pausa' (sección 2, sistema eliminado).
-                                  // Se sigue preguntando en el onboarding, pero no se usa en ningún cálculo. El selector
-                                  // en ConfigPage.jsx se eliminó por no usarse; el campo en Firestore no se tocó.
+                                  // No tiene relación con los documentos type:'pausa' (sección 2, sistema eliminado) ni
+                                  // con `inactividad` (sección 14). Ya no se pregunta en ningún lado (se eliminó del
+                                  // onboarding y de ConfigPage.jsx por no usarse en ningún cálculo); el campo no se
+                                  // tocó en los perfiles de usuarios que ya lo tenían guardado en Firestore.
+  inactividad: {                 // aviso de inactividad — ver sección 14 para el detalle completo
+    motivo: 'enfermedad' | 'lesion' | 'estres' | 'descanso' | 'sin_respuesta',
+    lastWorkoutDate: string,     // 'YYYY-MM-DD' del último entrenamiento real detectado cuando se mostró el aviso
+    days: number,                // días de inactividad en ese momento
+    answeredAt: string,          // 'YYYY-MM-DD' en que se respondió (o se cerró sin responder)
+  } | undefined,                 // ausente hasta que se muestra el aviso por primera vez
   lesiones: string,             // texto libre de lesiones (solo relevante si lesionesYes === true)
   lesionesYes: boolean,
   equipamiento: 'Gym completo' | 'Casa' | string,
@@ -945,12 +952,16 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: función pura, sin dependencias de React/Firestore — se puede testear de forma aislada. `useWorkouts.js`, `Logros.jsx` y `achievements.js` importan de acá; no debería volver a haber una copia local de la lógica de semanas/racha en ningún otro archivo.
 
 ### `src/context/AuthContext.jsx`
-**Qué hace**: provee `user`, `profile`, `settings`, `loading`, `authTimedOut` vía Context. Maneja el timeout de 15s de Auth. Distingue `user === undefined` de `user === null`.
-**Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida.
+**Qué hace**: provee `user`, `profile`, `settings`, `loading`, `authTimedOut`, `updateProfile`, `updateSettings` vía Context. Maneja el timeout de 15s de Auth. Distingue `user === undefined` de `user === null`. `updateProfile` es optimista desde septiembre 2026 (sección 14): actualiza `profile` en memoria antes de esperar la escritura a Firestore.
+**Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida. `updateProfile` hace merge superficial (`{ ...(profile ?? {}), ...data }`) — pasarle un objeto anidado (como `inactividad`) reemplaza ese campo entero, no lo mergea a su vez.
 
 ### `src/pages/Inicio.jsx`
-**Qué hace**: home de la app. Llama `getCurrentStreak()` y pasa `semanasRacha`/`rachaRecord` a `StatsCards`. Ya no le pasa nada de racha a `Logros` — `Logros` calcula `w_racha_viva` de forma independiente (sección 3). Contiene `computeWeeklyStats()` (resumen semanal) y `getDailySuggestion()`.
-**Por qué es crítico**: `ProgresoPage.jsx` también llama a `getCurrentStreak()` por su cuenta (misma función, instancia de hook separada) — ambas pantallas deben mostrar siempre los mismos números de racha, ya que las dos consumen exactamente `computeStreak()` sin ninguna lógica propia adicional.
+**Qué hace**: home de la app. Llama `getCurrentStreak()` y pasa `semanasRacha`/`rachaRecord` a `StatsCards`. Ya no le pasa nada de racha a `Logros` — `Logros` calcula `w_racha_viva` de forma independiente (sección 3). Contiene `computeWeeklyStats()` (resumen semanal), `getDailySuggestion()` y `computeInactivityInfo()` (aviso de inactividad, sección 14).
+**Por qué es crítico**: `ProgresoPage.jsx` también llama a `getCurrentStreak()` por su cuenta (misma función, instancia de hook separada) — ambas pantallas deben mostrar siempre los mismos números de racha, ya que las dos consumen exactamente `computeStreak()` sin ninguna lógica propia adicional. También es donde se decide la prioridad entre el modal de inactividad y el `WeeklySummaryModal` cuando ambos podrían corresponder el mismo día (sección 14).
+
+### `src/utils/inactivity.js`
+**Qué hace**: exporta `getInactivityInfo(profile)` — helper puro de una línea (`profile?.inactividad ?? null`) para leer el aviso de inactividad ya respondido. La detección/guardado en sí vive en `Inicio.jsx` (sección 14).
+**Por qué es crítico**: pensado para reutilizarse en cualquier feature futura que necesite saber "¿este usuario está/estuvo inactivo?" sin duplicar el acceso al campo `profile.inactividad`.
 
 ### `src/components/inicio/WeekCalendar.jsx`
 **Qué hace**: calendario semanal con puntos de color por tipo de workout real. Desde septiembre 2026 ya no tiene tratamiento especial para pausa/descanso (sección 2) — un solo filtro por `REAL_WORKOUT_TYPES`, sin pasadas de prioridad ni leyenda.
@@ -1009,7 +1020,7 @@ En orden de prioridad sugerido:
    Reemplazo planeado del sistema de recomendaciones eliminado (ver sección 9). Debe correr enteramente en el cliente, sin llamadas a IA — criterios como volumen semanal por grupo muscular, frecuencia, fatiga acumulada y tiempo desde el último PR.
 
 3. **Revisión y optimización completa del onboarding.**
-   Sin alcance definido todavía — pendiente de diseño. De paso, `Onboarding.jsx` todavía pregunta "¿Hace cuánto no entrenás?" y guarda `profile.pausa`, campo que no se usa en ningún cálculo (ver sección 7) — podría eliminarse en esta revisión.
+   Sin alcance definido todavía — pendiente de diseño. La pregunta "¿Hace cuánto no entrenás?" (`profile.pausa`) ya se eliminó del flujo (septiembre 2026) por no usarse en ningún cálculo — el campo sigue existiendo en Firestore para perfiles viejos, solo se sacó la pregunta.
 
 4. **(Backend listo, sin UI)** Favoritos y lista negra de ejercicios — ver sección 9. No es estrictamente un pendiente de prioridad alta, pero queda registrado como funcionalidad con datos ya modelados en Firestore (`getFavorites`, `toggleFavorite`, `getNeverList`, `toggleNever` en `db.js`) esperando una UI.
 
@@ -1344,6 +1355,100 @@ Badge y mensaje se derivan del mismo `plan` (recalculado en el render de `Exerci
 | sin historial | — | `💡 Primera vez con este ejercicio...` |
 
 El mensaje de `'weight'` se arma en `ExerciseCard` a partir de `plan.reps` (el mapa `{ índice: reps }` que ya calculó `computeSuggestionPlan`): en `pyramid` siempre hay un solo valor (la última serie); en `fixed` se compara si todos los valores de `plan.reps` son iguales (`Object.values(plan.reps).every(r => r === repsValues[0])`) para decidir si mostrar `× reps` o solo el peso.
+
+---
+
+## 14. AVISO DE INACTIVIDAD (`src/pages/Inicio.jsx`)
+
+Modal que se muestra al abrir la app cuando pasó mucho tiempo desde el último entrenamiento real, para preguntar amablemente qué pasó y adaptar el regreso. Reemplaza, en espíritu, al viejo sistema de pausas (sección 2) — pero es puramente informativo/UX, **no afecta la racha ni ningún cálculo** (a diferencia de las pausas viejas, que sí llegaron a acoplarse al cálculo de racha).
+
+### Umbral y detección — `computeInactivityInfo(workouts, profile)`
+
+Función local (no exportada) en `Inicio.jsx`, calculada en cada render a partir de `workouts` y `profile` (ambos ya disponibles vía `useWorkouts`/`useAuthContext`, sin fetch extra):
+
+```js
+const INACTIVITY_THRESHOLD_DAYS = 14
+
+function computeInactivityInfo(workouts, profile) {
+  const realWorkouts = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type) && w.date)
+  if (!realWorkouts.length) return null // usuario nuevo, sin entrenamientos reales
+
+  const lastRealDate = realWorkouts.reduce((max, w) => (!max || w.date > max) ? w.date : max, null)
+  const daysSince = Math.round(
+    (parseISO(getTodayLocal() + 'T12:00:00') - parseISO(lastRealDate + 'T12:00:00')) / 86400000
+  )
+  if (daysSince < INACTIVITY_THRESHOLD_DAYS) return null
+
+  // Ya se preguntó por este mismo parate (mismo lastRealDate) — no volver a mostrar.
+  if (getInactivityInfo(profile)?.lastWorkoutDate === lastRealDate) return null
+
+  return { lastRealDate, daysSince }
+}
+```
+
+- **`lastRealDate`** se calcula con `reduce` sobre el máximo, no asumiendo que `workouts` venga ordenado — es más seguro que tomar `workouts[0]` porque los drafts offline pendientes de sync pueden anteponerse al array sin garantizar orden por fecha (ver `useWorkouts.js`, sección 6).
+- **`daysSince`** usa el mismo patrón timezone-safe que el resto de la app: `parseISO(date + 'T12:00:00')` para ambas puntas (sección 5) — nunca `new Date(dateStr)` directo ni UTC.
+- **Umbral: 14 días** (`INACTIVITY_THRESHOLD_DAYS`), sin excepciones ni gradientes.
+- **Una vez por parate**: la clave de "ya se preguntó" es `profile.inactividad.lastWorkoutDate === lastRealDate` — si el usuario entrena de nuevo y vuelve a estar 14+ días sin entrenar, `lastRealDate` cambia a la fecha del entrenamiento más reciente de ese nuevo parate, así que el aviso vuelve a mostrarse (es un parate distinto, no el mismo).
+- **Usuario nuevo sin workouts reales**: `realWorkouts.length === 0` → `null` inmediatamente, sin más chequeos.
+
+### El objeto `profile.inactividad`
+
+```js
+{
+  motivo: 'enfermedad' | 'lesion' | 'estres' | 'descanso' | 'sin_respuesta',
+  lastWorkoutDate: 'YYYY-MM-DD', // el lastRealDate detectado en el momento de mostrar el aviso
+  days: number,                  // daysSince en ese momento
+  answeredAt: 'YYYY-MM-DD',      // getTodayLocal() al momento de responder (o cerrar sin responder)
+}
+```
+Se guarda con `getInactivityInfo(profile)` (helper puro en [src/utils/inactivity.js](src/utils/inactivity.js) — solo hace `profile?.inactividad ?? null`, pensado para reutilizarse en features futuras que necesiten leer este campo) para lectura, y con `updateProfile()` del `AuthContext` para escritura — la misma función que usan `Onboarding.jsx` y `ConfigPage.jsx`, que hace merge (`{ ...(profile ?? {}), ...data }`) sin pisar el resto del perfil.
+
+### Actualización optimista de `updateProfile`
+
+Se modificó `AuthContext.jsx` para que `updateProfile` actualice el estado local **antes** de esperar la escritura a Firestore (antes esperaba el `await` primero):
+```js
+const updateProfile = async (data) => {
+  if (!user) return
+  const updated = { ...(profile ?? {}), ...data }
+  setProfile(updated) // optimistic
+  await saveUserProfile(user.uid, updated)
+}
+```
+Esto es necesario para que el modal de inactividad se cierre al toque apenas el usuario elige un motivo, sin esperar el round-trip de red — mismo motivo por el que `saveWorkout()` en `useWorkouts.js` ya era optimista (sección 6). Cambio retrocompatible: los otros dos consumidores de `updateProfile` (`Onboarding.jsx`, `ConfigPage.jsx`) solo hacían `await updateProfile(...)` y seguían con otra cosa — siguen funcionando igual, solo que ahora el `profile` en memoria se actualiza más rápido.
+
+### El modal — `InactivityModal`
+
+Reutiliza el componente genérico `Modal.jsx` (mismo patrón que `WeeklySummaryModal`). Título fijo en el `Modal`: `"¡Qué bueno verte de vuelta! 💜"`. El cuerpo (`InactivityModal`) tiene dos vistas:
+
+1. **Vista principal**: texto `"Hace {daysSince} días que no entrenás. ¿Qué pasó? Lo usamos para que tu vuelta sea suave."` + 4 botones grandes en grid 2×2 (🤒 Enfermedad, 🤕 Lesión, 😮‍💨 Estrés / vida, 🏖️ Descanso / vacaciones).
+2. **Vista de aviso de lesión** (solo si se eligió 🤕 Lesión): reemplaza la vista principal con el texto `"Si algo duele, consultá con un profesional antes de retomar ese ejercicio. Tomalo con calma 💜"` y un botón `"Entendido"` — recién ahí se guarda y se cierra. Es estado local del componente (`showLesionNotice`), no se toca `profile` hasta tocar "Entendido".
+
+```js
+const handlePick = (motivo) => {
+  if (motivo === 'lesion') { setShowLesionNotice(true); return }
+  onSave(motivo)
+}
+```
+
+**Cierre sin elegir** (backdrop o botón X del `Modal`): el `onClose` del `Modal` llama `saveInactividad('sin_respuesta')` — el mismo guardado que cualquier otro botón, con `motivo: 'sin_respuesta'`. Esto es lo que evita que el aviso reaparezca en la próxima apertura para el mismo parate (`lastWorkoutDate` ya queda seteado en `profile.inactividad` sin importar qué haya elegido el usuario).
+
+### Prioridad sobre el resumen semanal
+
+Si el mismo día en que corresponde mostrar el aviso de inactividad también es lunes (día en que `WeeklySummaryModal` querría abrirse — sección de "Resumen semanal" en `Inicio.jsx`), el aviso de inactividad **gana** y el resumen semanal no se muestra en esa apertura:
+```js
+useEffect(() => {
+  if (loading || !workouts.length) return
+  if (inactivityInfo) return // el aviso de inactividad tiene prioridad esta apertura
+  if (new Date().getDay() !== 1) return
+  ...
+}, [workouts, loading])
+```
+Importante: el `useEffect` del resumen semanal simplemente **no llega a ejecutar** su lógica esa vez — no marca la clave de `localStorage` (`weekly_summary_{mondayStr}`) como "ya mostrado". Eso significa que el resumen semanal todavía puede aparecer más tarde esa misma semana (por ejemplo, si el usuario vuelve a abrir la app un rato después, una vez que ya respondió el aviso de inactividad y `inactivityInfo` volvió a `null`) — la prioridad es solo "en esa apertura puntual", no una supresión permanente del resumen de esa semana.
+
+### No afecta la racha
+
+El aviso de inactividad es exclusivamente informativo/UX — no crea ningún workout, no crea ningún documento de pausa, y no toca `computeStreak()` (sección 1) de ninguna manera. `daysSince`/`lastRealDate` se calculan de forma completamente independiente al `weekMap` que usa la racha, aunque ambos parten del mismo array `workouts` filtrado por `REAL_WORKOUT_TYPES`.
 
 ---
 

@@ -8,6 +8,7 @@ import { useWorkouts } from '../hooks/useWorkouts'
 import { getWorkouts } from '../services/db'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../utils/streak'
+import { getInactivityInfo } from '../utils/inactivity'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
 import { builtinRoutines } from '../data/routines'
 import HeroPortada from '../components/inicio/HeroPortada'
@@ -130,6 +131,77 @@ function WeeklySummaryModal({ stats, onClose, onViewProgress }) {
       <div className="flex gap-2 pt-1">
         <button onClick={onViewProgress} className="flex-1 py-2.5 rounded-xl bg-app-purple text-white text-sm font-medium">Ver en Progreso</button>
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-app-elevated text-app-muted text-sm border border-white/8">Cerrar</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Aviso de inactividad ─────────────────────────────────────────────────────
+const INACTIVITY_THRESHOLD_DAYS = 14
+
+function computeInactivityInfo(workouts, profile) {
+  const realWorkouts = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type) && w.date)
+  if (!realWorkouts.length) return null // usuario nuevo, sin entrenamientos reales
+
+  const lastRealDate = realWorkouts.reduce((max, w) => (!max || w.date > max) ? w.date : max, null)
+  const daysSince = Math.round(
+    (parseISO(getTodayLocal() + 'T12:00:00') - parseISO(lastRealDate + 'T12:00:00')) / 86400000
+  )
+  if (daysSince < INACTIVITY_THRESHOLD_DAYS) return null
+
+  // Ya se preguntó por este mismo parate (mismo lastRealDate) — no volver a mostrar.
+  if (getInactivityInfo(profile)?.lastWorkoutDate === lastRealDate) return null
+
+  return { lastRealDate, daysSince }
+}
+
+const MOTIVO_OPTIONS = [
+  { key: 'enfermedad', icon: '🤒', label: 'Enfermedad' },
+  { key: 'lesion',     icon: '🤕', label: 'Lesión' },
+  { key: 'estres',     icon: '😮‍💨', label: 'Estrés / vida' },
+  { key: 'descanso',   icon: '🏖️', label: 'Descanso / vacaciones' },
+]
+
+function InactivityModal({ daysSince, onSave }) {
+  const [showLesionNotice, setShowLesionNotice] = useState(false)
+
+  const handlePick = (motivo) => {
+    if (motivo === 'lesion') { setShowLesionNotice(true); return }
+    onSave(motivo)
+  }
+
+  if (showLesionNotice) {
+    return (
+      <div className="space-y-4">
+        <p className="text-app-text text-sm leading-relaxed">
+          Si algo duele, consultá con un profesional antes de retomar ese ejercicio. Tomalo con calma 💜
+        </p>
+        <button
+          onClick={() => onSave('lesion')}
+          className="w-full py-3 rounded-xl bg-app-purple text-white text-sm font-semibold"
+        >
+          Entendido
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-app-muted text-sm leading-relaxed">
+        Hace {daysSince} días que no entrenás. ¿Qué pasó? Lo usamos para que tu vuelta sea suave.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {MOTIVO_OPTIONS.map(({ key, icon, label }) => (
+          <button
+            key={key}
+            onClick={() => handlePick(key)}
+            className="flex flex-col items-center gap-1.5 py-4 px-2 rounded-2xl border border-white/10 bg-app-bg text-app-muted hover:border-app-purple/40 active:scale-95 transition-all"
+          >
+            <span className="text-2xl">{icon}</span>
+            <span className="text-xs font-medium text-app-text text-center leading-tight">{label}</span>
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -535,7 +607,7 @@ function StatsCards({ diasSemana, semanasRacha, rachaRecord }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Inicio() {
-  const { user, settings } = useAuthContext()
+  const { user, settings, profile, updateProfile } = useAuthContext()
   const navigate = useNavigate()
   const { workouts, loading, reload, getCurrentStreak } = useWorkouts(user?.uid)
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
@@ -545,9 +617,23 @@ export default function Inicio() {
 
   const diasSemana = getThisWeekCount(workouts)
   const { current: semanasRacha, record: rachaRecord } = getCurrentStreak()
+  const inactivityInfo = computeInactivityInfo(workouts, profile)
+
+  const saveInactividad = (motivo) => {
+    if (!inactivityInfo) return
+    updateProfile({
+      inactividad: {
+        motivo,
+        lastWorkoutDate: inactivityInfo.lastRealDate,
+        days: inactivityInfo.daysSince,
+        answeredAt: getTodayLocal(),
+      },
+    })
+  }
 
   useEffect(() => {
     if (loading || !workouts.length) return
+    if (inactivityInfo) return // el aviso de inactividad tiene prioridad esta apertura
     if (new Date().getDay() !== 1) return
     const key = WEEKLY_SUMMARY_KEY + getWeekStartLocal()
     if (localStorage.getItem(key)) return
@@ -556,7 +642,7 @@ export default function Inicio() {
     setWeeklySummaryStats(stats)
     setShowWeeklySummary(true)
     localStorage.setItem(key, '1')
-  }, [workouts, loading])
+  }, [workouts, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let lastDate = getTodayLocal()
@@ -633,6 +719,10 @@ export default function Inicio() {
             onViewProgress={() => { setShowWeeklySummary(false); navigate('/progreso') }}
           />
         )}
+      </Modal>
+
+      <Modal isOpen={!!inactivityInfo} onClose={() => saveInactividad('sin_respuesta')} title="¡Qué bueno verte de vuelta! 💜">
+        {inactivityInfo && <InactivityModal daysSince={inactivityInfo.daysSince} onSave={saveInactividad} />}
       </Modal>
     </div>
   )

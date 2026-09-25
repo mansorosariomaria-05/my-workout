@@ -45,8 +45,8 @@ export function AuthProvider({ children }) {
   const updateProfile = async (data) => {
     if (!user) return
     const updated = { ...(profile ?? {}), ...data }
+    setProfile(updated) // optimistic: refleja el cambio en memoria/cache antes de que confirme Firestore
     await saveUserProfile(user.uid, updated)
-    setProfile(updated)
   }
 
   const updateSettings = async (data) => {

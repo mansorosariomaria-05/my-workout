@@ -32,7 +32,6 @@ const STEPS = [
   { id: 'tiposPreferidos', title: '¿Qué tipos de entrenamiento preferís?', subtitle: 'Podés elegir varios' },
   { id: 'tipoRutina',             title: '¿Cómo organizás tus sesiones de fuerza?',              subtitle: 'Ayuda a calcular tu recuperación muscular' },
   { id: 'sesionesFuerzaObjetivo', title: '¿Cuántas sesiones de fuerza querés hacer por semana?', subtitle: 'Para planificar tu semana ideal' },
-  { id: 'pausa',                  title: '¿Hace cuánto no entrenás?',                            subtitle: 'Para ajustar tus cargas iniciales' },
   { id: 'lesiones',        title: '¿Tenés lesiones o limitaciones?',   subtitle: 'Te recordamos tenerlas en cuenta' },
   { id: 'equipamiento',    title: '¿Con qué equipamiento contás?',     subtitle: 'Filtramos ejercicios según esto' },
 ]
@@ -40,7 +39,6 @@ const STEPS = [
 const OPTIONS = {
   diasSemana:      [2, 3, 4, 5, 6],
   tiposPreferidos: ['Fuerza', 'Cardio', 'Clases', 'Tabata', 'Mixto'],
-  pausa:           ['Estoy activo/a', '1-2 semanas', '2-4 semanas', '1-3 meses', 'Más de 3 meses'],
   equipamiento:    ['Gym completo', 'Solo mancuernas y bandas', 'Sin equipamiento'],
 }
 
@@ -49,7 +47,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
     genero: '', name: '', objectives: [], nivel: '', diasSemana: 4,
-    tiposPreferidos: [], tipoRutina: '', sesionesFuerzaObjetivo: 3, pausa: '', lesiones: '', equipamiento: '', lesionesYes: false,
+    tiposPreferidos: [], tipoRutina: '', sesionesFuerzaObjetivo: 3, lesiones: '', equipamiento: '', lesionesYes: false,
   })
   const [saving, setSaving] = useState(false)
 

@@ -5,6 +5,7 @@ import { ACHIEVEMENTS_META, runAchievementCheck } from '../../utils/achievements
 import { textoGenero } from '../../utils/genero'
 import { getWeekStartLocal } from '../../utils/dates'
 import { detectPRs } from '../../utils/prUtils'
+import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
@@ -85,10 +86,9 @@ const MEDAL_POOL = [
   { key: 'w_sabado',            label: 'Guerrera del sábado',  Icon: Star,          categoria: 'libre'       },
 ]
 
-function computeWeeklyMedals(workouts, profile, streakState) {
+function computeWeeklyMedals(workouts, profile) {
   const mondayStr  = getWeekStartLocal()
-  const REAL_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
-  const thisWeek   = workouts.filter(w => w.date >= mondayStr && REAL_TYPES.includes(w.type))
+  const thisWeek   = workouts.filter(w => w.date >= mondayStr && REAL_WORKOUT_TYPES.includes(w.type))
 
   const hasFuerzaHistory = workouts.some(w => w.type === 'fuerza' && w.date < mondayStr)
   const diasObjetivo     = profile?.diasSemana ?? 3
@@ -158,7 +158,8 @@ function computeWeeklyMedals(workouts, profile, streakState) {
         break
       }
       case 'w_racha_viva': {
-        completed = streakState === 'active'
+        // Esta semana ya suma a la racha (ver src/utils/streak.js): 3+ días de entrenamiento real.
+        completed = new Set(thisWeek.map(w => w.date)).size >= 3
         break
       }
       case 'w_hamburguesa': {
@@ -177,7 +178,6 @@ function computeWeeklyMedals(workouts, profile, streakState) {
   const filtered = medalsWithState.filter(m => {
     if (['w_mas_fuerte', 'w_supero_pr', 'w_volumen_alto'].includes(m.key) && !hasFuerzaHistory) return false
     if (m.key === 'w_hamburguesa' && diasObjetivo < 4) return false
-    if (m.key === 'w_racha_viva' && (streakState === 'broken' || streakState === 'frozen' || streakState === 'paused')) return false
     return true
   })
 
@@ -381,7 +381,7 @@ function VitrinaTrofeos({ achieved, onClose, genero, weeklyMedals }) {
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-export default function Logros({ workouts, streakState, compact }) {
+export default function Logros({ workouts, compact }) {
   const { user, settings, profile } = useAuthContext()
   const genero = profile?.genero ?? ''
   const [achieved, setAchieved] = useState(null)
@@ -405,7 +405,7 @@ export default function Logros({ workouts, streakState, compact }) {
     })
   }, [workouts, user]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const weeklyMedals = computeWeeklyMedals(workouts, profile, streakState)
+  const weeklyMedals = computeWeeklyMedals(workouts, profile)
 
   // Vista compacta (Home): 4 medallas semanales dinámicas
   if (compact) {

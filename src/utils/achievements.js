@@ -2,6 +2,7 @@ import { getAchievements, unlockAchievement, getTabataRecordCount } from '../ser
 import { dateToLocal } from './dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { computeStreak, REAL_WORKOUT_TYPES } from './streak'
 
 // ─── Achievement metadata (no React/icon refs) ────────────────────────────────
 export const ACHIEVEMENTS_META = [
@@ -67,7 +68,7 @@ function fmtWeek(mondayStr) {
 
 function computeMaxStreak(workouts, minDays) {
   const weeks = {}
-  workouts.forEach(w => {
+  workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).forEach(w => {
     const k = getWeekKey(w.date)
     if (!weeks[k]) weeks[k] = new Set()
     weeks[k].add(w.date)
@@ -307,9 +308,9 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
     if (qualEntry) push('finDeSeActivo', fmtWeek(qualEntry[0]))
   }
 
-  const streak3 = computeMaxStreak(workouts, 3)
-  if (!a.rachaFuego?.unlocked  && streak3 >= 4)  push('rachaFuego',  '4 semanas seguidas con 3+ días')
-  if (!a.rachaElite?.unlocked  && streak3 >= 12) push('rachaElite',  '12 semanas seguidas con 3+ días')
+  const { record: rachaRecord } = computeStreak(workouts)
+  if (!a.rachaFuego?.unlocked  && rachaRecord >= 4)  push('rachaFuego',  '4 semanas seguidas con 3+ días')
+  if (!a.rachaElite?.unlocked  && rachaRecord >= 12) push('rachaElite',  '12 semanas seguidas con 3+ días')
 
   if (!a.cincuenta?.unlocked       && workouts.length >= 50)  push('cincuenta',       '50 entrenamientos completados')
   if (!a.constanciaTotal?.unlocked && workouts.length >= 100) push('constanciaTotal', '100 entrenamientos completados')
@@ -438,7 +439,7 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
 
   if (!a.dosSemanas?.unlocked) {
     const weekDays = {}
-    workouts.filter(w => w.type !== 'descanso').forEach(w => {
+    workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).forEach(w => {
       const k = getWeekKey(w.date)
       if (!weekDays[k]) weekDays[k] = new Set()
       weekDays[k].add(w.date)

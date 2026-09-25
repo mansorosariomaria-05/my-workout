@@ -4,214 +4,128 @@ Documentación técnica permanente para que cualquier instancia de Claude pueda 
 
 ---
 
-## 1. SISTEMA DE RACHA (`getCurrentStreak()`)
+## 1. SISTEMA DE RACHA (`computeStreak()`)
+
+> **Historial**: hasta septiembre 2026 este sistema tenía 4 estados (`active`/`frozen`/`paused`/`broken`) acoplados a las pausas registradas (sección 2). Se reemplazó por completo por una regla única sin estados — ver "Por qué se eliminaron los estados" más abajo. Las pausas **ya no participan** del cálculo de racha.
 
 ### Ubicación
-`src/hooks/useWorkouts.js` — función interna del hook `useWorkouts`.
 
-### Código completo con explicación línea por línea
+`src/utils/streak.js` — función pura `computeStreak(workouts)`, sin dependencias de React ni de Firestore directamente (recibe el array de workouts ya cargado).
+Consumida por `getCurrentStreak()` en [useWorkouts.js](src/hooks/useWorkouts.js:154), que es ahora un wrapper de una línea: `const getCurrentStreak = () => computeStreak(workouts)`.
+
+### La regla
+
+- **Semana** = lunes a domingo, usando `weekKey`/`getWeekStartLocal` de [dates.js](src/utils/dates.js) — fechas siempre como strings `YYYY-MM-DD`, nunca `Date`/UTC (ver sección 5).
+- **Solo cuentan días de entrenamiento real**: `type` en `REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']` — constante única exportada desde `streak.js` y reusada en `Logros.jsx` y `achievements.js` (ver "Consumidores" abajo). `'pausa'` y `'descanso'` quedan afuera del cálculo por completo.
+- **Semana con ≥3 días únicos de entrenamiento real** → suma **+1** a la racha (`current`).
+- **Semana con 1-2 días, o con 0 días** → no suma **ni corta** — es neutra.
+- **La racha vuelve a 0 solo si hay 4 semanas calendario COMPLETAS seguidas con 0 días de entrenamiento real.** La semana en curso (la de hoy) **nunca** cuenta como una de esas 4, aunque todavía no tenga ningún entrenamiento — porque todavía puede sumar días antes del domingo.
+- **La semana en curso suma +1 en cuanto alcanza 3 días** — no hace falta esperar a que termine (a diferencia del sistema viejo, que solo evaluaba semanas ya cerradas).
+- **`record`** = la racha más alta (`current`) alcanzada en cualquier punto de todo el historial, con esta misma regla.
+
+### Código completo
 
 ```js
-// Returns { current, record, state }
-// state: 'active' | 'frozen' | 'paused' | 'broken'
-const getCurrentStreak = () => {
-  const allW = workouts.filter(w => w.date)
-  // Filtra workouts que tienen fecha (descarta posibles docs corruptos)
-  if (!allW.length) return { current: 0, record: 0, state: 'broken' }
+// src/utils/streak.js
+import { parseISO } from 'date-fns'
+import { weekKey, getWeekStartLocal, dateToLocal } from './dates'
 
-  // ── FUNCIONES AUXILIARES INTERNAS ──────────────────────────────────────────
+export const REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
 
-  const getMondayOf = (d) => {
-    const dt = new Date(d)
-    const dow = dt.getDay() || 7   // 0 (domingo) → 7, lunes=1 ... sábado=6
-    dt.setDate(dt.getDate() - dow + 1)  // retrocede al lunes de esa semana
-    dt.setHours(0, 0, 0, 0)
-    return dt
-  }
-  const toStr = (d) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${dd}`
-  }
-  const addDays = (d, n) => new Date(d.getTime() + n * 86400000)
+const nextMonday = (mondayStr) => {
+  const d = parseISO(mondayStr + 'T12:00:00')
+  d.setDate(d.getDate() + 7)
+  return dateToLocal(d)
+}
 
-  // ── SEPARACIÓN POR TIPO ────────────────────────────────────────────────────
+export function computeStreak(workouts) {
+  const realW = (workouts ?? []).filter(w => w.date && REAL_WORKOUT_TYPES.includes(w.type))
+  if (!realW.length) return { current: 0, record: 0 }
 
-  const pausas = allW.filter(w => w.type === 'pausa')
-  const realW  = allW.filter(w => w.type !== 'descanso' && w.type !== 'pausa')
-  // 'descanso' y 'pausa' no cuentan como entrenamientos reales
-
-  // ── WEEKMAP: Monday → Set de fechas entrenadas ─────────────────────────────
-
+  // weekMap: 'YYYY-MM-DD (lunes)' -> Set de fechas entrenadas esa semana
   const weekMap = {}
   realW.forEach(w => {
-    // parseISO(date + 'T12:00:00') → ver sección 5 sobre timezones
-    const mon = toStr(getMondayOf(parseISO(w.date + 'T12:00:00')))
+    const mon = weekKey(parseISO(w.date + 'T12:00:00'))
     if (!weekMap[mon]) weekMap[mon] = new Set()
     weekMap[mon].add(w.date)
   })
-  // weekMap['2026-06-09'] = Set(['2026-06-11', '2026-06-13', '2026-06-15'])
 
-  // ── RECORD: racha histórica más larga ─────────────────────────────────────
+  const thisWeekMonday = getWeekStartLocal()
+  const earliestMonday = Object.keys(weekMap).sort()[0]
 
-  const qualifying = Object.entries(weekMap)
-    .filter(([, days]) => days.size >= 3)   // solo semanas con ≥3 días de entrenamiento
-    .map(([mon]) => mon)
-    .sort()
-  let record = qualifying.length ? 1 : 0, runLen = 1
-  for (let i = 1; i < qualifying.length; i++) {
-    const diff = Math.round(
-      (parseISO(qualifying[i] + 'T12:00:00') - parseISO(qualifying[i - 1] + 'T12:00:00')) / 86400000
-    )
-    if (diff === 7) { runLen++; record = Math.max(record, runLen) }
-    else runLen = 1   // semanas no consecutivas → rompe la racha histórica
-  }
+  let current = 0
+  let record = 0
+  let consecutiveEmpty = 0
+  let mon = earliestMonday
 
-  // Devuelve 'frozen', 'paused' o null dependiendo de si hay una pausa
-  // que solapa con el rango [weekStart, weekEnd]
-  const getPausaType = (weekStart, weekEnd) => {
-    for (const p of pausas) {
-      const pi = p.pausaInicio || p.date
-      const pf = p.pausaFin   || p.date
-      if (pi <= weekEnd && pf >= weekStart) {  // ¿el rango de la pausa toca esta semana?
-        return (p.pausaMotivo === 'enfermedad' || p.pausaMotivo === 'lesion')
-          ? 'frozen'   // pausa médica → congela la racha
-          : 'paused'   // descanso voluntario → pausa la racha
+  // Camina cronológicamente desde la semana más antigua con datos hasta la semana actual, inclusive.
+  while (mon <= thisWeekMonday) {
+    const days = weekMap[mon]?.size ?? 0
+    const isCurrentWeek = mon === thisWeekMonday
+
+    if (days >= 3) {
+      current += 1
+      consecutiveEmpty = 0
+      record = Math.max(record, current)
+    } else if (days >= 1) {
+      consecutiveEmpty = 0   // semana floja (1-2 días): no suma, pero tampoco cuenta para el reset de 4
+    } else if (!isCurrentWeek) {
+      consecutiveEmpty += 1
+      if (consecutiveEmpty >= 4) {
+        current = 0
+        consecutiveEmpty = 0
       }
     }
-    return null
+    // isCurrentWeek && days === 0: la semana en curso nunca cuenta como vacía — no se toca nada.
+
+    mon = nextMonday(mon)
   }
 
-  // ── LOOP PRINCIPAL: evalúa semana a semana hacia atrás ────────────────────
-
-  const lastMon = getMondayOf(new Date())
-  lastMon.setDate(lastMon.getDate() - 7)
-  // PUNTO CRÍTICO: empieza desde la semana ANTERIOR, no la actual.
-  // La semana actual (en curso) siempre se omite porque aún no terminó.
-  // Un martes de la semana X, el loop empieza en el lunes de la semana X-1.
-
-  let current = 0, mostRecentStatus = null, emptyTol = 0
-  let checkDate = new Date(lastMon)
-
-  for (let i = 0; i < 52; i++) {
-    const weekStart = toStr(checkDate)
-    const weekEnd   = toStr(addDays(checkDate, 6))
-    const isActive  = (weekMap[weekStart]?.size ?? 0) >= 3   // ≥3 días → semana activa
-    const pausaType = getPausaType(weekStart, weekEnd)
-    const weekTrainingCount = weekMap[weekStart]?.size ?? 0
-
-    if (isActive) {
-      // Semana con ≥3 entrenamientos: suma 1 a la racha actual
-      current++
-      emptyTol = 0
-      if (mostRecentStatus === null) mostRecentStatus = 'active'
-
-    } else if (pausaType) {
-      // Semana con pausa registrada: no suma a current, pero no rompe la racha
-      emptyTol = 0
-      if (mostRecentStatus === null) {
-        // Si el usuario entrenó aunque sea 1 vez durante la semana de pausa,
-        // el estado es 'active'. Si no entrenó, hereda el tipo de pausa.
-        mostRecentStatus = weekTrainingCount > 0 ? 'active' : pausaType
-      }
-
-    } else {
-      // Semana vacía (ni entrenamiento suficiente ni pausa)
-      emptyTol++
-      if (mostRecentStatus === null) mostRecentStatus = 'empty'
-      if (emptyTol >= 2) break   // 2 semanas vacías consecutivas → fin de búsqueda
-    }
-
-    checkDate.setDate(checkDate.getDate() - 7)
-  }
-
-  const state = mostRecentStatus === 'active'  ? 'active'
-    : mostRecentStatus === 'frozen' ? 'frozen'
-    : mostRecentStatus === 'paused' ? 'paused'
-    : 'broken'
-
-  // ── OVERRIDE POST-LOOP: descongelamiento por entrenamientos semana actual ──
-
-  // El loop principal nunca evalúa la semana en curso. Si el usuario tuvo una
-  // pausa la semana pasada y ya entrenó esta semana, el loop devolvería 'frozen'
-  // o 'paused' aunque haya vuelto al entrenamiento. Este override lo corrige.
-  const thisWeekMon = toStr(getMondayOf(new Date()))
-  const thisWeekTrainingCount = weekMap[thisWeekMon]?.size ?? 0
-  const finalState = (state === 'frozen' || state === 'paused') && thisWeekTrainingCount > 0
-    ? 'active'
-    : state
-
-  return { current, record: Math.max(current, record), state: finalState }
+  return { current, record }
 }
 ```
 
-*(Este bloque es el código real y completo de `getCurrentStreak()` en [useWorkouts.js](src/hooks/useWorkouts.js:141), con comentarios agregados para esta documentación — el código fuente tiene comentarios más breves en inglés, el contenido lógico es idéntico.)*
+### Por qué camina hacia ADELANTE (no hacia atrás como el sistema viejo)
 
-### Cómo se construye `weekMap`
+El sistema anterior caminaba desde hoy hacia atrás, semana por semana, y cortaba apenas encontraba 2 semanas vacías seguidas — porque cada estado (`frozen`/`paused`/`broken`) dependía solo de la semana más reciente relevante. La regla nueva necesita **acumular** un contador (`current`) que crece con cada semana calificada y se resetea solo tras 4 vacías seguidas — eso requiere procesar las semanas en orden cronológico (de la más vieja a la más nueva) para que el contador refleje correctamente rachas que sobrevivieron a semanas flojas o a huecos cortos (<4 semanas) en el medio del historial.
 
-`weekMap` es un objeto `{ 'YYYY-MM-DD (lunes)': Set<'YYYY-MM-DD'> }`. Solo incluye workouts reales (excluye `type='pausa'` y `type='descanso'`). La clave es siempre el lunes de la semana a la que pertenece cada entrenamiento. El `Set` de cada entrada permite saber cuántos **días únicos** se entrenó en cada semana (si el usuario registra 2 workouts el mismo día, cuenta como 1 día).
+### Casos de ejemplo (los mismos que verifica la implementación)
 
-### Por qué el loop empieza desde la semana ANTERIOR
+| Escenario | Resultado |
+|---|---|
+| 5 semanas seguidas con 3+ días | `current: 5` |
+| 3 semanas de 3 días, 1 semana de 2 días, 2 semanas de 3 días | `current: 5` — la semana floja de 2 días no suma ni corta |
+| 4 semanas de 3 días, 3 semanas vacías, 1 semana de 3 días | `current: 5` — 3 semanas vacías no alcanzan las 4 que exige el reset |
+| 4 semanas de 3 días, **4 semanas completas vacías**, 1 semana de 3 días | `current: 1`, `record: 4` — el reset sí ocurre a la 4ª semana vacía; la racha nueva arranca de cero pero el récord histórico se conserva |
+| Semana en curso con 3 días (miércoles, por ejemplo) | Ya suma — no espera al domingo |
+| Semana en curso con 0 días (todavía) y la anterior con 3 | No corta la racha — la semana en curso nunca cuenta como vacía |
+| Documentos `type: 'pausa'` o `type: 'descanso'` en cualquier fecha | No afectan el resultado — quedan fuera de `REAL_WORKOUT_TYPES` desde el primer filtro |
 
-Diseño intencional. La racha se basa en **semanas completas**. Si hoy es miércoles, la semana actual aún no terminó — el usuario podría entrenar el jueves, viernes y sábado. Incluirla en la evaluación principal sería contar una semana incompleta como si ya hubiera fallado. El loop empieza en el lunes de la semana pasada (`getMondayOf(new Date())` con `setDate(-7)`).
+### Consumidores del resultado
 
-**Consecuencia**: los workouts de la semana actual siempre quedan guardados en `weekMap[thisWeekMon]`, pero el loop principal nunca los evalúa. Solo el override post-loop los considera, exclusivamente para el descongelamiento.
+- [useWorkouts.js](src/hooks/useWorkouts.js:154): `getCurrentStreak()` (wrapper de `computeStreak(workouts)`).
+- [Inicio.jsx](src/pages/Inicio.jsx): `const { current: semanasRacha, record: rachaRecord } = getCurrentStreak()` → `<StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} />`. La card de racha muestra `🔥 {semanasRacha} semanas` y debajo `Récord: {rachaRecord} sem.` (o `"Empezá tu racha"` si `semanasRacha === 0 && rachaRecord === 0`).
+- [ProgresoPage.jsx](src/components/progreso/ProgresoPage.jsx): llama a la **misma** `getCurrentStreak()` del hook (`const { record } = useMemo(() => getCurrentStreak(), [workouts])`) para `CaminoCard`/`VictoriaCard` — **ya no tiene su propio cálculo de `record` duplicado** dentro de `computeAll()` (fue eliminado; antes eran dos implementaciones independientes que podían mostrar números distintos entre Inicio y Progreso — ver sección 9). Ambas pantallas muestran siempre 🔥, sin distinción de color/ícono por estado.
+- [Logros.jsx](src/components/inicio/Logros.jsx): la medalla `w_racha_viva` ya no recibe `streakState` como prop — `Logros`/`computeWeeklyMedals` perdieron ese parámetro por completo. Ver sección 4 para el nuevo criterio de `w_racha_viva`.
+- [achievements.js](src/utils/achievements.js): `rachaFuego`/`rachaElite` usan `computeStreak(workouts).record` (mismos umbrales: ≥4 y ≥12). `computeMaxStreak()` (usada por `checkPiernasAcero`) y el chequeo inline de `dosSemanas` ahora filtran por `REAL_WORKOUT_TYPES` — antes contaban cualquier `type`, incluyendo `'pausa'`/`'descanso'`, como día "entrenado" (bug histórico, ver sección 9).
 
-### Override post-loop
+### Por qué se eliminaron los estados (`active`/`frozen`/`paused`/`broken`)
 
-Agregado para resolver un bug real detectado en producción:
+**Simplicidad**: 4 estados + un override post-loop para "descongelar" eran difíciles de razonar y de mantener — cualquier cambio en pausas podía romper silenciosamente el cálculo de racha (ver el bug de `getCurrentStreak()` documentado en versiones anteriores de este archivo). Una sola regla ("3+ días suma, menos no corta, 4 semanas vacías resetea") es más fácil de explicar, de testear y de razonar sobre casos límite.
 
-> **Caso**: pausa semana X (ej. 8–14 jun) + el usuario entrena el lunes/martes de la semana X+1 (15 jun+).
-> El loop evalúa la semana X → `frozen`. Nunca llega a evaluar X+1 porque es la semana en curso.
-> **Resultado sin override**: `state: 'frozen'` aunque el usuario ya esté de vuelta entrenando.
-> **Resultado con override**: si `thisWeekTrainingCount > 0` → `finalState: 'active'`.
+**No castigar entrenar "un poco" igual que no entrenar nada**: con el sistema viejo, una semana de 1-2 días contaba exactamente igual que una semana de 0 días para efectos de mantener la racha activa post-pausa, y una semana floja dentro de una racha ya rota. Con la regla nueva, una semana floja es explícitamente neutra — ni te hace avanzar, pero tampoco te penaliza como si no hubieras hecho nada. Esto refleja mejor cómo entrena la gente en la vida real: semanas irregulares (viajes, imprevistos, mucho trabajo) no deberían borrar meses de constancia.
 
-El override **no suma a `current`** — solo cambia el `state` mostrado en la UI. La racha numérica sigue reflejando únicamente semanas históricas completas y calificadas.
+**Silverman & Barasch (2023)** — sobre gamificación de rachas: romper una racha larga tiene un efecto desmotivador desproporcionado respecto al beneficio motivador que dio mientras estaba activa; muchos usuarios abandonan el hábito por completo después de "perder" una racha larga, en vez de simplemente retomarla. El diseño con estados (`frozen`/`paused`/`broken`) hacía visible y explícito cada quiebre — la regla nueva evita mostrar una racha "rota" salvo que realmente haya pasado un mes entero (4 semanas) sin ningún entrenamiento, reduciendo la frecuencia con la que el usuario ve ese mensaje desmotivador.
 
-### Los 4 estados posibles
+**Lally et al. (2010)** — sobre formación de hábitos: saltear una sola oportunidad de repetir el hábito no tiene un efecto medible en el proceso de automatización del hábito (a diferencia de lo que popularmente se asume). Esto respalda no castigar semanas sueltas de baja actividad: el hábito de entrenar no se "resetea" porque una semana tuvo 2 días en lugar de 3.
 
-| Estado | Cuándo aplica | Ícono en UI |
-|--------|---------------|-----|
-| `active` | La última semana completa evaluada tiene ≥3 días de entrenamiento, O el override detectó entrenamientos en la semana actual tras una pausa/frozen | 🔥 |
-| `frozen` | La última semana evaluada tiene una pausa con `pausaMotivo: 'enfermedad'` o `'lesion'`, y 0 entrenamientos reales en esa semana | 🧊 |
-| `paused` | La última semana evaluada tiene una pausa con `pausaMotivo: 'descanso'`, y 0 entrenamientos reales en esa semana | ⏸ |
-| `broken` | La última semana evaluada está vacía (ni pausa ni entrenamientos suficientes), o no hay workouts en absoluto | sin ícono |
-
-### Casos edge documentados
-
-**Caso A — Pausa + entrenamiento en la MISMA semana (dentro del rango de pausa):**
-```
-Pausa: 8–14 jun (frozen)
-Entrenamiento: 11 jun (dentro del rango, misma semana)
-weekMap['2026-06-08'] = Set(['2026-06-11']) → size=1
-Loop: isActive=false, pausaType='frozen', weekTrainingCount=1 → mostRecentStatus='active'
-Resultado: state='active' (el entrenamiento cancela el frozen dentro de la misma semana evaluada)
-```
-
-**Caso B — Pausa + entrenamiento en la semana SIGUIENTE (semana actual, invisible al loop):**
-```
-Pausa: 8–14 jun (frozen)
-Entrenamientos: 16 jun, 18 jun (semana siguiente, semana actual en curso)
-weekMap['2026-06-15'] = Set(['2026-06-16', '2026-06-18']) → size=2
-Loop: empieza en 8 jun → frozen. Nunca evalúa la semana del 15 jun (es la semana en curso).
-Override: thisWeekMon='2026-06-15', thisWeekTrainingCount=2 > 0 → finalState='active'
-Resultado: state='active' ✓ (gracias exclusivamente al override)
-```
-
-**Caso C — `getPausaType` considera "en pausa" la semana anterior si el inicio de pausa cae en su último día:**
-
-`getPausaType(weekStart, weekEnd)` usa `pi <= weekEnd && pf >= weekStart`. Si `pausaInicio = '2026-06-08'` (lunes) y se evalúa la semana previa cuyo `weekEnd = '2026-06-07'` (domingo)... en realidad el solapamiento ocurre cuando `pausaInicio` cae exactamente en el **último día** de una semana anterior al lunes de inicio típico — por ejemplo si por algún motivo `pausaInicio` es domingo y esa fecha es también el `weekEnd` de la semana calendario anterior evaluada por el loop, la condición `pi <= weekEnd` se cumple y esa semana anterior también se marca como "en pausa" aunque conceptualmente la pausa recién estaba arrancando.
-**Efecto real**: esto solo importa si `mostRecentStatus` todavía es `null` cuando el loop llega a esa semana límite (es decir, si ninguna semana más reciente ya definió el estado). En la práctica esto es poco frecuente porque el `weekMap` ya suele resolver el estado en semanas más recientes. **No se corrigió por baja frecuencia real de este caso**, pero queda documentado para no sorprender a futuras revisiones del algoritmo.
-
-### Decisión de producto
-
-**Cualquier entrenamiento real en la semana actual descongela la racha, sin importar la cantidad de días.**
-No se requieren 3 días para descongelar — a diferencia del criterio de "semana activa" que sí exige ≥3 días. Con 1 solo workout en la semana actual, el override activa `finalState='active'`. Esto es intencional: el objetivo del override es reflejar el **regreso al entrenamiento** de forma inmediata y motivadora (ver 🔥 después de la primera sesión tras una enfermedad), no medir si la semana completa ya cumplió el mínimo.
+**Perdonar la vida real**: 4 semanas (un mes) de tolerancia antes de resetear la racha da margen para vacaciones, enfermedades cortas, viajes de trabajo, mudanzas, etc. sin necesidad de que el sistema sepa *por qué* el usuario no entrenó — no hace falta que registre una pausa ni justifique nada. Esto es lo que reemplaza, de forma mucho más simple, a lo que antes hacían las pausas explícitas con `frozen`/`paused`.
 
 ---
 
 ## 2. SISTEMA DE PAUSA
+
+> **IMPORTANTE**: desde septiembre 2026 las pausas **ya no afectan el cálculo de racha** (sección 1) — el sistema de racha las ignora por completo, junto con `'descanso'`. Este sistema (registro, Firestore, calendario) sigue existiendo sin cambios; solo se desconectó de la racha. Una eliminación completa del flujo de pausas (formulario, calendario, `WorkoutSummary`) queda pendiente para un cambio posterior — ver sección 11.
 
 ### Estructura exacta del documento en Firestore
 
@@ -254,15 +168,15 @@ const handleSavePausa = async () => {
 }
 ```
 
-### Tres motivos y su efecto en la racha
+### Tres motivos y su efecto visual (ya no afectan la racha)
 
-| pausaMotivo | Icono en el selector | Estado de racha | Efecto |
-|-------------|-------|-----------------|-------------|
-| `enfermedad` | 🤒 | `frozen` 🧊 | Congela la racha |
-| `lesion`     | 🤕 | `frozen` 🧊 | Congela la racha (idéntico a enfermedad) |
-| `descanso`   | 🧘 | `paused` ⏸ | Pausa voluntaria de la racha |
+| pausaMotivo | Icono en el selector | Tratamiento visual en calendario |
+|-------------|-------|-----------------|
+| `enfermedad` | 🤒 | Celeste/hielo |
+| `lesion`     | 🤕 | Celeste/hielo (idéntico a enfermedad) |
+| `descanso`   | 🧘 | Gris |
 
-En `getPausaType()` (sección 1): los motivos `enfermedad` y `lesion` devuelven `'frozen'`; el motivo `descanso` devuelve `'paused'`. Es la única bifurcación de comportamiento entre los tres motivos — a nivel UI y de calendario, `enfermedad` y `lesion` comparten exactamente el mismo tratamiento visual (celeste/hielo), mientras que `descanso` se pinta distinto (gris).
+`enfermedad` y `lesion` comparten exactamente el mismo tratamiento visual (celeste/hielo) en `WeekCalendar.jsx`/`ProgresoPage.jsx`, mientras que `descanso` se pinta distinto (gris) — esta distinción es puramente visual/informativa, ya no dispara ningún efecto en el cálculo de racha (sección 1).
 
 ### Lógica de prioridad en `WeekCalendar.jsx` — 3 pasadas
 
@@ -310,7 +224,7 @@ const pausaDotBorder = isFrozen ? '#38bdf8' : '#4B5563'
 ### Comportamiento cuando se entrena dentro del rango de pausa
 
 - El workout real gana en la pasada 1 y se muestra normalmente en el calendario para ese día específico — la pausa sigue existiendo como documento en Firestore pero queda "tapada" visualmente ese día.
-- En el cálculo de racha: si `weekTrainingCount > 0` para la semana de la pausa, `mostRecentStatus = 'active'` (ver sección 1, Caso A).
+- El cálculo de racha (sección 1) ni siquiera mira las pausas — ese día simplemente cuenta como día real de esa semana en `weekMap`, igual que cualquier otro entrenamiento.
 - La pausa **no se elimina ni se modifica** en Firestore — sigue expandiéndose sobre el resto de los días de su rango que no tengan un entrenamiento real.
 
 ### El formulario de pausa: calendario inline con `date-fns`
@@ -382,17 +296,16 @@ Criterio exacto de completado de cada una (del `switch` dentro de `computeWeekly
 | `w_semana_mixta` | balance | hay ≥1 workout `fuerza` Y ≥1 workout `cardio` o `clase` en la semana |
 | `w_cuerpo_sabio` | balance | promedio de `fatigue` (de los workouts con `fatigue != null`) de la semana `<= 5` |
 | `w_bien_descansada` | balance | ≥2 sesiones de `fuerza` en la semana, con al menos 1 día de diferencia entre cada par consecutivo ordenado por fecha |
-| `w_racha_viva` | libre | `streakState === 'active'` |
+| `w_racha_viva` | libre | días únicos reales de la semana actual (`thisWeek`) `>= 3` — es decir, esta semana ya suma a la racha (sección 1) |
 | `w_hamburguesa` | libre | días únicos entrenados en la semana `>= 4` |
 | `w_sabado` | libre | algún workout de la semana cae en sábado (`getDay()===6`) |
 
 ### Algoritmo de selección de las 4 medallas semanales
 
 ```js
-function computeWeeklyMedals(workouts, profile, streakState) {
+function computeWeeklyMedals(workouts, profile) {
   const mondayStr  = getWeekStartLocal()
-  const REAL_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
-  const thisWeek   = workouts.filter(w => w.date >= mondayStr && REAL_TYPES.includes(w.type))
+  const thisWeek   = workouts.filter(w => w.date >= mondayStr && REAL_WORKOUT_TYPES.includes(w.type))
 
   const hasFuerzaHistory = workouts.some(w => w.type === 'fuerza' && w.date < mondayStr)
   const diasObjetivo     = profile?.diasSemana ?? 3
@@ -406,7 +319,6 @@ function computeWeeklyMedals(workouts, profile, streakState) {
   const filtered = medalsWithState.filter(m => {
     if (['w_mas_fuerte', 'w_supero_pr', 'w_volumen_alto'].includes(m.key) && !hasFuerzaHistory) return false
     if (m.key === 'w_hamburguesa' && diasObjetivo < 4) return false
-    if (m.key === 'w_racha_viva' && (streakState === 'broken' || streakState === 'frozen' || streakState === 'paused')) return false
     return true
   })
 
@@ -435,32 +347,34 @@ function computeWeeklyMedals(workouts, profile, streakState) {
 }
 ```
 
+`REAL_WORKOUT_TYPES` se importa desde [streak.js](src/utils/streak.js) (`import { REAL_WORKOUT_TYPES } from '../../utils/streak'`) — es la misma constante que usa `computeStreak()` para la racha, ya no hay una copia local `REAL_TYPES` redefinida dentro de `Logros.jsx`.
+
 ### Reglas de exclusión por contexto
 
 - `w_mas_fuerte`, `w_supero_pr`, `w_volumen_alto`: excluidas si `!hasFuerzaHistory` (no hay ningún workout de fuerza **anterior** a esta semana — sin historial no hay nada contra qué comparar para un PR).
 - `w_hamburguesa`: excluida si `diasObjetivo < 4` (el objetivo de días/semana del perfil es menor a 4 → nunca se podría cumplir el criterio de ≥4 días).
-- `w_racha_viva`: excluida si `streakState` es `'broken'`, `'frozen'` o `'paused'`.
+- `w_racha_viva` **ya no tiene ninguna regla de exclusión** — está siempre disponible en el pool, sin importar el estado de la racha (ver más abajo).
 
-### Medalla `w_racha_viva`: comportamiento especial
+### Medalla `w_racha_viva`: significado nuevo
 
-- **Exclusión completa del pool** (no solo "no completada") cuando `streakState !== 'active'` → no aparece ni como incompleta ni como gris, simplemente no existe esa semana en la selección.
-- `completed = true` únicamente cuando `streakState === 'active'`.
+Desde que se eliminaron los estados de racha (sección 1), `w_racha_viva` pasó a significar simplemente **"esta semana ya suma a la racha"**:
+- `completed = new Set(thisWeek.map(w => w.date)).size >= 3` — el mismo umbral de 3 días que usa `computeStreak()` para calificar una semana.
+- **Ya no se excluye del pool en ningún caso** — antes desaparecía por completo si la racha estaba `frozen`/`paused`/`broken`; ahora siempre es una opción posible dentro de la categoría `libre`, completada o no según si la semana en curso ya llegó a 3 días.
 
 ### Cadena completa de datos
 
 ```
-useWorkouts.js: getCurrentStreak() → { current, record, state: finalState }
+useWorkouts.js: getCurrentStreak() → computeStreak(workouts) → { current, record }
     ↓
-Inicio.jsx: const { state: rachaState } = getCurrentStreak()
+Inicio.jsx: const { current: semanasRacha, record: rachaRecord } = getCurrentStreak()
     ↓
-Inicio.jsx: <Logros workouts={workouts} streakState={rachaState} compact />
+Inicio.jsx: <Logros workouts={workouts} compact />
     ↓
-Logros.jsx: computeWeeklyMedals(workouts, profile, streakState)
-            → dentro del switch: case 'w_racha_viva': completed = streakState === 'active'
-            → dentro del filtro de exclusión: se remueve del pool si !== 'active'
+Logros.jsx: computeWeeklyMedals(workouts, profile)
+            → dentro del switch: case 'w_racha_viva': completed = días reales de esta semana >= 3
 ```
 
-**Nota importante**: `Logros.jsx` **no llama `getCurrentStreak()` directamente**. Recibe `streakState` como prop desde `Inicio.jsx`, que es el único componente que invoca la función y decide qué estado propagar.
+**Nota importante**: `Logros.jsx` **no llama `getCurrentStreak()` ni `computeStreak()` directamente** — calcula `w_racha_viva` de forma independiente, filtrando `workouts` por fecha ≥ lunes de esta semana (mismo criterio que `computeStreak` usaría para la semana en curso, pero sin pasar por esa función). Ya no recibe ningún prop de racha desde `Inicio.jsx` — el componente `Logros` perdió por completo la prop `streakState`.
 
 ### El reset semanal es automático
 
@@ -578,7 +492,7 @@ parseISO('2026-06-16')  // → igual de peligroso sin especificar hora
 parseISO('2026-06-16T12:00:00')  // → mediodía LOCAL → timezone-safe
 ```
 
-El patrón `parseISO(date + 'T12:00:00')` es la convención en todo el codebase (aparece en `getCurrentStreak()`, `achievements.js`, `WeekCalendar.jsx`, `ProgresoPage.jsx`, `InlineRangePicker`) cuando se necesita un objeto `Date` a partir de un string `YYYY-MM-DD` para hacer aritmética de fechas. El mediodía local da suficiente margen para que cambios de DST o desfases de timezone nunca desplacen el día calculado.
+El patrón `parseISO(date + 'T12:00:00')` es la convención en todo el codebase (aparece en `computeStreak()` de `streak.js`, `achievements.js`, `WeekCalendar.jsx`, `ProgresoPage.jsx`, `InlineRangePicker`) cuando se necesita un objeto `Date` a partir de un string `YYYY-MM-DD` para hacer aritmética de fechas. El mediodía local da suficiente margen para que cambios de DST o desfases de timezone nunca desplacen el día calculado.
 
 ### Por qué se usa `format(new Date(), 'yyyy-MM-dd')` en lugar de `.toISOString().split('T')[0]`
 
@@ -779,9 +693,8 @@ const saveWorkout = async (workout) => {
     // el write a Firestore confirma. Antes se esperaba (await) un load(true) acá — pero si
     // el usuario navegaba de vuelta a Inicio antes de que ese re-fetch a Firestore terminara,
     // Inicio montaba con un cache desactualizado que no incluía este workout, causando que
-    // getCurrentStreak() devolviera el estado incorrecto (ej. 'frozen' en vez de 'active'
-    // tras entrenar durante una semana de pausa). El optimistic update garantiza que el
-    // cache esté siempre al día en el momento de la navegación.
+    // getCurrentStreak() devolviera un valor desactualizado. El optimistic update garantiza
+    // que el cache esté siempre al día en el momento de la navegación.
     const fresh = { ...workout, id }
     writeCache(uid, [fresh, ...(readCache(uid) ?? [])])
     setWorkouts(prev => [fresh, ...prev])
@@ -1079,24 +992,24 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 ## 9. DECISIONES DE PRODUCTO
 
 ### Racha basada en semanas, no días
-**Decisión**: la racha se mide en semanas consecutivas, no en días consecutivos de entrenamiento.
+**Decisión**: la racha se mide en semanas (3+ días entrenados por semana), no en días consecutivos de entrenamiento.
 **Motivo**: el entrenamiento de fuerza requiere descanso entre sesiones. Una racha de días consecutivos penalizaría el descanso necesario y empujaría a sobreentrenar.
 **Alternativa descartada**: racha de días consecutivos estilo Duolingo. Descartada porque incentiva entrenar todos los días, contraproducente para el desarrollo de fuerza.
 
-### Mínimo 3 días para semana válida
-**Decisión**: una semana cuenta para la racha (`isActive`) solo si tiene ≥3 días únicos de entrenamiento real.
+### Mínimo 3 días para que una semana sume
+**Decisión**: una semana suma +1 a la racha solo si tiene ≥3 días únicos de entrenamiento real.
 **Motivo**: 1 o 2 días es un inicio pero no refleja una semana de entrenamiento consistente. 3 días es además el default del objetivo del perfil (`diasSemana = 3` cuando no está seteado).
 **Alternativa descartada**: 1 día = semana válida. Descartada porque inflaba la racha artificialmente sin reflejar un hábito real.
 
-### Cualquier entrenamiento descongela la racha (no se requiere mínimo)
-**Decisión**: con 1 solo workout en la semana actual tras una pausa/frozen, el override cambia el estado a `active` de inmediato — sin exigir los 3 días que sí exige el criterio de "semana activa".
-**Motivo**: el objetivo del override es reflejar el **regreso al entrenamiento**, no medir si la semana completa ya cumplió el mínimo. Ver el ícono 🔥 después de la primera sesión tras una enfermedad es motivador; esperar a completar 3 días sería punitivo justo cuando el usuario más necesita el refuerzo positivo.
-**Alternativa descartada**: requerir 3 días para descongelar, igual que para calificar una semana. Descartada porque el usuario podría estar recién arrancando la semana y aún tener días por delante.
+### Sin estados de racha — regla única sin `active`/`frozen`/`paused`/`broken`
+**Decisión** (septiembre 2026): se reemplazó el sistema de 4 estados + override de descongelamiento por una sola regla: semanas de 3+ días suman, semanas de 1-2 días no suman ni cortan, y la racha solo se resetea tras 4 semanas calendario completas sin ningún entrenamiento real. Ver sección 1 para el detalle completo, incluyendo la fundamentación en Silverman & Barasch (2023) sobre el efecto desmotivador de una racha rota, y Lally et al. (2010) sobre que saltear una oportunidad no afecta la formación del hábito.
+**Motivo**: simplicidad (4 estados + override eran difíciles de mantener y ya habían causado al menos un bug de producción), no castigar entrenar "un poco" igual que no entrenar nada, y perdonar la vida real (vacaciones, enfermedades, viajes) sin que el sistema necesite saber el motivo ni que el usuario registre nada.
+**Alternativa descartada**: mantener los estados y arreglar el bug puntual del override. Descartada porque el problema de fondo no era el bug sino la complejidad estructural de acoplar la racha a las pausas — cualquier cambio futuro en pausas volvería a arriesgar romper la racha.
 
-### Pausa sin botón de "descongelar manual"
-**Decisión**: no existe ningún botón para marcar la pausa como "terminada". El entrenamiento real la descongela automáticamente.
-**Motivo**: reducir fricción — el usuario no tiene que "administrar" el estado de su pausa, simplemente vuelve a entrenar y el sistema lo detecta.
-**Alternativa descartada**: modal de "¿Ya te recuperaste?" al registrar el primer workout post-pausa. Descartada por complejidad de UX innecesaria para un problema que se resuelve solo con datos.
+### Pausas desconectadas del cálculo de racha
+**Decisión**: las pausas (`type: 'pausa'`) dejaron de participar del cálculo de racha — ni la congelan, ni la pausan, ni la descongelan. El sistema de registro de pausas (formulario, Firestore, calendario) sigue existiendo sin cambios, solo se desconectó de la racha.
+**Motivo**: consecuencia directa de eliminar los estados — la tolerancia de 4 semanas vacías ya cubre el caso de uso que las pausas resolvían (avisar que no vas a entrenar por un tiempo), sin necesidad de que el usuario registre nada explícitamente.
+**Alternativa descartada**: mantener las pausas como señal opcional para "perdonar" semanas dentro de las 4 de tolerancia. Descartada por complejidad — reintroduciría el mismo acoplamiento racha↔pausa que se buscaba eliminar. Queda pendiente decidir si se elimina el flujo de pausas por completo (sección 11).
 
 ### Fechas como strings `YYYY-MM-DD` (no Timestamps de Firestore)
 **Decisión**: todos los campos de fecha en workouts (`date`, `pausaInicio`, `pausaFin`) son strings, no Firestore Timestamps.
@@ -1128,23 +1041,27 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 ## 10. ARCHIVOS CLAVE DEL PROYECTO
 
 ### `src/hooks/useWorkouts.js`
-**Qué hace**: hook central de la app. Gestiona el array `workouts` con cache en `localStorage`, operaciones de escritura a Firestore, integración con el borrador offline, y contiene `getCurrentStreak()`.
-**Por qué es crítico**: cualquier cambio en la lógica de carga, guardado o racha pasa por acá. Tiene estado propio por instancia — `Inicio.jsx` y `WorkoutWizard.jsx` crean instancias separadas del hook, lo cual fue la causa raíz del bug de race condition documentado en la sección 6 (el fix fue el optimistic update en `saveWorkout`).
+**Qué hace**: hook central de la app. Gestiona el array `workouts` con cache en `localStorage`, operaciones de escritura a Firestore, integración con el borrador offline, y expone `getCurrentStreak()` como wrapper de `computeStreak(workouts)`.
+**Por qué es crítico**: cualquier cambio en la lógica de carga o guardado pasa por acá. Tiene estado propio por instancia — `Inicio.jsx` y `WorkoutWizard.jsx` crean instancias separadas del hook, lo cual fue la causa raíz del bug de race condition documentado en la sección 6 (el fix fue el optimistic update en `saveWorkout`).
+
+### `src/utils/streak.js`
+**Qué hace**: única fuente de verdad del cálculo de racha (`computeStreak(workouts)`, sección 1) y de la constante `REAL_WORKOUT_TYPES` (los 4 tipos que cuentan como entrenamiento real: `fuerza`, `cardio`, `clase`, `tabata`).
+**Por qué es crítico**: función pura, sin dependencias de React/Firestore — se puede testear de forma aislada. `useWorkouts.js`, `Logros.jsx` y `achievements.js` importan de acá; no debería volver a haber una copia local de la lógica de semanas/racha en ningún otro archivo.
 
 ### `src/context/AuthContext.jsx`
 **Qué hace**: provee `user`, `profile`, `settings`, `loading`, `authTimedOut` vía Context. Maneja el timeout de 15s de Auth. Distingue `user === undefined` de `user === null`.
 **Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida.
 
 ### `src/pages/Inicio.jsx`
-**Qué hace**: home de la app. Llama `getCurrentStreak()`, calcula `rachaState`, y lo propaga como prop a `StatsCards` y `Logros`. Contiene `computeWeeklyStats()` (resumen semanal) y `getDailySuggestion()`.
-**Por qué es crítico**: es el único consumidor que invoca `getCurrentStreak()` y decide qué `streakState` se propaga al resto de la UI — los componentes hijos (`Logros.jsx`) no la llaman directamente.
+**Qué hace**: home de la app. Llama `getCurrentStreak()` y pasa `semanasRacha`/`rachaRecord` a `StatsCards`. Ya no le pasa nada de racha a `Logros` — `Logros` calcula `w_racha_viva` de forma independiente (sección 3). Contiene `computeWeeklyStats()` (resumen semanal) y `getDailySuggestion()`.
+**Por qué es crítico**: `ProgresoPage.jsx` también llama a `getCurrentStreak()` por su cuenta (misma función, instancia de hook separada) — ambas pantallas deben mostrar siempre los mismos números de racha, ya que las dos consumen exactamente `computeStreak()` sin ninguna lógica propia adicional.
 
 ### `src/components/inicio/WeekCalendar.jsx`
 **Qué hace**: calendario semanal con puntos de color por tipo de workout. Pinta días de pausa en celeste (`enfermedad`/`lesión`) o gris (`descanso`) mediante 3 pasadas de prioridad (real > descanso > pausa). Incluye leyenda dinámica explicativa.
 **Por qué es crítico**: la lógica de prioridad visual debe mantenerse al agregar nuevos tipos de workout — cualquier tipo nuevo debe decidirse explícitamente en qué pasada entra.
 
 ### `src/components/inicio/Logros.jsx`
-**Qué hace**: sistema de logros permanentes (35, `ACHIEVEMENTS_META`) y medallas semanales (4 de un pool de 12, `MEDAL_POOL`). Recibe `streakState` como prop — **no** llama `getCurrentStreak()` directamente.
+**Qué hace**: sistema de logros permanentes (35, `ACHIEVEMENTS_META`) y medallas semanales (4 de un pool de 12, `MEDAL_POOL`). Ya no recibe ninguna prop de racha — `w_racha_viva` calcula "¿esta semana ya tiene 3+ días reales?" de forma independiente, sin llamar `getCurrentStreak()`/`computeStreak()`.
 **Por qué es crítico**: `computeWeeklyMedals` y el algoritmo de selección 1-por-categoría con rotación semanal (`weekNum % pool.length`) es delicado — cambiar criterios de medallas acá requiere entender las reglas de exclusión (sección 3) y la prioridad de completadas sobre no completadas dentro de cada categoría.
 
 ### `src/components/registro/WorkoutWizard.jsx`
@@ -1157,7 +1074,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 
 ### `src/components/progreso/ProgresoPage.jsx`
 **Qué hace**: página de progreso con múltiples bloques — "Tu camino" (stats agregadas), "Tus victorias", historial en calendario mensual, progresión de ejercicios, gráficos de fatiga y volumen, "Últimas Sesiones" (usa `WorkoutIcon` + `TYPE_COLORS` + `detectPRs`).
-**Por qué es crítico**: llama `getCurrentStreak()` propia (instancia distinta del hook), a diferencia de `Inicio.jsx`. Contiene su propia lógica de expansión de rango de pausa para el calendario mensual (duplica parcialmente la lógica de `WeekCalendar.jsx`).
+**Por qué es crítico**: llama `getCurrentStreak()` propia (instancia distinta del hook, no comparte estado con `Inicio.jsx`) — pero desde septiembre 2026 ya no tiene su propio cálculo de `record` duplicado dentro de `computeAll()`, usa directamente el `record` de `getCurrentStreak()` para que ambas pantallas siempre coincidan (sección 1). Contiene su propia lógica de expansión de rango de pausa para el calendario mensual (duplica parcialmente la lógica de `WeekCalendar.jsx` — esto no cambió, las pausas siguen registrándose y mostrándose igual, solo se desconectaron de la racha).
 
 ### `src/utils/prUtils.js`
 **Qué hace**: exporta `detectPRs` (vs. máximo histórico absoluto) y `detectImprovements` (vs. sesión inmediatamente anterior). Archivo pequeño pero crítico para no confundir ambas semánticas.
@@ -1202,6 +1119,8 @@ En orden de prioridad sugerido:
    Sin alcance definido todavía — pendiente de diseño.
 
 5. **(Backend listo, sin UI)** Favoritos y lista negra de ejercicios — ver sección 9. No es estrictamente un pendiente de prioridad alta, pero queda registrado como funcionalidad con datos ya modelados en Firestore (`getFavorites`, `toggleFavorite`, `getNeverList`, `toggleNever` en `db.js`) esperando una UI.
+
+6. **Eliminación completa del flujo de pausas** (formulario `PausaFlow`/`InlineRangePicker` en `WorkoutWizard.jsx`, tratamiento especial en `WeekCalendar.jsx`/`MonthCalendar.jsx`/`WeekRow` de `ProgresoPage.jsx`, pantalla especial en `WorkoutSummary.jsx`). Quedó pendiente tras desconectar las pausas del cálculo de racha (sección 1 y 2) — por ahora el registro de pausas sigue funcionando exactamente igual que antes, solo dejó de tener cualquier efecto sobre la racha.
 
 ---
 

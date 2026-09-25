@@ -33,13 +33,6 @@ function getThisWeekDays() {
   })
 }
 
-function weekMonday(dateStr) {
-  const dt  = new Date(dateStr + 'T12:00:00')
-  const dow = dt.getDay() || 7
-  dt.setDate(dt.getDate() - dow + 1)
-  return dateToLocal(dt)
-}
-
 // ─── Data computation ─────────────────────────────────────────────────────────
 
 function computeAll(workouts) {
@@ -57,22 +50,6 @@ function computeAll(workouts) {
   }
 
   const uniqueDays = new Set(real.map(w => w.date)).size
-
-  const weekMap = {}
-  real.forEach(w => {
-    const mon = weekMonday(w.date)
-    if (!weekMap[mon]) weekMap[mon] = new Set()
-    weekMap[mon].add(w.date)
-  })
-  const qualifying = Object.keys(weekMap).filter(k => weekMap[k].size >= 3).sort()
-
-  let record = qualifying.length > 0 ? 1 : 0, run = 1
-  for (let i = 1; i < qualifying.length; i++) {
-    const diff = Math.round(
-      (new Date(qualifying[i] + 'T12:00:00') - new Date(qualifying[i - 1] + 'T12:00:00')) / 86400000
-    )
-    if (diff === 7) { run++; record = Math.max(record, run) } else run = 1
-  }
 
   const fuerza    = [...workouts].filter(w => w.type === 'fuerza').sort((a, b) => a.date.localeCompare(b.date))
   const exFirst   = {}, exLast = {}, exName = {}, exSessions = {}
@@ -136,7 +113,7 @@ function computeAll(workouts) {
   const thisDays   = new Set(thisWeekW.map(w => w.date)).size
 
   return {
-    total, months, uniqueDays, record, totalPRs,
+    total, months, uniqueDays, totalPRs,
     mayorProgresoVal, mayorProgresoName,
     masEntrenadoVal, masEntrenadoName,
     mejorMarcaVal, mejorMarcaSub,
@@ -418,7 +395,7 @@ export default function ProgresoPage() {
 
   const data        = useMemo(() => computeAll(workouts),            [workouts])
   const topEx       = useMemo(() => computeTopExercises(workouts),   [workouts])
-  const { state: streakState } = useMemo(() => getCurrentStreak(),   [workouts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const { record }  = useMemo(() => getCurrentStreak(),              [workouts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center">
@@ -427,7 +404,7 @@ export default function ProgresoPage() {
   )
 
   const {
-    total, months, uniqueDays, record, totalPRs,
+    total, months, uniqueDays, totalPRs,
     mayorProgresoVal, mayorProgresoName,
     masEntrenadoVal, masEntrenadoName,
     mejorMarcaVal, mejorMarcaSub,
@@ -487,11 +464,7 @@ export default function ProgresoPage() {
           <SectionTitle>Tu camino</SectionTitle>
           <div className="grid grid-cols-2 gap-2">
             <CaminoCard emoji="🏋️" value={String(total)}       label="entrenamientos totales" />
-            <CaminoCard
-              emoji={streakState === 'frozen' ? '🧊' : streakState === 'paused' ? '⏸' : '🔥'}
-              value={`${record} sem.`}
-              label="récord de racha"
-            />
+            <CaminoCard emoji="🔥" value={`${record} sem.`}    label="récord de racha" />
             <CaminoCard emoji="🏆" value={String(totalPRs)}    label="PRs históricos" />
             <CaminoCard emoji="📅" value={String(uniqueDays)}  label="días únicos entrenados" />
             <CaminoCard emoji="📈" value={mayorProgresoVal} name={mayorProgresoName} label="mayor progreso" />
@@ -504,12 +477,7 @@ export default function ProgresoPage() {
           <SectionTitle>Tus victorias</SectionTitle>
           <div className="flex gap-2">
             <VictoriaCard icon="🏆" value={mejorMarcaVal} sub={mejorMarcaSub || null} color={GREEN}  label="mejor marca" />
-            <VictoriaCard
-              icon={streakState === 'frozen' ? '🧊' : streakState === 'paused' ? '⏸' : '🔥'}
-              value={`${record} sem.`} sub={null}
-              color={streakState === 'frozen' ? ICE_BLUE : PURPLE}
-              label="récord de racha"
-            />
+            <VictoriaCard icon="🔥" value={`${record} sem.`} sub={null} color={PURPLE} label="récord de racha" />
             <VictoriaCard
               icon={avgFatigaHistorica != null ? '💪' : ''}
               value={avgFatigaHistorica != null ? avgFatigaHistorica.toFixed(1) : '—'}

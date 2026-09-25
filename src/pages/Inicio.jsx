@@ -470,9 +470,7 @@ function LastWorkoutModal({ workout }) {
 }
 
 // ─── Stats cards ─────────────────────────────────────────────────────────────
-const ICE_BLUE = '#38bdf8'
-
-function StatsCards({ diasSemana, semanasRacha, rachaRecord, rachaState }) {
+function StatsCards({ diasSemana, semanasRacha, rachaRecord }) {
   const clampedDays = Math.min(diasSemana, 4)
   const maxDays = 4
   const radius = 30
@@ -491,19 +489,9 @@ function StatsCards({ diasSemana, semanasRacha, rachaRecord, rachaState }) {
     : diasSemana === 4 ? '¡Semana óptima! ✅'
     : null
 
-  // Racha card appearance by state
-  const rachaColor = rachaState === 'frozen' ? ICE_BLUE
-    : rachaState === 'broken' ? '#6B7280'
-    : '#9B7FD4'  // active + paused: purple
-
-  const rachaEmoji = rachaState === 'frozen' ? '🧊'
-    : rachaState === 'paused' ? '⏸'
-    : rachaState === 'broken' ? '' : '🔥'
-
-  const rachaSub = rachaState === 'frozen' ? 'Racha congelada · Recuperate pronto 💙'
-    : rachaState === 'paused' ? 'Semana de descanso · Volvés más fuerte'
-    : rachaState === 'broken' ? (rachaRecord > 0 ? `Racha anterior: ${rachaRecord} sem.` : 'Sin racha activa')
-    : 'semanas seguidas'
+  const rachaSub = semanasRacha === 0 && rachaRecord === 0
+    ? 'Empezá tu racha'
+    : `Récord: ${rachaRecord} sem.`
 
   return (
     <div className="flex gap-3 mx-4">
@@ -534,13 +522,10 @@ function StatsCards({ diasSemana, semanasRacha, rachaRecord, rachaState }) {
 
       {/* Card derecha — racha */}
       <div className="flex-1 py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center" style={{ backgroundColor: '#1a1625' }}>
-        <span className="text-4xl font-bold leading-none" style={{ color: rachaColor }}>
-          {semanasRacha}{rachaEmoji ? ` ${rachaEmoji}` : ''}
+        <span className="text-2xl font-bold leading-none text-center" style={{ color: '#9B7FD4' }}>
+          🔥 {semanasRacha} {semanasRacha === 1 ? 'semana' : 'semanas'}
         </span>
         <p className="text-[10px] text-app-muted text-center mt-1 px-1 leading-tight">{rachaSub}</p>
-        {rachaState === 'active' && rachaRecord > semanasRacha && (
-          <p className="text-[9px] text-app-muted/60 text-center mt-0.5">récord: {rachaRecord}</p>
-        )}
       </div>
 
     </div>
@@ -558,7 +543,7 @@ export default function Inicio() {
   const [showSatBanner, setShowSatBanner] = useState(false)
 
   const diasSemana = getThisWeekCount(workouts)
-  const { current: semanasRacha, record: rachaRecord, state: rachaState } = getCurrentStreak()
+  const { current: semanasRacha, record: rachaRecord } = getCurrentStreak()
 
   useEffect(() => {
     if (loading || !workouts.length) return
@@ -620,7 +605,7 @@ export default function Inicio() {
       )}
 
       <div className="flex-1 flex flex-col mt-2 pb-2 overflow-x-hidden">
-        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} rachaState={rachaState} /></div>
+        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} rachaRecord={rachaRecord} /></div>
         {showSatBanner && (
           <div className="mb-2 mx-4">
             <div className="flex items-center gap-3 rounded-xl px-4 py-3"
@@ -636,7 +621,7 @@ export default function Inicio() {
         <div className="mb-3"><WeekCalendar workouts={workouts} /></div>
         <div className="mb-2"><LastAndSuggestion workouts={workouts} /></div>
         <div className="mb-2"><DailySuggestionCard suggestion={suggestion} /></div>
-        <div className="mb-2"><Logros workouts={workouts} streakState={rachaState} compact /></div>
+        <div className="mb-2"><Logros workouts={workouts} compact /></div>
       </div>
 
       <Modal isOpen={showWeeklySummary} onClose={() => setShowWeeklySummary(false)} title="Resumen de la semana 📊">

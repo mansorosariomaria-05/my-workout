@@ -1562,6 +1562,25 @@ El generador solo elige del catálogo base (`exercises.js`), no de los ejercicio
 
 `useGeneratedRoutine()` sigue usando `buildEntry()` sobre cada ejercicio generado (igual que las rutinas prearmadas), así que aplica precarga por historial, sugerencias con brillo violeta y vuelta suave si corresponde. El bug que tenía `GeneradorTab.jsx` (`useRoutine()` armaba `sets: { reps, weight: 0 }` a mano, sin ninguna precarga) se corrigió: ahora ese flujo solo guarda los `id` de los ejercicios elegidos en el draft (`detail.pendingGeneratedIds`) y navega a `/registro`; un `useEffect` nuevo en `FuerzaFlow.jsx` detecta ese campo al montar, construye cada entrada con `buildEntry()` y limpia el campo. `saveAsPrearmada()` (guardar como rutina propia) no cambió.
 
+### Sugerencia de siguiente ejercicio (`suggestNextExercise`, botón "✨ Sugerencia" en modo libre)
+
+Recomienda un ejercicio a agregar a partir de lo ya cargado en la sesión en curso, reutilizando `historyScore`, `PATTERN_REGION`, `PATTERN_ZONE` y `hardRulesOk` (exportado desde `routineGenerator.js` para esto). No genera una rutina completa de una vez: evalúa una sola sesión en construcción, ejercicio por ejercicio, cada vez que se toca el botón.
+
+`suggestNextExercise({ muscles, currentExercises, workouts, excludeIds })`:
+
+1. **Músculos objetivo**: `muscles` es el selector de músculos del modo libre (`selectedMuscles` en `FuerzaFlow.jsx`). Si está vacío, se derivan de los músculos (`originalMuscle ?? muscle`) de `currentExercises`, en orden de aparición. Si ambos están vacíos, devuelve `null`.
+2. **Conteo por músculo**: cuántos ejercicios de la sesión pertenecen a cada músculo objetivo (por `originalMuscle ?? muscle`, así un ejercicio cambiado a su alternativa sigue contando para el músculo original).
+3. **Elegibilidad de core**: Abdominales y Core & Estabilidad solo entran en la selección si todos los músculos no-core elegidos ya tienen 2+ ejercicios en la sesión (o si no se eligió ningún músculo no-core) — evita sugerir core antes de cubrir el resto.
+4. **Músculo a sugerir**: el elegible con menor conteo; empate → orden en que el usuario los seleccionó.
+5. **Candidatos** para ese músculo (del catálogo base, excluyendo ids ya en la sesión y `excludeIds`):
+   - Si el músculo todavía no tiene ningún ejercicio nivel A o B en la sesión → candidatos nivel A (si no hay, B) — es el **principal**.
+   - Si ya lo tiene → candidatos con `pattern` no usado en la sesión (si no hay ninguno, se permite repetir patrón), escaneando niveles B → C → A → D y tomando el primer nivel con candidatos — es el **accesorio**.
+6. **Orden de preferencia** entre esos candidatos: cumple las reglas duras contra el **último** ejercicio de la sesión (mismas reglas que `generateRoutine`: distinto `pattern`, no ambos `unilateral` de región inferior) > `pattern` nuevo en la sesión > distinta `PATTERN_ZONE` que el último > mayor `historyScore` > al azar. Si el último ejercicio de la sesión no está en el catálogo (ejercicio personalizado, sin `pattern`), las reglas duras/blandas no se aplican — solo cuentan patrón-nuevo e historial.
+7. Si el músculo objetivo no tiene ningún candidato válido, se prueba con el siguiente músculo por conteo; si ninguno tiene candidatos, devuelve `null`.
+8. Devuelve `{ exercise, reason }`, con `reason` = `"principal de {músculo}"` o `"accesorio de {músculo} · patrón nuevo"` (o `"accesorio de {músculo}"` si repite patrón por el punto 5).
+
+**UI** (`FuerzaFlow.jsx`, modo libre): botón "✨ Sugerencia" debajo de "+ Agregar ejercicio" (mismo estilo, borde punteado). Si no hay músculos elegidos ni ejercicios en la sesión, el botón muestra "Elegí músculos o agregá un ejercicio primero" en vez de ser clickeable. Al tocarlo se abre una tarjeta inline (no modal) con nombre, músculo y `reason`, y dos botones: "Agregar" (arma la entrada con `buildEntry` — misma precarga que cualquier otra vía) y "Otra" (vuelve a llamar `suggestNextExercise` acumulando los ids ya mostrados en `excludeIds`, así nunca repite dentro de la misma ronda; si no queda ninguno, muestra "No hay más sugerencias para estos músculos"). Agregar un ejercicio por **cualquier** vía (sugerencia, panel manual, generador, etc.) cierra la tarjeta y limpia los excluidos, porque `addExercise()` es el único punto de entrada compartido por todas esas vías.
+
 ### Fundamentación
 
 - **ACSM (2009) / NSCA**: los ejercicios compuestos van antes que los aislados dentro de una sesión — de ahí que el slot principal de cada músculo sea siempre nivel A/B y el tier de orden ponga los A/B antes que los C/D.

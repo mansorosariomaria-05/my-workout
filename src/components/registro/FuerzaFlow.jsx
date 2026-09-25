@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
-import { generateRoutine } from '../../utils/routineGenerator'
+import { generateRoutine, suggestNextExercise } from '../../utils/routineGenerator'
 import { floorWeight } from '../../utils/weights'
 import { getReentryState } from '../../utils/reentry'
 import { getInactivityInfo } from '../../utils/inactivity'
@@ -508,6 +508,8 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [newExFormMuscle, setNewExFormMuscle] = useState('')
   const [routineLoading, setRoutineLoading]   = useState(false)
   const [routineLoadError, setRoutineLoadError] = useState(null)
+  const [suggestion, setSuggestion]           = useState(null) // null | 'empty' | { exercise, reason }
+  const [suggestExcludeIds, setSuggestExcludeIds] = useState([])
   const { getLastWeightsForExercise, getExerciseSessions, getPRForExercise, getLearnedWeights, workouts } = workoutsHook
   const { getDeloadWeight, getDeloadSets, isActive: deloadActive } = deloadHook
 
@@ -615,6 +617,29 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     const entry = buildEntry(ex)
     if (exerciseList.length === 0) onTimerStart?.()
     onChange({ ...data, exercises: [...exerciseList, entry], mode, selectedMuscles, selectedRoutine })
+    // Agregar un ejercicio (por cualquier vía) cierra la tarjeta de sugerencia si estaba abierta.
+    setSuggestion(null)
+    setSuggestExcludeIds([])
+  }
+
+  const handleSuggest = () => {
+    const result = suggestNextExercise({ muscles: selectedMuscles, currentExercises: exerciseList, workouts, excludeIds: [] })
+    setSuggestExcludeIds(result ? [result.exercise.id] : [])
+    setSuggestion(result ?? 'empty')
+  }
+
+  const handleSuggestAnother = () => {
+    const result = suggestNextExercise({ muscles: selectedMuscles, currentExercises: exerciseList, workouts, excludeIds: suggestExcludeIds })
+    if (result) {
+      setSuggestExcludeIds(prev => [...prev, result.exercise.id])
+      setSuggestion(result)
+    } else {
+      setSuggestion('empty')
+    }
+  }
+
+  const handleAddSuggestion = () => {
+    if (suggestion && suggestion !== 'empty') addExercise(suggestion.exercise)
   }
 
   const removeExercise = (i) => onChange({ ...data, exercises: exerciseList.filter((_, idx) => idx !== i) })
@@ -1199,6 +1224,41 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                   )}
                 </>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'libre' && (
+        <div className="mt-3">
+          {suggestion === null ? (
+            <button
+              onClick={handleSuggest}
+              disabled={!selectedMuscles.length && !exerciseList.length}
+              className={`w-full py-3 rounded-xl border border-dashed text-sm transition-all ${
+                !selectedMuscles.length && !exerciseList.length
+                  ? 'border-white/10 text-app-muted/40 cursor-not-allowed'
+                  : 'border-white/15 text-app-muted'
+              }`}
+            >
+              {!selectedMuscles.length && !exerciseList.length ? 'Elegí músculos o agregá un ejercicio primero' : '✨ Sugerencia'}
+            </button>
+          ) : suggestion === 'empty' ? (
+            <div className="bg-app-bg rounded-xl px-4 py-3 border border-white/8 text-center">
+              <p className="text-app-muted text-xs">No hay más sugerencias para estos músculos</p>
+            </div>
+          ) : (
+            <div className="bg-app-purple/10 border border-app-purple/20 rounded-xl p-4 animate-fadeIn">
+              <p className="text-app-text font-semibold text-sm">{suggestion.exercise.name}</p>
+              <p className="text-app-muted text-xs mt-0.5">{suggestion.exercise.muscle} · {suggestion.reason}</p>
+              <div className="flex gap-2 mt-3">
+                <button onClick={handleAddSuggestion} className="flex-1 py-2 rounded-xl bg-app-purple text-white text-sm font-medium">
+                  Agregar
+                </button>
+                <button onClick={handleSuggestAnother} className="flex-1 py-2 rounded-xl bg-app-elevated border border-white/10 text-app-muted text-sm">
+                  Otra
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -237,6 +237,8 @@ Función única `generateRoutine({ muscles, count, equip, workouts, regenerate }
 - Solo elige del catálogo base (`exercises.js`), no de ejercicios personalizados del usuario (esos no tienen `pattern`).
 - Al usar una rutina generada, `FuerzaFlow.jsx` arma cada ejercicio con `buildEntry` (igual que una rutina prearmada), así que aplican precarga de peso, sugerencias con brillo violeta y vuelta suave — antes el tab standalone armaba los sets a mano sin ninguna precarga.
 
+**Botón "✨ Sugerencia"** (modo libre de `FuerzaFlow.jsx`, debajo de "+ Agregar ejercicio"): recomienda un solo ejercicio a agregar a partir de lo ya cargado en la sesión, con la misma lógica de patrón/historial que el generador pero evaluada ejercicio por ejercicio (`suggestNextExercise`, en el mismo archivo). Prioriza cubrir primero el músculo con menos ejercicios en la sesión, un principal (nivel A/B) por músculo antes que accesorios, evita repetir el patrón del último ejercicio agregado y nunca vuelve a sugerir algo ya en la sesión. "Otra" pide otra opción sin repetir las ya mostradas en la ronda; "Agregar" usa `buildEntry` (misma precarga que cualquier otra vía).
+
 Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentación.
 
 ---

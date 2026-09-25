@@ -111,8 +111,9 @@ function tierOf(e) {
   return 2 // C o D
 }
 
-// Reglas duras entre un ejercicio candidato y el anterior ya ubicado.
-function hardRulesOk(candidate, prev) {
+// Reglas duras entre un ejercicio candidato y el anterior ya ubicado — compartida por el orden de
+// generateRoutine y por suggestNextExercise (botón "Sugerencia" del modo libre).
+export function hardRulesOk(candidate, prev) {
   if (candidate.pattern === prev.pattern) return false
   const bothUnilateralInferior =
     candidate.unilateral && prev.unilateral &&
@@ -215,4 +216,112 @@ export function generateRoutine({ muscles, count, equip, workouts, regenerate = 
   })
 
   return orderRoutine(allPicked)
+}
+
+const CORE_MUSCLES = ['Abdominales', 'Core & Estabilidad']
+
+// Nivel-priority scan compartido por el principal y el accesorio de suggestNextExercise: dentro de
+// `pool`, devuelve los candidatos del primer nivel (en `levelOrder`) que tenga al menos uno.
+function firstNonEmptyLevel(pool, levelOrder) {
+  for (const level of levelOrder) {
+    const candidates = pool.filter(e => e.level === level)
+    if (candidates.length) return candidates
+  }
+  return []
+}
+
+// Sugiere el próximo ejercicio para el modo libre de FuerzaFlow.jsx, a partir de lo que ya está
+// cargado en la sesión — reutiliza historyScore/PATTERN_REGION/PATTERN_ZONE/hardRulesOk, misma
+// lógica que generateRoutine pero evaluada contra una sola sesión en construcción en vez de armar
+// una rutina completa de una vez.
+//
+// muscles: músculos elegidos en el selector del modo libre (selectedMuscles de FuerzaFlow.jsx). Si
+// está vacío, se derivan de los músculos de currentExercises en orden de aparición.
+// currentExercises: exData.sets-shaped entries de la sesión en curso ({ exerciseId, muscle,
+// originalMuscle? }), tal como están en data.exercises.
+// excludeIds: ids ya mostrados en la ronda actual de "Otra", para no repetirlos.
+export function suggestNextExercise({ muscles, currentExercises, workouts, excludeIds = [] }) {
+  const current = currentExercises ?? []
+
+  let targetMuscles = muscles?.length ? [...muscles] : []
+  if (!targetMuscles.length) {
+    const seen = new Set()
+    for (const entry of current) {
+      const m = entry.originalMuscle ?? entry.muscle
+      if (m && !seen.has(m)) { seen.add(m); targetMuscles.push(m) }
+    }
+  }
+  if (!targetMuscles.length) return null
+
+  const countByMuscle = {}
+  targetMuscles.forEach(m => { countByMuscle[m] = 0 })
+  current.forEach(entry => {
+    const m = entry.originalMuscle ?? entry.muscle
+    if (m in countByMuscle) countByMuscle[m]++
+  })
+
+  const nonCoreMuscles = targetMuscles.filter(m => !CORE_MUSCLES.includes(m))
+  const coreEligible = nonCoreMuscles.length === 0 || nonCoreMuscles.every(m => countByMuscle[m] >= 2)
+  const eligibleMuscles = targetMuscles.filter(m => coreEligible || !CORE_MUSCLES.includes(m))
+
+  const orderedMuscles = [...eligibleMuscles].sort((a, b) => {
+    const diff = countByMuscle[a] - countByMuscle[b]
+    return diff !== 0 ? diff : targetMuscles.indexOf(a) - targetMuscles.indexOf(b)
+  })
+
+  const currentIds = new Set(current.map(e => e.exerciseId))
+  const excluded = new Set(excludeIds)
+  const usedPatterns = new Set(
+    current.map(e => exercises.find(x => x.id === e.exerciseId)?.pattern).filter(Boolean)
+  )
+  const lastEntry = current[current.length - 1]
+  const lastExercise = lastEntry ? exercises.find(x => x.id === lastEntry.exerciseId) : null
+
+  for (const muscle of orderedMuscles) {
+    const pool = exercises.filter(e => e.muscle === muscle && !currentIds.has(e.id) && !excluded.has(e.id))
+    if (!pool.length) continue
+
+    const hasMainAlready = current.some(entry => {
+      if ((entry.originalMuscle ?? entry.muscle) !== muscle) return false
+      const ex = exercises.find(x => x.id === entry.exerciseId)
+      return ex?.level === 'A' || ex?.level === 'B'
+    })
+
+    let candidates, isPrincipal
+    if (!hasMainAlready) {
+      isPrincipal = true
+      candidates = firstNonEmptyLevel(pool, ['A', 'B'])
+      if (!candidates.length) candidates = pool
+    } else {
+      isPrincipal = false
+      const fresh = pool.filter(e => !usedPatterns.has(e.pattern))
+      const searchIn = fresh.length ? fresh : pool
+      candidates = firstNonEmptyLevel(searchIn, ACCESORY_LEVEL_ORDER)
+      if (!candidates.length) candidates = searchIn
+    }
+    if (!candidates.length) continue
+
+    // Orden de preferencia: reglas duras > pattern nuevo en la sesión > distinta zona > historial > azar.
+    const scored = candidates.map(e => ({
+      e,
+      hard: lastExercise?.pattern ? hardRulesOk(e, lastExercise) : true,
+      newPattern: !usedPatterns.has(e.pattern),
+      diffZone: lastExercise?.pattern ? PATTERN_ZONE[e.pattern] !== PATTERN_ZONE[lastExercise.pattern] : true,
+      score: historyScore(workouts, e.id),
+    }))
+    scored.sort((a, b) =>
+      (b.hard - a.hard) || (b.newPattern - a.newPattern) || (b.diffZone - a.diffZone) || (b.score - a.score)
+    )
+    const top = scored[0]
+    const tied = scored.filter(s => s.hard === top.hard && s.newPattern === top.newPattern && s.diffZone === top.diffZone && s.score === top.score)
+    const chosen = pickRandom(tied).e
+
+    const reason = isPrincipal
+      ? `principal de ${muscle}`
+      : (!usedPatterns.has(chosen.pattern) ? `accesorio de ${muscle} · patrón nuevo` : `accesorio de ${muscle}`)
+
+    return { exercise: chosen, reason }
+  }
+
+  return null
 }

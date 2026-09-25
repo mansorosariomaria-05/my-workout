@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
+import { generateRoutine } from '../../utils/routineGenerator'
 import { floorWeight } from '../../utils/weights'
 import { getReentryState } from '../../utils/reentry'
 import { getInactivityInfo } from '../../utils/inactivity'
@@ -694,6 +695,17 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     }
   }, [initialRoutineId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Rutina generada en el tab de Rutinas (GeneradorTab.jsx) sin guardar: llega como una lista de ids
+  // pendientes en vez de sets ya armados, para que acá se construya cada entrada con buildEntry
+  // (precarga con historial, sugerencias, vuelta suave) igual que el generador inline y las prearmadas.
+  useEffect(() => {
+    if (data.pendingGeneratedIds?.length && !data.exercises?.length) {
+      const exs = data.pendingGeneratedIds.map(id => allExercises.find(e => e.id === id)).filter(Boolean).map(buildEntry)
+      onChange({ ...data, exercises: exs, pendingGeneratedIds: undefined })
+      onTimerStart?.()
+    }
+  }, [data.pendingGeneratedIds]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleMuscle = (m) => {
     const updated = selectedMuscles.includes(m)
       ? selectedMuscles.filter(x => x !== m)
@@ -702,43 +714,9 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     onChange({ ...data, selectedMuscles: updated })
   }
 
-  const generateForFlow = () => {
+  const generateForFlow = (regenerate = false) => {
     if (!genMuscles.length) return
-    const equipFilter = (e) => {
-      if (genEquip !== 'Solo básico') return true
-      return ['Sin equipamiento', 'Mancuernas', 'Banda elástica', 'Tobilleras'].some(
-        eq => e.equip?.includes(eq.split(' ')[0])
-      )
-    }
-    const perGroup   = Math.floor(genCount / genMuscles.length)
-    const remainder  = genCount % genMuscles.length
-    const allPicked  = []
-    const globalUsed = new Set()
-
-    genMuscles.forEach((muscle, idx) => {
-      const target = perGroup + (idx < remainder ? 1 : 0)
-      const pool   = allExercises.filter(e => e.muscle === muscle && equipFilter(e))
-      const picked = []
-      for (const level of LEVEL_ORDER) {
-        if (picked.length >= target) break
-        const candidates = pool.filter(e => !globalUsed.has(e.id) && e.level === level)
-        if (!candidates.length) continue
-        const pick = candidates[Math.floor(Math.random() * candidates.length)]
-        picked.push(pick); globalUsed.add(pick.id)
-      }
-      while (picked.length < target) {
-        let found = null
-        for (const level of LEVEL_ORDER) {
-          const c = pool.filter(e => !globalUsed.has(e.id) && e.level === level)
-          if (c.length) { found = c[Math.floor(Math.random() * c.length)]; break }
-        }
-        if (!found) break
-        picked.push(found); globalUsed.add(found.id)
-      }
-      allPicked.push(...picked)
-    })
-
-    const ordered = intercalateExercises(allPicked)
+    const ordered = generateRoutine({ muscles: genMuscles, count: genCount, equip: genEquip, workouts, regenerate })
     setGenGenerated({
       name: `Generada: ${genMuscles.slice(0, 2).join(' + ')}`,
       exercises: ordered.map(e => ({
@@ -1048,7 +1026,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
           </div>
 
           <button
-            onClick={generateForFlow}
+            onClick={() => generateForFlow(false)}
             disabled={genMuscles.length === 0}
             className={`w-full py-3 rounded-xl text-sm font-medium transition-all ${
               genMuscles.length === 0
@@ -1082,7 +1060,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                   Usar ahora
                 </button>
                 <button
-                  onClick={generateForFlow}
+                  onClick={() => generateForFlow(true)}
                   className="py-2.5 px-3 rounded-xl bg-app-elevated border border-white/10 text-app-muted text-xs"
                 >
                   Regenerar

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
+import { MUSCLE_GROUPS } from '../../data/exercises'
+import { generateRoutine } from '../../utils/routineGenerator'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkoutDraft } from '../../context/WorkoutDraftContext'
 import { saveCustomRoutine } from '../../services/db'
@@ -9,33 +10,6 @@ import Card from '../ui/Card'
 
 const COUNT_OPTIONS = [3, 4, 5, 6]
 const EQUIP_OPTIONS = ['Gym completo', 'Solo básico']
-const LEVEL_ORDER   = ['A', 'B', 'C', 'D']
-
-const TREN_INFERIOR = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos']
-const TREN_SUPERIOR = ['Espalda', 'Pecho', 'Hombros', 'Bíceps', 'Tríceps']
-const CORE          = ['Abdominales', 'Core & Estabilidad']
-
-function intercalateExercises(exList) {
-  const byLevel = arr => [...arr].sort((a, b) => LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level))
-  const inferior = byLevel(exList.filter(e => TREN_INFERIOR.includes(e.muscle)))
-  const superior = byLevel(exList.filter(e => TREN_SUPERIOR.includes(e.muscle)))
-  const core     = byLevel(exList.filter(e => CORE.includes(e.muscle)))
-  const other    = byLevel(exList.filter(e =>
-    !TREN_INFERIOR.includes(e.muscle) && !TREN_SUPERIOR.includes(e.muscle) && !CORE.includes(e.muscle)
-  ))
-
-  let main = []
-  if (inferior.length > 0 && superior.length > 0) {
-    const maxLen = Math.max(inferior.length, superior.length)
-    for (let i = 0; i < maxLen; i++) {
-      if (i < inferior.length) main.push(inferior[i])
-      if (i < superior.length) main.push(superior[i])
-    }
-  } else {
-    main = byLevel([...inferior, ...superior, ...other])
-  }
-  return [...main, ...core]
-}
 
 export default function GeneradorTab({ workouts }) {
   const { user } = useAuthContext()
@@ -63,50 +37,10 @@ export default function GeneradorTab({ workouts }) {
     setSaved(false)
   }
 
-  const generate = () => {
+  const generate = (regenerate = false) => {
     if (!selectedMuscles.length) return
 
-    const equipFilter = (e) => {
-      if (equip !== 'Solo básico') return true
-      return ['Sin equipamiento', 'Mancuernas', 'Banda elástica', 'Tobilleras'].some(
-        eq => e.equip?.includes(eq.split(' ')[0])
-      )
-    }
-
-    const perGroup  = Math.floor(count / selectedMuscles.length)
-    const remainder = count % selectedMuscles.length
-    const allPicked = []
-    const globalUsed = new Set()
-
-    selectedMuscles.forEach((muscle, idx) => {
-      const target = perGroup + (idx < remainder ? 1 : 0)
-      const pool   = exercises.filter(e => e.muscle === muscle && equipFilter(e))
-      const picked = []
-
-      for (const level of LEVEL_ORDER) {
-        if (picked.length >= target) break
-        const candidates = pool.filter(e => !globalUsed.has(e.id) && e.level === level)
-        if (!candidates.length) continue
-        const pick = candidates[Math.floor(Math.random() * candidates.length)]
-        picked.push(pick)
-        globalUsed.add(pick.id)
-      }
-
-      while (picked.length < target) {
-        let found = null
-        for (const level of LEVEL_ORDER) {
-          const c = pool.filter(e => !globalUsed.has(e.id) && e.level === level)
-          if (c.length) { found = c[Math.floor(Math.random() * c.length)]; break }
-        }
-        if (!found) break
-        picked.push(found)
-        globalUsed.add(found.id)
-      }
-
-      allPicked.push(...picked)
-    })
-
-    const ordered = intercalateExercises(allPicked)
+    const ordered = generateRoutine({ muscles: selectedMuscles, count, equip, workouts, regenerate })
 
     const routine = {
       name: `Generada: ${selectedMuscles.slice(0, 2).join(' + ')}`,
@@ -127,23 +61,20 @@ export default function GeneradorTab({ workouts }) {
     setSaved(true)
   }
 
+  // La precarga real (peso/series con historial, sugerencias, vuelta suave) la arma FuerzaFlow con
+  // buildEntry al montar — acá solo se pasan los ids elegidos, no sets ya construidos.
   const useRoutine = () => {
     const today = new Date()
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-    const builtExercises = generated.exercises.map(e => ({
-      exerciseId: e.id,
-      name: e.name,
-      muscle: e.muscle ?? '',
-      sets: Array.from({ length: e.sets }, () => ({ reps: Number(e.repsScheme) || 12, weight: 0 })),
-    }))
     setDraft({
       step: 1,
       type: 'fuerza',
       detail: {
-        exercises: builtExercises,
-        mode: 'prearmada',
+        exercises: [],
+        mode: 'libre',
         selectedMuscles: generated.muscles ?? [],
         selectedRoutine: '',
+        pendingGeneratedIds: generated.exercises.map(e => e.id),
       },
       fatigue: 5,
       notes: '',
@@ -214,7 +145,7 @@ export default function GeneradorTab({ workouts }) {
         </div>
       </div>
 
-      <Button size="lg" onClick={generate} disabled={selectedMuscles.length === 0}>
+      <Button size="lg" onClick={() => generate(false)} disabled={selectedMuscles.length === 0}>
         Generar rutina
       </Button>
 
@@ -236,6 +167,9 @@ export default function GeneradorTab({ workouts }) {
           <div className="flex gap-2">
             <Button size="sm" onClick={useRoutine} className="flex-1">
               Usar ahora
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => generate(true)}>
+              Regenerar
             </Button>
             <Button size="sm" variant="secondary" onClick={saveAsPrearmada} disabled={saved}>
               {saved ? 'Guardada ✓' : 'Guardar'}

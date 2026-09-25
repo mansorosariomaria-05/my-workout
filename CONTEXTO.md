@@ -43,7 +43,7 @@ src/
 
     rutinas/
       PreArmadasTab.jsx        # Listado y uso de rutinas (builtin + custom)
-      GeneradorTab.jsx         # Generador aleatorio de rutinas
+      GeneradorTab.jsx         # Generador de rutinas por patrón de movimiento (routineGenerator.js)
       BibliotecaTab.jsx        # Biblioteca de ejercicios con historial
 
     inicio/
@@ -102,6 +102,7 @@ src/
   utils/
     progression.js             # Doble progresión, Epley, bono de reps por salto
     weights.js                 # STANDARD_WEIGHTS, pesos aprendidos, nextWeight, floorWeight, deload
+    routineGenerator.js        # generateRoutine(): selección y orden por patrón de movimiento
     streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Vuelta suave: detección y reducción gradual por ejercicio
@@ -180,6 +181,8 @@ users/{uid}/
   alt: 'Puente de Glúteo',   // alternativa sin equipo (nombre libre-texto)
   secondary: 'Isquios',
   zone: undefined,           // solo existe en Abdominales: 'Superior'|'Inferior'|'Oblicuos'
+  pattern: 'empuje_cadera',  // patrón de movimiento (usado por el generador de rutinas)
+  unilateral: false,         // trabaja un lado del cuerpo por vez
 }
 ```
 
@@ -221,6 +224,20 @@ Cada entrada de ejercicio en la rutina:
 { id: 'glut_01', level: 'A', sets: 4, muscle: 'Glúteos', alt: 'Alt display' }
 ```
 El campo `alt` en el objeto de rutina es **solo para display** en la pantalla de selección. El alt usado durante la sesión viene de `exercises.js`.
+
+---
+
+## Generador de rutinas (`utils/routineGenerator.js`)
+
+Función única `generateRoutine({ muscles, count, equip, workouts, regenerate })`, usada tanto por el tab "Generador" de Rutinas (`GeneradorTab.jsx`) como por el modo "Generador" inline del wizard de registro (`FuerzaFlow.jsx`) — antes eran dos implementaciones casi idénticas por separado.
+
+- Cada ejercicio del catálogo tiene un `pattern` (patrón de movimiento, ej. `sentadilla`, `zancada`, `bisagra`, `empuje_horizontal`) y un flag `unilateral`. El generador nunca repite `pattern` en ejercicios consecutivos ni encadena dos unilaterales de tren inferior seguidos.
+- Por cada músculo elegido, el ejercicio principal (nivel A/B) se elige por historial reciente del usuario (sesiones de ese ejercicio en los últimos 56 días) — esto se mantiene incluso al regenerar, para que la doble progresión (sección de Progresión de carga) tenga sesiones consecutivas del mismo ejercicio para comparar. Los accesorios sí se sortean al azar al regenerar.
+- El orden final prioriza compuestos antes que aislados y deja el core siempre al final.
+- Solo elige del catálogo base (`exercises.js`), no de ejercicios personalizados del usuario (esos no tienen `pattern`).
+- Al usar una rutina generada, `FuerzaFlow.jsx` arma cada ejercicio con `buildEntry` (igual que una rutina prearmada), así que aplican precarga de peso, sugerencias con brillo violeta y vuelta suave — antes el tab standalone armaba los sets a mano sin ninguna precarga.
+
+Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentación.
 
 ---
 

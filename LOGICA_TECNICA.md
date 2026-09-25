@@ -1026,6 +1026,8 @@ En orden de prioridad sugerido:
 
 5. **Consolidar la lógica de calendario duplicada en 3 archivos** (`WeekCalendar.jsx`, `MonthCalendar.jsx`, `WeekRow` de `ProgresoPage.jsx`) — los tres filtran por `REAL_WORKOUT_TYPES` y pintan días de forma casi idéntica, pero son implementaciones separadas. Podrían compartir un solo helper.
 
+6. **Unificar ejercicios casi duplicados del catálogo** (`src/data/exercises.js`) — pares/grupos que representan esencialmente el mismo movimiento con nombres separados, detectados al etiquetar `pattern` para el generador de rutinas (sección 16): `glut_02`/`glut_11` (Hip Thrust a una pierna / unilateral), `esp_07`/`hom_04` (Face Pull, duplicado exacto en dos músculos distintos), `hom_03`/`hom_07` (Vuelo posterior / Vuelos posteriores con mancuerna), `bic_02`/`bic_05` (Curl mancuernas / Curl de bíceps con mancuerna), `isq_06`/`isq_07` (Curl Femoral Máquina / Curl de Isquiotibiales en máquina), `glut_05`/`glut_12` (Step-ups altos / Step-ups con mancuernas al cajón alto). Mientras existan como ids separados, el generador los trata como ejercicios distintos con el mismo `pattern`, así que la regla "sin pattern repetido" ya evita que aparezcan juntos en una rutina generada — pero conviene evaluar fusionarlos o diferenciarlos más claramente (equipo/variante) para no inflar el catálogo con duplicados.
+
 ---
 
 ## 12. SISTEMA DE PESOS (`src/utils/weights.js`)
@@ -1516,6 +1518,57 @@ El sistema de pesos, Epley (`estimateRepsAtWeight`), `REP_RANGES`, el bono por s
 ### 7. Orden del historial
 
 Igual que en el resto de la app (ver sección 5), nunca se asume que `workouts` está ordenado: tanto `getReentryState` como `getLastWeightsForExercise`/`getExerciseSessions`/`getLearnedWeights` (`useWorkouts.js`) ordenan explícitamente por fecha descendente (orden estable ante empates) antes de usar el historial, porque los borradores offline (`draftQueue.js`) pueden anteponerse al array sin garantía de orden.
+
+---
+
+## 16. GENERADOR DE RUTINAS (`src/utils/routineGenerator.js`)
+
+Reemplaza las dos implementaciones casi idénticas que existían antes (`generate()` en `GeneradorTab.jsx` y `generateForFlow()` en `FuerzaFlow.jsx`, cada una con su propio `intercalateExercises`), que elegían ejercicios al azar por nivel sin ningún criterio de patrón de movimiento — podían poner dos ejercicios del mismo patrón seguidos (ej. Zancadas atrás + Estocada en el lugar, ambos "zancada"). Ahora ambas UI llaman a la misma función `generateRoutine({ muscles, count, equip, workouts, regenerate })`, que devuelve la lista ya ordenada de ejercicios.
+
+### Etiquetas del catálogo (`src/data/exercises.js`)
+
+Cada uno de los 90 ejercicios tiene dos campos nuevos:
+- **`pattern`**: patrón de movimiento (21 valores: `sentadilla`, `zancada`, `bisagra`, `empuje_cadera`, `extension_cadera`, `abduccion`, `curl_femoral`, `extension_rodilla`, `gemelos`, `traccion_vertical`, `traccion_horizontal`, `deltoides_posterior`, `empuje_horizontal`, `aperturas`, `empuje_vertical`, `elevacion_lateral`, `triceps`, `biceps`, `core_flexion`, `core_antiextension`, `core_rotacion`).
+- **`unilateral`** (boolean): ejercicios que trabajan un lado del cuerpo por vez (ej. Sentadillas búlgaras, Hip Thrust unilateral, Press de hombros unilateral).
+
+### Regiones y zonas de fatiga (`PATTERN_REGION`, `PATTERN_ZONE`)
+
+- `PATTERN_REGION`: agrupa cada `pattern` en `'inferior'` (tren inferior), `'superior'` (tren superior) o `'core'`. Se usa para la regla dura de unilaterales y para que el core siempre quede al final.
+- `PATTERN_ZONE`: agrupación más fina (`rodilla`, `posterior`, `abductores`, `gemelos`, `empuje`, `traccion`, `core`), usada solo como preferencia de orden (alternar zona entre ejercicios consecutivos), nunca como regla obligatoria.
+
+### Selección
+
+Por cada músculo elegido, en el orden en que el usuario los seleccionó:
+- **Slot principal**: nivel A (si no hay, B) con un `pattern` que todavía no se usó en la sesión (contador global, no por músculo). Entre los candidatos, gana el de mayor `historyScore` (sesiones de tipo `'fuerza'` con ese `exerciseId` en los últimos 56 días, fechas string), con empate al azar. El principal **siempre** sigue el historial, incluso con `regenerate: true`.
+- **Slots accesorios**: prioridad de nivel B → C → A → D, también exigiendo `pattern` nuevo. Con `regenerate: false` se elige por `historyScore` igual que el principal; con `regenerate: true` se elige al azar entre los candidatos válidos (solo los accesorios, no el principal).
+- Si para un slot no queda ningún candidato con `pattern` nuevo, se permite repetir un patrón ya usado (mejor un ejercicio repetido de patrón que dejar el hueco vacío) — el orden se encarga de separarlos si es posible.
+- Nunca se repite el mismo `id` dentro de la misma rutina.
+
+### Orden
+
+1. **Tier**: los ejercicios de región `core` son siempre tier 3 (van al final), independientemente de su nivel. Los no-core son tier 0 (nivel A), 1 (nivel B) o 2 (nivel C/D).
+2. **Reglas duras** entre cada par de ejercicios consecutivos: distinto `pattern`, y nunca dos `unilateral` de región `inferior` seguidos (evita encadenar dos ejercicios de estabilización unilateral de pierna, que fatigan igual sin dar descanso real).
+3. **Regla blanda**: entre las opciones que sí cumplen las reglas duras, se prefiere alternar `PATTERN_ZONE` respecto al ejercicio anterior.
+4. El orden final se arma con **backtracking** (no un greedy puro de una sola pasada): se intenta encontrar una secuencia donde *todos* los pares consecutivos cumplan las reglas duras, probando alternativas cuando un camino se traba más adelante, en vez de quedar atado a la primera elección. Con hasta 6 ejercicios por rutina esto es instantáneo. Los ejercicios core se ordenan como un segmento aparte y se concatenan al final, así "core siempre al final" es garantizado por construcción y no depende de que emerja de las reglas.
+5. Solo si genuinamente no existe ningún orden posible que cumpla las reglas duras para todos los pares (ej. un músculo con muy pocos patrones distintos y más ejercicios pedidos que patrones — ej. Bíceps, Tríceps, Abductores y Gemelos tienen un único `pattern` para todos sus ejercicios) se arma por la misma prioridad (tier, zona, orden de músculo) sin esa garantía — es un límite real del catálogo, no del algoritmo.
+
+**Bug descubierto y corregido durante el desarrollo** (antes de llegar a esta versión): una primera implementación con greedy de una sola pasada (elegir el primer candidato válido en cada posición, con la regla blanda como único ajuste) fallaba en dos formas verificadas con 2000+ corridas aleatorias: (1) podía dejar dos ejercicios unilaterales de región inferior adyacentes cuando, al llegar a la última posición, ya no quedaba ninguna alternativa — aun existiendo un orden válido de los mismos 4 ejercicios que si los evitaba (la falla era de miopía del greedy, no del conjunto elegido); (2) podía intercalar un ejercicio core antes de tiempo si en un paso ningún ejercicio no-core pasaba la regla dura contra el anterior pero uno core sí, rompiendo "core siempre al final". El backtracking (con el core como segmento separado) resuelve ambos.
+
+### Pool de ejercicios
+
+El generador solo elige del catálogo base (`exercises.js`), no de los ejercicios personalizados del usuario — a diferencia de la versión inline vieja de `FuerzaFlow.jsx`, que sí incluía ejercicios custom en su pool. Se dejó así porque los ejercicios custom no tienen `pattern`/`unilateral` (se crean sin ese dato) y el algoritmo de selección/orden depende enteramente de esos campos; incluirlos rompería las garantías de patrón. Si en el futuro se quiere generar con ejercicios propios, hay que pedirle `pattern` al crearlos.
+
+### Uso en `FuerzaFlow.jsx` (evita el bug de precarga)
+
+`useGeneratedRoutine()` sigue usando `buildEntry()` sobre cada ejercicio generado (igual que las rutinas prearmadas), así que aplica precarga por historial, sugerencias con brillo violeta y vuelta suave si corresponde. El bug que tenía `GeneradorTab.jsx` (`useRoutine()` armaba `sets: { reps, weight: 0 }` a mano, sin ninguna precarga) se corrigió: ahora ese flujo solo guarda los `id` de los ejercicios elegidos en el draft (`detail.pendingGeneratedIds`) y navega a `/registro`; un `useEffect` nuevo en `FuerzaFlow.jsx` detecta ese campo al montar, construye cada entrada con `buildEntry()` y limpia el campo. `saveAsPrearmada()` (guardar como rutina propia) no cambió.
+
+### Fundamentación
+
+- **ACSM (2009) / NSCA**: los ejercicios compuestos van antes que los aislados dentro de una sesión — de ahí que el slot principal de cada músculo sea siempre nivel A/B y el tier de orden ponga los A/B antes que los C/D.
+- **Nunes et al. (2021)**: el orden de ejercicios dentro de la sesión importa para las ganancias de fuerza (los ejercicios hechos primero, con el sistema nervioso más fresco, progresan mejor), pero importa mucho menos para hipertrofia — esto es lo que justifica priorizar el orden por tier/patrón sin necesidad de un esquema más rígido.
+- **Evitar el mismo patrón de movimiento consecutivo** por fatiga periférica: dos ejercicios del mismo patrón seguidos comparten los mismos músculos estabilizadores y agonistas ya fatigados de la serie anterior, dando peor rendimiento en el segundo — de ahí la regla dura de `pattern` distinto entre consecutivos.
+- **Kassiano et al. (2022)**: la variación sistemática de ejercicios (rotar patrones, alternar énfasis) es beneficiosa, pero la variación aleatoria excesiva (cambiar todo constantemente sin ningún criterio) dificulta la progresión — de ahí que el principal de cada músculo siga el historial reciente (`historyScore`) en vez de ser puramente al azar, y que `regenerate` solo aleatorice los accesorios, no el ejercicio principal.
+- **Estabilidad necesaria para la doble progresión** (sección 12): el sistema de progresión compara la sesión actual contra la anterior con el mismo ejercicio — si el generador cambiara el ejercicio principal de cada músculo en cada sesión, la doble progresión nunca tendría dos sesiones consecutivas del mismo ejercicio para comparar. Por eso el principal prioriza el ejercicio con más historial reciente, incluso al regenerar.
 
 ---
 

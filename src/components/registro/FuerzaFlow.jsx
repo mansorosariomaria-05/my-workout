@@ -3,8 +3,8 @@ import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
 import { generateRoutine, suggestNextExercise } from '../../utils/routineGenerator'
-import { floorWeight } from '../../utils/weights'
-import { getReentryState } from '../../utils/reentry'
+import { applyDeloadMultiplier } from '../../utils/weights'
+import { getReturnState } from '../../utils/reentry'
 import { getInactivityInfo } from '../../utils/inactivity'
 import { todayStr } from '../../utils/dates'
 import { useAuthContext } from '../../context/AuthContext'
@@ -175,66 +175,55 @@ function ExerciseHistoryModal({ sessions }) {
 }
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+const REPS_CAP = 25
 
-// Decide qué campos precargar como sugerencia a partir del advice de progresión y las series de la última sesión.
-// pyramid: solo la última serie recibe la sugerencia. fixed: todas las series la reciben.
-function computeSuggestionPlan(advice, lastSets) {
-  if (!advice?.hasHistory || !lastSets?.length) return null
+// Sugerencias de progresión: ahora son SIEMPRE opcionales, elegidas a mano desde la tarjeta
+// "¡Podés superarte!" en ExerciseCard — nada de esto se aplica solo al armar el ejercicio.
+
+// Opción "+ peso": misma matemática que antes (Epley + clamp), a la última serie en pyramid o a
+// todas en fixed.
+function buildWeightOption(advice, lastSets) {
+  if (!advice?.suggest || advice.suggestType !== 'weight' || !lastSets?.length) return null
   const pyramid = advice.pattern === 'pyramid'
-
-  if (advice.suggest && advice.suggestType === 'weight') {
-    // Series donde se aplica newWeight: pyramid → solo la última, fixed → todas.
-    // Sus reps bajan a un valor realista (Epley), acotado entre repsMin del nivel y las reps que hizo esa serie la última vez.
-    const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
-    const reps = {}
-    idxList.forEach(i => {
-      const prevWeight = Number(lastSets[i]?.weight) || 0
-      const prevReps   = Number(lastSets[i]?.reps) || 0
-      reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
-    })
-    return { type: 'weight', pyramid, value: advice.newWeight, reps }
-  }
-  if (advice.suggest && advice.suggestType === 'reps') {
-    return { type: 'reps-target', pyramid, value: advice.suggestedReps }
-  }
-  if (!advice.suggest && advice.effectiveThreshold != null) {
-    const threshold = advice.effectiveThreshold
-    const under = (s) => (Number(s.reps) || 0) < threshold
-    const applies = pyramid ? under(lastSets[lastSets.length - 1]) : lastSets.some(under)
-    if (applies) return { type: 'reps-bump', pyramid, threshold, jumpBonus: advice.jumpBonus, nextWeight: advice.nextWeight }
-  }
-  return null
+  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
+  const reps = {}
+  idxList.forEach(i => {
+    const prevWeight = Number(lastSets[i]?.weight) || 0
+    const prevReps   = Number(lastSets[i]?.reps) || 0
+    reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
+  })
+  return { type: 'weight', pyramid, value: advice.newWeight, reps, idxList }
 }
 
-// Muta setsArr in-place aplicando el plan, marcando cada campo tocado con _suggested (solo UI, se limpia antes de guardar).
-function applySuggestionPlan(setsArr, plan) {
-  if (!plan) return
-  const lastIdx = setsArr.length - 1
-  const mark = (idx, fields) => {
-    setsArr[idx] = { ...setsArr[idx], ...fields, _suggested: Object.fromEntries(Object.keys(fields).map(f => [f, true])) }
+// Opción "+2 reps": mismo peso, +2 reps sobre lo que hizo la última vez, a la última serie en
+// pyramid o a todas en fixed. No se ofrece si alguna reps resultante pasa de 25 (REPS_CAP).
+function buildRepsOption(advice, lastSets) {
+  if (!advice?.suggest || !lastSets?.length) return null
+  const pyramid = advice.pattern === 'pyramid'
+  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
+  const reps = {}
+  for (const i of idxList) {
+    const next = (Number(lastSets[i]?.reps) || 0) + 2
+    if (next > REPS_CAP) return null
+    reps[i] = next
   }
-  if (plan.type === 'weight') {
-    // Las series donde no cambia el peso no se tocan.
-    const applyIdx = (idx) => mark(idx, { weight: plan.value, reps: plan.reps[idx] })
-    if (plan.pyramid) applyIdx(lastIdx)
-    else setsArr.forEach((_, i) => applyIdx(i))
-  } else if (plan.type === 'reps-target') {
-    if (plan.pyramid) mark(lastIdx, { reps: plan.value })
-    else setsArr.forEach((_, i) => mark(i, { reps: plan.value }))
-  } else if (plan.type === 'reps-bump') {
-    if (plan.pyramid) {
-      const reps = Number(setsArr[lastIdx].reps) || 0
-      if (reps < plan.threshold) mark(lastIdx, { reps: reps + 1 })
-    } else {
-      setsArr.forEach((s, i) => {
-        const reps = Number(s.reps) || 0
-        if (reps < plan.threshold) mark(i, { reps: reps + 1 })
-      })
+  const weight = lastSets[idxList[0]]?.weight ?? ''
+  return { type: 'reps', pyramid, weight, reps, idxList }
+}
+
+// Aplica la opción elegida a mano a exData.sets, marcando los campos tocados con _suggested (brillo
+// violeta — se apaga al editar, igual que antes).
+function applySuggestionOption(setsArr, option) {
+  return setsArr.map((s, i) => {
+    if (!option.idxList.includes(i)) return s
+    if (option.type === 'weight') {
+      return { ...s, weight: option.value, reps: option.reps[i], _suggested: { weight: true, reps: true } }
     }
-  }
+    return { ...s, reps: option.reps[i], _suggested: { reps: true } }
+  })
 }
 
-function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, allSessions, reentry }) {
+function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, learnedWeights, allSessions }) {
   const lastSets    = lastSession?.sets
   const defaultSecs = TIME_EXERCISES.some(n => ex.name.includes(n))
   const [useSeconds, setUseSeconds]         = useState(defaultSecs)
@@ -244,20 +233,19 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   const [showHistory, setShowHistory]       = useState(false)
   const { sets } = exData
   const currentRestSecs = exData.restSecs ?? restSec
-  const plan = (deloadActive || reentry?.inReentry) ? null : computeSuggestionPlan(progressionAdvice, lastSets)
 
-  let weightMsg = null
-  if (plan?.type === 'weight') {
-    const repsValues = Object.values(plan.reps)
-    const uniform = repsValues.every(r => r === repsValues[0])
-    if (plan.pyramid) {
-      weightMsg = `📈 Hoy: ${plan.value}kg × ${plan.reps[lastSets.length - 1]} en la última serie`
-    } else if (uniform) {
-      weightMsg = `📈 Hoy: ${plan.value}kg × ${repsValues[0]}`
-    } else {
-      weightMsg = `📈 Hoy: ${plan.value}kg`
-    }
+  // Sugerencia opcional "¡Podés superarte!" — nunca se aplica sola, el usuario elige una opción o
+  // "Hoy no". El estado de "ya resuelto para esta sesión" vive en exData (persiste en el draft de
+  // sessionStorage), así no reaparece al recargar la página.
+  const suggestionDismissed = !!exData.suggestionDismissed
+  const weightOption = suggestionDismissed ? null : buildWeightOption(progressionAdvice, lastSets)
+  const repsOption    = suggestionDismissed ? null : buildRepsOption(progressionAdvice, lastSets)
+  const showSuggestionCard = !!progressionAdvice?.suggest && !suggestionDismissed && (weightOption || repsOption)
+
+  const applySuggestion = (option) => {
+    onChange({ ...exData, sets: applySuggestionOption(sets, option), suggestionDismissed: true })
   }
+  const dismissSuggestion = () => onChange({ ...exData, suggestionDismissed: true })
 
   const updateSet = (i, field, val) => {
     const updated = sets.map((s, idx) => {
@@ -272,9 +260,11 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
     })
     onChange({ ...exData, sets: updated })
   }
-  const addSet    = () => onChange({ ...exData, sets: [...sets, { reps: sets[0]?.reps ?? 10, weight: sets[0]?.weight ?? 0 }] })
+  // La serie nueva copia la ÚLTIMA serie (no la primera) — sin marca _suggested.
+  const addSet    = () => onChange({ ...exData, sets: [...sets, { reps: sets[sets.length - 1]?.reps ?? 10, weight: sets[sets.length - 1]?.weight ?? 0 }] })
   const removeSet = (i) => sets.length > 1 && onChange({ ...exData, sets: sets.filter((_, idx) => idx !== i) })
   const maxWeight = Math.max(0, ...sets.map(s => s.weight ?? 0))
+  const deloadPreview = deloadActive && maxWeight > 0 ? applyDeloadMultiplier(maxWeight, learnedWeights ?? []) : null
 
   const setRestSecs = (secs) => { onChange({ ...exData, restSecs: secs }); setShowPicker(false) }
 
@@ -331,52 +321,61 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         {pr > 0 && maxWeight > 0 && maxWeight >= pr && (
           <span className="text-xs bg-app-gold/20 text-app-gold px-2 py-0.5 rounded-full font-medium">¡Nuevo récord! 🏆</span>
         )}
-        {plan && (
-          <span className="text-xs bg-app-green/20 text-app-green-light px-2 py-0.5 rounded-full font-medium border border-app-green-light/20">
-            {plan.type === 'weight' ? '📈 Subí el peso' : plan.type === 'reps-bump' ? '📈 +1 rep' : '📈 Sumá reps'}
-          </span>
-        )}
       </div>
 
-      {reentry?.inReentry ? (
-        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-green-light text-xs font-medium">
-            {reentry.isTechnical
-              ? `🌱 Vuelta técnica · −${Math.round(reentry.reduction)}% (venís entrenando ${ex.muscle})`
-              : `🌱 Vuelta suave · sesión ${reentry.sessionNumber} de ${reentry.totalSessions} (−${Math.round(reentry.reduction)}%)`}
-          </p>
-        </div>
-      ) : !progressionAdvice?.hasHistory ? (
+      {!progressionAdvice?.hasHistory ? (
         <div className="bg-app-purple/10 border border-app-purple/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-purple-light text-xs">
             💡 Primera vez con este ejercicio. Empezá con las reps sugeridas y elegí un peso con el que puedas completarlas con buena forma.
           </p>
         </div>
-      ) : plan?.type === 'weight' ? (
-        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-green-light text-xs font-medium">{weightMsg}</p>
-        </div>
-      ) : plan?.type === 'reps-target' ? (
-        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-green-light text-xs font-medium">
-            📈 Sumá reps (objetivo {plan.value})
+      ) : showSuggestionCard ? (
+        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-2.5 mb-2 space-y-2">
+          <p className="text-app-green-light text-xs font-semibold">
+            {progressionAdvice.returnActive
+              ? `🔁 Volviendo a tu nivel (${progressionAdvice.preGapLevel} kg) · ¡Podés superarte!`
+              : '¡Podés superarte! 💪'}
           </p>
+          <div className="flex flex-col gap-1.5">
+            {weightOption && (
+              <button
+                onClick={() => applySuggestion(weightOption)}
+                className="w-full py-2 px-3 rounded-lg bg-app-green/20 border border-app-green-light/30 text-app-green-light text-xs font-medium text-left active:opacity-70 transition-opacity"
+              >
+                + peso: {weightOption.value} kg × {weightOption.reps[weightOption.idxList[0]]}
+              </button>
+            )}
+            {repsOption && (
+              <button
+                onClick={() => applySuggestion(repsOption)}
+                className="w-full py-2 px-3 rounded-lg bg-app-green/20 border border-app-green-light/30 text-app-green-light text-xs font-medium text-left active:opacity-70 transition-opacity"
+              >
+                +2 reps con {repsOption.weight} kg
+              </button>
+            )}
+            <button
+              onClick={dismissSuggestion}
+              className="w-full py-1.5 rounded-lg text-app-muted text-xs text-center active:opacity-70 transition-opacity"
+            >
+              Hoy no
+            </button>
+          </div>
         </div>
-      ) : plan?.type === 'reps-bump' ? (
-        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-green-light text-xs font-medium">
-            {plan.jumpBonus > 0
-              ? `📈 Hoy: +1 rep (objetivo ${plan.threshold} para subir a ${plan.nextWeight} kg)`
-              : '📈 Hoy: +1 rep'}
-          </p>
-        </div>
+      ) : progressionAdvice.suggest ? (
+        <p className="text-app-purple-light/60 text-xs mb-2">✓ Ya definiste tu progresión para hoy.</p>
+      ) : progressionAdvice.effectiveThreshold != null ? (
+        <p className="text-app-purple-light/60 text-xs mb-2">
+          Objetivo: {progressionAdvice.effectiveThreshold} reps {progressionAdvice.pattern === 'pyramid' ? 'en la última serie' : 'por serie'}
+        </p>
       ) : (
         <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>
       )}
 
       {deloadActive && (
         <div className="bg-app-purple/10 border border-app-purple/20 rounded-lg px-3 py-1.5 mb-2">
-          <p className="text-app-purple-light text-xs">🔄 Descarga: peso reducido al 65%</p>
+          <p className="text-app-purple-light text-xs">
+            Semana de descarga: probá con ~{deloadPreview ?? '—'} kg
+          </p>
         </div>
       )}
 
@@ -513,7 +512,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [suggestion, setSuggestion]           = useState(null) // null | 'empty' | { exercise, reason }
   const [suggestExcludeIds, setSuggestExcludeIds] = useState([])
   const { getLastWeightsForExercise, getExerciseSessions, getPRForExercise, getLearnedWeights, workouts } = workoutsHook
-  const { getDeloadWeight, getDeloadSets, isActive: deloadActive } = deloadHook
+  const { isActive: deloadActive } = deloadHook
 
   useEffect(() => {
     if (!user?.uid) return
@@ -566,37 +565,21 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     setAddMuscles([])
   }
 
-  // Estado de reentrada + historial efectivo (excluye las sesiones de vuelta suave) para un ejercicio.
-  // ex: objeto completo del catálogo (o el fallback custom) — se usan su muscle/pattern para calcular
-  // muscleGap (¿el músculo/zona siguió entrenado con otros ejercicios?) en reentry.js.
-  const getReentryAndHistory = (ex) => {
+  // Modo regreso: ya no toca la precarga (ver buildEntry) — solo informa a getProgressionAdvice si
+  // corresponde relajar el umbral de sugerencia. Necesita el historial COMPLETO del ejercicio (no
+  // el slice de 5), por eso usa getExerciseSessions en vez de getLastWeightsForExercise.
+  const getReturnStateFor = (ex) => {
     const allSessions = getExerciseSessions(ex.id)
     const inactividad = getInactivityInfo(profile)
-    const reentry = getReentryState(allSessions, todayStr(), inactividad, { muscle: ex.muscle, pattern: ex.pattern, allWorkouts: workouts })
-    const excludedDates = new Set(reentry.reentrySessionDates)
-    const history = allSessions.filter(s => !excludedDates.has(s.date)).slice(0, 5)
-    return { reentry, history }
+    return getReturnState(allSessions, todayStr(), inactividad)
   }
 
+  // Precarga = última sesión real tal cual (mismas series, reps y pesos) — sin reducciones
+  // automáticas de ningún tipo (deload, modo regreso). Las sugerencias de progresión son opcionales
+  // y se aplican a mano desde la tarjeta "¡Podés superarte!" en ExerciseCard, nunca acá.
   const buildEntry = (ex) => {
-    const { reentry, history } = getReentryAndHistory(ex)
-    const learned = getLearnedWeights(ex.id)
+    const history = getLastWeightsForExercise(ex.id)
     const defaultReps = ['A', 'B'].includes(ex.level) ? 10 : 12
-
-    if (reentry.inReentry && reentry.baseline?.sets?.length) {
-      // Nunca se quitan series durante la reentrada — solo se reduce el peso (ver LOGICA_TECNICA.md).
-      const baseSets = reentry.baseline.sets
-      const factor = 1 - reentry.reduction / 100
-      const setsArr = baseSets.map(s => {
-        const baseWeight    = Number(s.weight) || 0
-        const reentryWeight = floorWeight(baseWeight * factor, learned)
-        const weight = deloadActive
-          ? Math.min(reentryWeight, getDeloadWeight(baseWeight, learned))
-          : reentryWeight
-        return { reps: s.reps ?? '', weight }
-      })
-      return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr }
-    }
 
     if (!history.length || !history[0]?.sets?.length) {
       const setsArr = Array.from({ length: 3 }, () => ({ reps: defaultReps, weight: '' }))
@@ -604,15 +587,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     }
 
     const lastSets = history[0].sets
-    const setsArr  = lastSets.map(s => ({
-      reps:   s.reps ?? '',
-      weight: deloadActive ? getDeloadWeight(Number(s.weight) || 0, learned) : (s.weight ?? ''),
-    }))
-
-    if (!deloadActive) {
-      const advice = getProgressionAdvice(ex.id, ex.name, ex.level, history, learned, ex.equip)
-      applySuggestionPlan(setsArr, computeSuggestionPlan(advice, lastSets))
-    }
+    const setsArr  = lastSets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '' }))
 
     return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }
   }
@@ -1107,10 +1082,10 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
             const ex = exercises.find(e => e.id === entry.exerciseId)
               ?? { id: entry.exerciseId, name: entry.name, muscle: entry.muscle, level: 'C', custom: true }
             const lastSetsHistory = getLastWeightsForExercise(entry.exerciseId)
-            const { reentry, history: effectiveHistory } = getReentryAndHistory(ex)
             const pr      = getPRForExercise(entry.exerciseId)
             const learned = getLearnedWeights(entry.exerciseId)
-            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, effectiveHistory, learned, ex.equip)
+            const returnState = getReturnStateFor(ex)
+            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, lastSetsHistory, learned, ex.equip, returnState)
             const origExName = entry.originalExerciseId
               ? (allExercises.find(e => e.id === entry.originalExerciseId)?.name ?? null)
               : null
@@ -1126,13 +1101,13 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                 onReplace={() => setReplacingIndex(i)}
                 origExName={origExName}
                 pr={pr}
-                lastSession={effectiveHistory[0]}
+                lastSession={lastSetsHistory[0]}
                 progressionAdvice={advice}
                 restSec={restSec}
                 lesiones={lesiones}
                 deloadActive={deloadActive}
+                learnedWeights={learned}
                 allSessions={lastSetsHistory}
-                reentry={reentry}
               />
             )
           })}

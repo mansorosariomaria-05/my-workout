@@ -1,5 +1,6 @@
-import { applyDeloadMultiplier } from '../utils/weights'
-
+// Semana de descarga: activación 100% manual (Configuración). Ya no reduce peso/series
+// automáticamente en ningún lado — ver LOGICA_TECNICA.md. isActive solo se usa para mostrar la
+// línea de referencia en ExerciseCard (FuerzaFlow.jsx) y avisos en Cardio/Clase/Tabata.
 export function useDeload(settings, workouts) {
   const isActive = settings?.deloadActive ?? false
 
@@ -12,8 +13,5 @@ export function useDeload(settings, workouts) {
     return avg >= 7
   }
 
-  const getDeloadWeight = (weight, learnedWeights = []) => isActive ? applyDeloadMultiplier(weight, learnedWeights) : weight
-  const getDeloadSets = (sets) => isActive ? Math.max(2, sets - 1) : sets
-
-  return { isActive, shouldSuggestDeload, getDeloadWeight, getDeloadSets }
+  return { isActive, shouldSuggestDeload }
 }

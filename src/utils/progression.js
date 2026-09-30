@@ -1,4 +1,4 @@
-import { getNextWeight, getEquipCategory } from './weights'
+import { getNextWeight, getEquipCategory, floorWeight } from './weights.js'
 
 export const OBJETIVO_PARAMS = {
   'Tonificar':           { sets: 3, repsMin: 12, repsMax: 15, restSec: 75 },
@@ -50,7 +50,11 @@ export function getJumpRepBonus(currentWeight, nextWeight) {
 // sessionHistory: [{date, sets: [{reps, weight}], fatigue}, ...]
 // learnedWeights: pesos distintos > 0 usados históricamente en este ejercicio (ver useWorkouts.getLearnedWeights)
 // equip: campo `equip` del ejercicio (string crudo de exercises.js)
-export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHistory, learnedWeights = [], equip = '') {
+// returnState: resultado de getReturnState (utils/reentry.js) o null — cuando `active` es true y el
+// motivo del parate no fue enfermedad/lesión, alcanzar el umbral con la ÚLTIMA sesión sola (sin
+// bono de salto) alcanza para sugerir subir, y el techo de la sugerencia es preGapLevel (no se
+// sugiere pasar de largo el peso que se manejaba antes del parate en un solo salto).
+export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHistory, learnedWeights = [], equip = '', returnState = null) {
   if (!sessionHistory?.length || !sessionHistory[0]?.sets?.length) {
     return { hasHistory: false, suggest: false }
   }
@@ -63,35 +67,47 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
   const avg = (arr, fn) => arr.reduce((s, x) => s + fn(x), 0) / arr.length
 
   // currentWeight se deriva de la sesión más reciente sola: pyramid → peso máximo, fixed → promedio.
-  // Se calcula acá (antes de saber si hay 2da sesión) porque effectiveThreshold lo necesita en ambos early-return.
   const currentWeight = pattern === 'pyramid'
     ? Math.max(0, ...sets1.map(s => Number(s.weight) || 0))
     : avg(sets1, s => Number(s.weight) || 0)
 
   const nextWeight = getNextWeight(currentWeight, learnedWeights, equipCategory)
-  const jumpBonus = getJumpRepBonus(currentWeight, nextWeight)
+
+  const returnActive  = !!returnState?.active
+  const medicalReturn = returnActive && (returnState.motivo === 'enfermedad' || returnState.motivo === 'lesion')
+  const useReturnRule = returnActive && !medicalReturn // motivo médico -> regla normal de 2 sesiones, por precaución
+
+  const jumpBonus = useReturnRule ? 0 : getJumpRepBonus(currentWeight, nextWeight)
   const effectiveThreshold = repsThreshold + jumpBonus
+  const base = { pattern, repsThreshold, repsMin, effectiveThreshold, jumpBonus, nextWeight }
+  const returnMeta = returnActive ? { returnActive: true, preGapLevel: returnState.preGapLevel } : {}
 
-  if (sessionHistory.length < 2 || !sessionHistory[1]?.sets?.length) {
-    return { hasHistory: true, suggest: false, pattern, repsThreshold, repsMin, effectiveThreshold, jumpBonus, nextWeight }
-  }
-
-  const sets2 = sessionHistory[1].sets
   let hitThreshold
-
-  if (pattern === 'pyramid') {
-    const maxW2     = Math.max(0, ...sets2.map(s => Number(s.weight) || 0))
-    const lastReps1 = Number(sets1[sets1.length - 1]?.reps) || 0
-    const lastReps2 = Number(sets2[sets2.length - 1]?.reps) || 0
-    hitThreshold = currentWeight === maxW2 && lastReps1 >= effectiveThreshold && lastReps2 >= effectiveThreshold
+  if (useReturnRule) {
+    // Modo regreso: 1 sola sesión (la última) alcanza.
+    const lastReps1 = pattern === 'pyramid'
+      ? Number(sets1[sets1.length - 1]?.reps) || 0
+      : avg(sets1, s => Number(s.reps) || 0)
+    hitThreshold = lastReps1 >= effectiveThreshold
   } else {
-    const avgReps1 = avg(sets1, s => Number(s.reps) || 0)
-    const avgReps2 = avg(sets2, s => Number(s.reps) || 0)
-    const avgWt2   = avg(sets2, s => Number(s.weight) || 0)
-    hitThreshold = Math.abs(currentWeight - avgWt2) < 0.5 && avgReps1 >= effectiveThreshold && avgReps2 >= effectiveThreshold
+    if (sessionHistory.length < 2 || !sessionHistory[1]?.sets?.length) {
+      return { hasHistory: true, suggest: false, ...base, ...returnMeta }
+    }
+    const sets2 = sessionHistory[1].sets
+    if (pattern === 'pyramid') {
+      const maxW2     = Math.max(0, ...sets2.map(s => Number(s.weight) || 0))
+      const lastReps1 = Number(sets1[sets1.length - 1]?.reps) || 0
+      const lastReps2 = Number(sets2[sets2.length - 1]?.reps) || 0
+      hitThreshold = currentWeight === maxW2 && lastReps1 >= effectiveThreshold && lastReps2 >= effectiveThreshold
+    } else {
+      const avgReps1 = avg(sets1, s => Number(s.reps) || 0)
+      const avgReps2 = avg(sets2, s => Number(s.reps) || 0)
+      const avgWt2   = avg(sets2, s => Number(s.weight) || 0)
+      hitThreshold = Math.abs(currentWeight - avgWt2) < 0.5 && avgReps1 >= effectiveThreshold && avgReps2 >= effectiveThreshold
+    }
   }
 
-  if (!hitThreshold) return { hasHistory: true, suggest: false, pattern, repsThreshold, repsMin, effectiveThreshold, jumpBonus, nextWeight }
+  if (!hitThreshold) return { hasHistory: true, suggest: false, ...base, ...returnMeta }
 
   if (equipCategory === 'bodyweight' && currentWeight === 0) {
     return {
@@ -99,17 +115,23 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
       suggestType: 'reps',
       currentWeight: 0,
       suggestedReps: repsThreshold + 2,
-      repsThreshold, repsMin,
+      repsThreshold, repsMin, ...returnMeta,
     }
   }
 
-  if (currentWeight <= 0) return { hasHistory: true, suggest: false, pattern, repsThreshold, repsMin, effectiveThreshold, jumpBonus, nextWeight }
+  if (currentWeight <= 0) return { hasHistory: true, suggest: false, ...base, ...returnMeta }
+
+  let newWeight = nextWeight
+  if (useReturnRule) {
+    const floorBased = floorWeight(currentWeight * 1.10, learnedWeights)
+    newWeight = Math.min(returnState.preGapLevel, Math.max(nextWeight, floorBased))
+  }
 
   return {
     hasHistory: true, suggest: true, pattern,
     suggestType: 'weight',
     currentWeight,
-    newWeight: nextWeight,
-    repsThreshold, repsMin, effectiveThreshold, jumpBonus,
+    newWeight,
+    ...base, ...returnMeta,
   }
 }

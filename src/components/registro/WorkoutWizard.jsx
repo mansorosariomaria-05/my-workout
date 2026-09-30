@@ -101,8 +101,11 @@ export default function WorkoutWizard({ initialType }) {
     return Array.from(muscles)
   }
 
+  // Limpia flags de UI antes de guardar: _suggested (brillo violeta) por serie y suggestionDismissed
+  // (estado de "ya elegiste/Hoy no" de la tarjeta de sugerencia) por ejercicio — ninguno de los dos
+  // tiene sentido fuera de la sesión en curso.
   const stripSuggestedFlags = (exs) =>
-    (exs ?? []).map(ex => ({
+    (exs ?? []).map(({ suggestionDismissed, ...ex }) => ({
       ...ex,
       sets: (ex.sets ?? []).map(({ _suggested, ...rest }) => rest),
     }))

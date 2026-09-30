@@ -107,7 +107,7 @@ src/
     cardio.js                  # Tiempo/ritmo de cardio: toSeconds, formatDuration, computePace, etc.
     streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
-    reentry.js                 # Vuelta suave: detección por ejercicio y por músculo/zona ("vuelta técnica")
+    reentry.js                 # Modo regreso: detecta si un ejercicio volvió de un parate sin llegar aún a su nivel previo
     dates.js                   # Helpers de fechas locales
     genero.js                  # textoGenero() para acordar género en textos
 ```
@@ -246,7 +246,7 @@ Función única `generateRoutine({ muscles, count, equip, workouts, regenerate }
 - Por cada músculo elegido, el ejercicio principal (nivel A/B) se elige por historial reciente del usuario (sesiones de ese ejercicio en los últimos 56 días) — esto se mantiene incluso al regenerar, para que la doble progresión (sección de Progresión de carga) tenga sesiones consecutivas del mismo ejercicio para comparar. Los accesorios sí se sortean al azar al regenerar.
 - El orden final prioriza compuestos antes que aislados y deja el core siempre al final.
 - Solo elige del catálogo base (`exercises.js`), no de ejercicios personalizados del usuario (esos no tienen `pattern`).
-- Al usar una rutina generada, `FuerzaFlow.jsx` arma cada ejercicio con `buildEntry` (igual que una rutina prearmada), así que aplican precarga de peso, sugerencias con brillo violeta y vuelta suave — antes el tab standalone armaba los sets a mano sin ninguna precarga.
+- Al usar una rutina generada, `FuerzaFlow.jsx` arma cada ejercicio con `buildEntry` (igual que una rutina prearmada), así que carga la última sesión real de cada uno — antes el tab standalone armaba los sets a mano sin ninguna precarga.
 
 **Botón "✨ Sugerencia"** (modo libre de `FuerzaFlow.jsx`, debajo de "+ Agregar ejercicio"): recomienda un solo ejercicio a agregar a partir de lo ya cargado en la sesión, con la misma lógica de patrón/historial que el generador pero evaluada ejercicio por ejercicio (`suggestNextExercise`, en el mismo archivo). Prioriza cubrir primero el músculo con menos ejercicios en la sesión, un principal (nivel A/B) por músculo antes que accesorios, evita repetir el patrón del último ejercicio agregado y nunca vuelve a sugerir algo ya en la sesión. "Otra" pide otra opción sin repetir las ya mostradas en la ronda; "Agregar" usa `buildEntry` (misma precarga que cualquier otra vía).
 
@@ -331,37 +331,35 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 - `STANDARD_WEIGHTS`: unión de los pesos disponibles en los gimnasios del usuario (placas/mancuernas fijas).
 - Además de esos valores fijos, el sistema **aprende** qué pesos usó realmente el usuario en cada ejercicio (`getLearnedWeights` en `useWorkouts.js`) y los suma al pool de candidatos, así las sugerencias respetan las variantes propias de cada gimnasio/equipo y no solo la tabla estándar.
 - `getNextWeight(current, learnedWeights, equipCategory)`: prioriza el salto más chico disponible en el pool dentro de un tope de +25% (o +2.5kg); si no hay ninguno en rango, usa el salto típico histórico del usuario o un default por tipo de equipo.
-- `floorWeight(target, learnedWeights)`: redondea hacia el valor del pool más cercano por abajo (usado en deload y en vuelta suave).
+- `floorWeight(target, learnedWeights)`: redondea hacia el valor del pool más cercano por abajo (usado en el modo regreso y en la línea de referencia del deload).
 
 ### Doble progresión (`getProgressionAdvice` en `progression.js`)
 
-Compara las dos últimas sesiones reales de cada ejercicio (ver "historial efectivo" en la sección de vuelta suave más abajo):
-- Sube el peso solo si **ambas** sesiones llegaron al umbral de reps del nivel del ejercicio (`REP_RANGES`: A/B 6-10, C/D 10-15) al mismo peso.
+Compara las dos últimas sesiones reales de cada ejercicio:
+- Sube el peso solo si **ambas** sesiones llegaron al umbral de reps del nivel del ejercicio (`REP_RANGES`: A/B 6-10, C/D 10-15) al mismo peso (excepto en modo regreso — ver más abajo — donde alcanza con 1 sola sesión).
 - Al sugerir subir peso, las reps de la próxima sesión se recalculan con la **fórmula de Epley** (`estimateRepsAtWeight`) en vez de reiniciar al mínimo del rango, para que la sugerencia sea realista al nuevo peso.
 - **Bono de reps por salto** (`getJumpRepBonus`): si el próximo peso disponible implica un salto proporcionalmente grande respecto al actual (típico con mancuernas livianas), exige 2-4 reps extra antes de subir, para no forzar un salto demasiado grande.
 - Ejercicios de peso corporal (equipo "Sin equipamiento", peso actual 0): en vez de sugerir peso, sugiere sumar reps.
 
-### Sugerencias precargadas (`FuerzaFlow.jsx`)
+### Precarga y sugerencias opcionales (`FuerzaFlow.jsx`)
 
-Al armar la sesión (`buildEntry`), las series se precargan directamente con la sugerencia de progresión cuando corresponde, marcadas con un **brillo violeta** (campo `_suggested`, solo UI — se limpia antes de guardar en Firestore). El botón de cada serie muestra una pequeña **cruz roja** cuando hay más de una serie cargada, para indicar que al tocarlo la elimina.
+**La precarga es siempre la última sesión real, tal cual** (mismas series/reps/pesos) — ninguna regla la modifica sola (ni deload, ni modo regreso). Cuando corresponde progresar, `ExerciseCard` muestra una tarjeta opcional "¡Podés superarte!" con hasta 2 botones — "+ peso: `{newWeight}` kg × `{reps}`" (Epley + clamp, como antes) y "+2 reps con `{peso}` kg" (no se ofrece si superaría 25 reps) — más "Hoy no". El usuario elige una opción o descarta; recién ahí (y solo en los campos que cambian) se marca el **brillo violeta** (`_suggested`, solo UI). El estado de "ya resuelto hoy" queda en `exData.suggestionDismissed`, persiste en el draft de `sessionStorage` y nunca se guarda en Firestore. Si no corresponde progresar, se muestra solo una línea informativa ("Objetivo: N reps..."), sin tocar valores. El botón de cada serie muestra una pequeña **cruz roja** cuando hay más de una serie cargada; `+ Serie` copia la **última** serie (no la primera).
 
 ---
 
 ## Deload (useDeload.js)
 
-- `isActive` → `settings.deloadActive`
-- `shouldSuggestDeload()` → promedio de fatiga de últimas 40 sesiones >= 7
-- Cuando activo: peso × 0.65 (redondeado al más cercano), series -1 (mínimo 2)
-- El estado se guarda en Firestore (`settings.deloadActive`)
-- Si además un ejercicio está en vuelta suave (ver abajo), no se suman las dos reducciones: se usa el peso menor entre las dos.
+- `isActive` → `settings.deloadActive` (activación 100% manual, Configuración)
+- `shouldSuggestDeload()` → promedio de fatiga de últimas 40 sesiones >= 7 (solo dispara el banner que lo sugiere)
+- **Ya no modifica ningún valor precargado.** Cuando está activo, cada `ExerciseCard` muestra una línea de referencia ("Semana de descarga: probá con ~X kg", peso × 0.65 vía `applyDeloadMultiplier`) calculada en vivo — el usuario decide si la usa.
 
 ---
 
-## Aviso de inactividad y vuelta suave
+## Aviso de inactividad y modo regreso
 
 - **Aviso de inactividad** (`Inicio.jsx` + `utils/inactivity.js`): si pasaron 14+ días desde el último entrenamiento real, al abrir la app se pregunta el motivo (enfermedad, lesión, estrés, descanso) y se guarda en `profile.inactividad`. Es puramente informativo: no crea workouts, no crea documentos de pausa, no afecta la racha.
-- **Vuelta suave** (`utils/reentry.js`, integrada en `FuerzaFlow.jsx`): es **por ejercicio**, no global. Si pasaron 14+ días sin hacer ese ejercicio puntual (`exerciseGap`), mira además si el mismo músculo o zona de fatiga (`PATTERN_ZONE`) siguió entrenado con otros ejercicios (`muscleGap`, sobre el historial completo de workouts). Si el músculo sigue fresco (`muscleGap < 14`) es **vuelta técnica**: solo −5% de peso, una sola sesión — no hay desentrenamiento muscular, solo se perdió la práctica puntual del movimiento. Si el músculo también quedó sin estímulo, aplica la tabla normal (10-25% según el largo del parate, +5% y +1 sesión si el motivo fue enfermedad/lesión), pero elegida por `muscleGap`, no por `exerciseGap`. En ningún caso se quitan series — solo se reduce el peso, manteniendo exactamente las series del baseline. Se detecta 100% a partir de fechas del historial, sin guardar ningún estado nuevo en Firestore. Mientras dura, no hay sugerencias de progresión (sin brillo violeta) para ese ejercicio.
-- Ver `LOGICA_TECNICA.md` sección 15 para el detalle completo (fórmulas, casos borde, justificación).
+- **Modo regreso** (`utils/reentry.js` → `getReturnState`, integrado en `getProgressionAdvice`): reemplaza la vieja "vuelta suave", que reducía peso/series solo en la precarga. Ahora **no toca la precarga** — es un detector: si hubo un parate de 14+ días en un ejercicio y ya volvió, pero el peso de la última sesión todavía no alcanza el que manejaba antes (`preGapLevel`), la sugerencia de progresión se relaja (alcanza con 1 sesión en vez de 2, sin bono de salto, techo en `preGapLevel`) y la tarjeta de sugerencia muestra "🔁 Volviendo a tu nivel". Se autoexpira solo al alcanzar `preGapLevel`. Con motivo enfermedad/lesión guardado para ese parate, se exige la regla normal de 2 sesiones por precaución.
+- Ver `LOGICA_TECNICA.md` secciones 13 y 15 para el detalle completo (fórmulas, casos borde, justificación).
 
 ---
 
@@ -407,7 +405,7 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 3. Si `!profile?.onboardingDone` → `Onboarding` (8 pasos)
 4. Si todo OK → rutas normales
 
-**Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `tipoRutina`, `sesionesFuerzaObjetivo`, `lesionesYes`, `lesiones`, `equipamiento`, `onboardingDone`, `inactividad` (último parate detectado — ver "Aviso de inactividad y vuelta suave"). Ya no existe el campo `pausa` (el onboarding no lo pregunta desde que se eliminó el sistema de pausas).
+**Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `tipoRutina`, `sesionesFuerzaObjetivo`, `lesionesYes`, `lesiones`, `equipamiento`, `onboardingDone`, `inactividad` (último parate detectado — ver "Aviso de inactividad y modo regreso"). Ya no existe el campo `pausa` (el onboarding no lo pregunta desde que se eliminó el sistema de pausas).
 
 **Settings**: `deloadActive`, `restTimerSeconds` (default 90), `coverUrl`.
 

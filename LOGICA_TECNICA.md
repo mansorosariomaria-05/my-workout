@@ -1152,55 +1152,90 @@ Si el ejercicio es de peso corporal (`equipCategory === 'bodyweight'`, resuelto 
 
 ---
 
-## 13. SUGERENCIAS PRECARGADAS (`src/components/registro/FuerzaFlow.jsx`)
+## 13. SUGERENCIAS DE PROGRESIÓN — OPCIONALES (`src/components/registro/FuerzaFlow.jsx`)
 
-La sugerencia de progresión dejó de ser solo un texto informativo: cuando corresponde, se **precarga directamente** en las cajas de series/reps/peso, resaltada con un brillo violeta. La lógica vive en dos funciones puras al inicio de `FuerzaFlow.jsx` (antes de `ExerciseCard`), compartidas entre el armado del ejercicio (`buildEntry`) y el texto que se muestra (`ExerciseCard`).
+> **Historial**: hasta septiembre 2026 la sugerencia se aplicaba **sola** al armar el ejercicio (`buildEntry` la precargaba directamente en las cajas). Se reemplazó por completo por un sistema **opt-in**: `buildEntry` ya nunca modifica valores (ver sección "Precarga = última sesión real" más abajo) — la sugerencia aparece como una tarjeta con opciones que el usuario elige a mano, o descarta. Motivo: el usuario decide qué progresión probar hoy (peso o reps — Plotkin et al. 2022, ambas vías son válidas para hipertrofia), en vez de que la app le reescriba las cajas antes de que llegue al gimnasio.
 
-### `computeSuggestionPlan(advice, lastSets)` — reglas a-e
+### Precarga = última sesión real, siempre
 
 ```js
-function computeSuggestionPlan(advice, lastSets) {
-  if (!advice?.hasHistory || !lastSets?.length) return null
-  const pyramid = advice.pattern === 'pyramid'
-
-  if (advice.suggest && advice.suggestType === 'weight') {
-    // Series donde se aplica newWeight: pyramid → solo la última, fixed → todas.
-    // Sus reps bajan a un valor realista (Epley), acotado entre repsMin del nivel y las reps que hizo esa serie la última vez.
-    const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
-    const reps = {}
-    idxList.forEach(i => {
-      const prevWeight = Number(lastSets[i]?.weight) || 0
-      const prevReps   = Number(lastSets[i]?.reps) || 0
-      reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
-    })
-    return { type: 'weight', pyramid, value: advice.newWeight, reps }
+// buildEntry(ex) en FuerzaFlow.jsx
+const buildEntry = (ex) => {
+  const history = getLastWeightsForExercise(ex.id)
+  const defaultReps = ['A', 'B'].includes(ex.level) ? 10 : 12
+  if (!history.length || !history[0]?.sets?.length) {
+    return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle,
+      sets: Array.from({ length: 3 }, () => ({ reps: defaultReps, weight: '' })) }
   }
-  if (advice.suggest && advice.suggestType === 'reps') {
-    return { type: 'reps-target', pyramid, value: advice.suggestedReps }
-  }
-  if (!advice.suggest && advice.repsThreshold != null) {
-    const threshold = advice.repsThreshold
-    const under = (s) => (Number(s.reps) || 0) < threshold
-    const applies = pyramid ? under(lastSets[lastSets.length - 1]) : lastSets.some(under)
-    if (applies) return { type: 'reps-bump', pyramid, threshold }
-  }
-  return null
+  const lastSets = history[0].sets
+  const setsArr  = lastSets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '' }))
+  return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr }
 }
 ```
 
-Traduce el resultado de `getProgressionAdvice()` (sección "Sistema de pesos") en un **plan** describiendo qué campo tocar y en qué series:
+Sin excepciones: mismas series, mismos reps, mismos pesos que la última sesión registrada de ese `exerciseId` — sin importar si la descarga está activa, si hay un parate reciente (modo regreso, sección 15) o cuál fue la fatiga de las últimas sesiones. `buildEntry` es el único punto de armado de un ejercicio con series precargadas, y **todos** los flujos que arman o rearman un ejercicio pasan por ahí (`addExercise`, `loadRoutine`, `useGeneratedRoutine`, `swapToAlt`, `replaceWithExercise`) — así que todos heredan esta regla sin lógica duplicada.
 
-| Regla | Condición | `plan.type` | Qué se precarga |
-|---|---|---|---|
-| **a** | Descarga activa (`deloadActive`) | — (nunca se llama, `plan` se fuerza a `null`) | Nada — solo la reducción de deload existente, sin brillo |
-| **b** | `advice.suggest && suggestType === 'weight'` | `'weight'` | `pyramid` → `newWeight` solo en la **última** serie. `fixed` → `newWeight` en **todas**. En las series donde cambia el peso, las **reps también bajan** a un valor realista (Epley — ver subsección abajo); las series donde no cambia el peso no se tocan |
-| **c** | `advice.suggest && suggestType === 'reps'` (peso corporal) | `'reps-target'` | `pyramid` → `suggestedReps` solo en la última serie. `fixed` → en todas |
-| **d** | `!advice.suggest` pero `hasHistory` y alguna serie no llegó a `effectiveThreshold` (`repsThreshold` + bono por salto de peso, ver subsección abajo) | `'reps-bump'` | `pyramid` → +1 rep solo si la **última** serie no llegó. `fixed` → +1 rep en **cada** serie individual que no llegó (las que ya llegaron quedan intactas) |
-| **e** | `!advice.hasHistory` (sin historial) o sin `lastSets` | `null` | Nada — comportamiento sin cambios, ninguna caja brilla |
+### La tarjeta "¡Podés superarte!" — opciones, no automatismo
 
-Nota sobre la regla **d**: puede no aplicar ningún cambio aunque `advice.suggest === false` — por ejemplo, si las reps de ambas sesiones ya llegaron al umbral pero el peso varió entre sesiones (por lo que `getProgressionAdvice` no dispara `suggest: true`), no hay ninguna serie "por debajo del umbral" para sumarle una rep, y `computeSuggestionPlan` devuelve `null` (sin brillo).
+`getProgressionAdvice()` (sección "Sistema de pesos") sigue calculando si corresponde progresar, con la misma regla de siempre (2 últimas sesiones al mismo peso máximo con reps ≥ `effectiveThreshold`, bono por salto de peso incluido — salvo en modo regreso, sección 15). Cuando `advice.suggest` es `true`, `ExerciseCard` arma hasta 2 opciones con dos funciones puras (no exportadas, viven junto a `ExerciseCard` en `FuerzaFlow.jsx`):
 
-### Rangos de reps por nivel y ajuste con Epley (regla b)
+```js
+// Opción "+ peso": misma matemática que la regla b de antes (Epley + clamp).
+function buildWeightOption(advice, lastSets) {
+  if (!advice?.suggest || advice.suggestType !== 'weight' || !lastSets?.length) return null
+  const pyramid = advice.pattern === 'pyramid'
+  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
+  const reps = {}
+  idxList.forEach(i => {
+    const prevWeight = Number(lastSets[i]?.weight) || 0
+    const prevReps   = Number(lastSets[i]?.reps) || 0
+    reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
+  })
+  return { type: 'weight', pyramid, value: advice.newWeight, reps, idxList }
+}
+
+// Opción "+2 reps": mismo peso, +2 reps sobre lo que hizo la última vez. No se ofrece si algún
+// resultado pasa de 25 reps (REPS_CAP) — más allá de eso ya no es una progresión razonable de reps.
+function buildRepsOption(advice, lastSets) {
+  if (!advice?.suggest || !lastSets?.length) return null
+  const pyramid = advice.pattern === 'pyramid'
+  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
+  const reps = {}
+  for (const i of idxList) {
+    const next = (Number(lastSets[i]?.reps) || 0) + 2
+    if (next > REPS_CAP) return null
+    reps[i] = next
+  }
+  return { type: 'reps', pyramid, weight: lastSets[idxList[0]]?.weight ?? '', reps, idxList }
+}
+```
+
+- `weightOption` solo existe si `advice.suggestType === 'weight'` (nunca para peso corporal).
+- `repsOption` existe siempre que `advice.suggest` sea `true` — incluido peso corporal (`suggestType === 'reps'`), donde es la **única** opción ofrecida (sin opción de peso, porque no hay peso que subir).
+- Ambas aplican a la **última serie** en `pyramid`, o a **todas** en `fixed` — mismo criterio que la vieja regla b.
+- La tarjeta muestra los botones que existan: "+ peso: `{value}` kg × `{reps}`", "+2 reps con `{weight}` kg", y siempre "Hoy no". Si no corresponde progresar (`hasHistory && !suggest`) pero hay un umbral, se muestra solo una línea chica sin botones: `"Objetivo: {effectiveThreshold} reps en la última serie"` (pyramid) o `"...por serie"` (fixed) — informativo, no toca valores.
+
+### Aplicar una opción — mismo marcado `_suggested` de siempre
+
+```js
+function applySuggestionOption(setsArr, option) {
+  return setsArr.map((s, i) => {
+    if (!option.idxList.includes(i)) return s
+    if (option.type === 'weight') {
+      return { ...s, weight: option.value, reps: option.reps[i], _suggested: { weight: true, reps: true } }
+    }
+    return { ...s, reps: option.reps[i], _suggested: { reps: true } }
+  })
+}
+```
+
+Al tocar "+ peso" o "+2 reps", `ExerciseCard` llama esto y hace `onChange({ ...exData, sets: applySuggestionOption(sets, option), suggestionDismissed: true })` — aplica el cambio (con el mismo brillo violeta `.input-suggested` de siempre, que se apaga al editar a mano, sección más abajo) **y** cierra la tarjeta. Tocar "Hoy no" hace lo mismo sin tocar `sets`, solo `suggestionDismissed: true`.
+
+### `suggestionDismissed` — por ejercicio, persiste en el draft, nunca se guarda
+
+Vive directo en la entrada del ejercicio (`exData.suggestionDismissed`, junto a `sets`/`exerciseId`/etc.) — como toda la sesión en curso (`data.exercises`) se persiste en el draft de `sessionStorage` (`WorkoutDraftContext`), este flag sobrevive a un recargo de página sin hacer falta ningún mecanismo nuevo. Se resetea solo: cada vez que se agrega un ejercicio a una sesión NUEVA, `buildEntry` arma una entrada fresca sin este campo. Antes de guardar, `stripSuggestedFlags()` en `WorkoutWizard.jsx` lo saca de cada ejercicio (además de `_suggested` de cada serie) — no tiene ningún sentido fuera de la sesión en curso, así que nunca llega a Firestore.
+
+### Rangos de reps por nivel y ajuste con Epley
 
 Antes de este ajuste, cuando se sugería subir el peso las reps quedaban iguales a la sesión anterior — con el peso nuevo, esas reps eran casi imposibles de completar. Ahora, cada serie donde se aplica `newWeight` recalcula sus reps con la fórmula de Epley, acotadas a un rango realista por nivel del ejercicio:
 
@@ -1224,7 +1259,7 @@ export function estimateRepsAtWeight(prevWeight, prevReps, newWeight) {
 
 `repsThreshold` (el umbral que dispara la sugerencia de subir peso, sección "Sistema de pesos") **es exactamente `REP_RANGES[level].max`** — 10 para A/B, 15 para C/D. `repsMin` (`REP_RANGES[level].min` — 6 para A/B, 10 para C/D) es el piso al que nunca deben bajar las reps sugeridas, sin importar cuánto suba el peso.
 
-Para cada serie donde `computeSuggestionPlan` aplica `newWeight`, las reps sugeridas son:
+Para cada serie donde `buildWeightOption` (opción "+ peso" de la tarjeta de sugerencia) aplica `newWeight`, las reps sugeridas son:
 ```js
 clamp(estimateRepsAtWeight(pesoAnteriorDeEsaSerie, repsAnterioresDeEsaSerie, newWeight), repsMin, repsAnterioresDeEsaSerie)
 ```
@@ -1274,68 +1309,23 @@ const effectiveThreshold = repsThreshold + jumpBonus
 
 | Escenario | nivel | peso | reps (2 sesiones iguales) | `nextWeight` | `jumpBonus` | `effectiveThreshold` | Resultado |
 |---|---|---|---|---|---|---|---|
-| fijo | A/B | 10kg | 3×10 | 12kg | +2 (salto 20%) | 12 | **No** sugiere subir (10 reps < 12) → regla d: +1 rep, objetivo 12 |
+| fijo | A/B | 10kg | 3×10 | 12kg | +2 (salto 20%) | 12 | **No** sugiere subir (10 reps < 12) → línea informativa "Objetivo: 12 reps" |
 | fijo | A/B | 10kg | 3×12 | 12kg | +2 (salto 20%) | 12 | Sugiere subir a **12kg** (12 reps ≥ 12), con reps ajustadas por Epley + clamp |
 | fijo | A/B | 18kg | 3×10 | 20kg | +0 (salto 11%) | 10 | Sugiere subir a **20kg** (10 reps ≥ 10) — sin bono, igual que antes |
 
-**Regla d actualizada**: el objetivo de reps para "+1 rep" pasa a ser `effectiveThreshold` en vez de `repsThreshold` — así la app sigue pidiendo una rep más mientras no se alcance el umbral *efectivo* (el que ya incluye el bono por salto de peso), no el umbral base. El mensaje también cambia cuando corresponde: si `jumpBonus > 0`, `"📈 Hoy: +1 rep (objetivo {effectiveThreshold} para subir a {nextWeight} kg)"`; si `jumpBonus === 0`, se mantiene el mensaje corto `"📈 Hoy: +1 rep"` sin aclaración adicional (el próximo peso está a un salto razonable, no hace falta justificarlo).
+### El campo `_suggested` y `suggestionDismissed` — solo UI, nunca persisten
 
-### `applySuggestionPlan(setsArr, plan)` — aplicación y marcado
-
-```js
-function applySuggestionPlan(setsArr, plan) {
-  if (!plan) return
-  const lastIdx = setsArr.length - 1
-  const mark = (idx, fields) => {
-    setsArr[idx] = { ...setsArr[idx], ...fields, _suggested: Object.fromEntries(Object.keys(fields).map(f => [f, true])) }
-  }
-  if (plan.type === 'weight') {
-    const applyIdx = (idx) => mark(idx, { weight: plan.value, reps: plan.reps[idx] })
-    if (plan.pyramid) applyIdx(lastIdx)
-    else setsArr.forEach((_, i) => applyIdx(i))
-  } else if (plan.type === 'reps-target') {
-    if (plan.pyramid) mark(lastIdx, { reps: plan.value })
-    else setsArr.forEach((_, i) => mark(i, { reps: plan.value }))
-  } else if (plan.type === 'reps-bump') {
-    if (plan.pyramid) {
-      const reps = Number(setsArr[lastIdx].reps) || 0
-      if (reps < plan.threshold) mark(lastIdx, { reps: reps + 1 })
-    } else {
-      setsArr.forEach((s, i) => {
-        const reps = Number(s.reps) || 0
-        if (reps < plan.threshold) mark(i, { reps: reps + 1 })
-      })
-    }
-  }
-}
-```
-
-Muta `setsArr` in-place y marca cada campo tocado dentro de `_suggested`. Para `'weight'` marca **ambos** campos a la vez (`_suggested: { weight: true, reps: true }`, ya que la regla b siempre toca peso y reps juntos); para `'reps-target'` y `'reps-bump'` marca solo `{ reps: true }`. `mark()` construye el objeto `_suggested` dinámicamente a partir de las claves que efectivamente cambiaron, así que un set nunca queda con una marca en un campo que no se tocó.
-
-### Dónde se invoca — `buildEntry` en `FuerzaFlow`
-
-```js
-if (!deloadActive) {
-  const advice = getProgressionAdvice(ex.id, ex.name, ex.level, history, learned, ex.equip)
-  applySuggestionPlan(setsArr, computeSuggestionPlan(advice, lastSets))
-}
-```
-
-`buildEntry(ex)` es el único punto de armado de un ejercicio con series precargadas desde el historial, y **todos** los flujos que arman o rearman un ejercicio pasan por ahí: carga manual (`addExercise`), rutinas pre-armadas y generadas (`loadRoutine`, `useGeneratedRoutine`), `swapToAlt` y `replaceWithExercise` — todos llaman `buildEntry` internamente, así que heredan la precarga de sugerencias automáticamente sin lógica duplicada.
-
-### El campo `_suggested` — solo UI, nunca persiste
-
-- **No se guarda en Firestore.** En [WorkoutWizard.jsx](src/components/registro/WorkoutWizard.jsx), `handleSave()` construye el workout final con `stripSuggestedFlags(detail.exercises)` antes de `sanitizeWorkout()`:
+- **No se guardan en Firestore.** En [WorkoutWizard.jsx](src/components/registro/WorkoutWizard.jsx), `handleSave()` construye el workout final con `stripSuggestedFlags(detail.exercises)` antes de `sanitizeWorkout()`:
   ```js
   const stripSuggestedFlags = (exs) =>
-    (exs ?? []).map(ex => ({
+    (exs ?? []).map(({ suggestionDismissed, ...ex }) => ({
       ...ex,
       sets: (ex.sets ?? []).map(({ _suggested, ...rest }) => rest),
     }))
   ```
-  El objeto `workout` resultante (ya sin `_suggested`) es el mismo que se pasa a `saveWorkout()` — por lo tanto tanto el documento de Firestore como la actualización optimista del cache/estado local (`useWorkouts.js`) y la pantalla `WorkoutSummary` quedan limpios. `detectPRs`, `detectImprovements`, `achievements.js` y los gráficos de `ProgresoPage.jsx` nunca ven este campo porque todos leen `workouts` (Firestore/cache), no el estado en vivo del wizard.
-- **Sobrevive al borrador de `sessionStorage`.** El draft del wizard (`WorkoutDraftContext`, clave `workoutDraft`) guarda `detail` tal cual — como el stripping solo ocurre sobre una copia al momento de guardar (`stripSuggestedFlags` no muta `detail.exercises`), el borrador conserva `_suggested` intacto, así que si el usuario recarga la pantalla a mitad de un registro, el brillo persiste.
-- **Se quita al editar.** `updateSet(i, field, val)` en `ExerciseCard` limpia la marca del campo editado:
+  Saca `_suggested` de cada serie **y** `suggestionDismissed` de cada ejercicio — ninguno de los dos tiene sentido fuera de la sesión en curso. El objeto `workout` resultante es el que se pasa a `saveWorkout()`, así que tanto el documento de Firestore como el cache/estado local (`useWorkouts.js`) y `WorkoutSummary` quedan limpios. `detectPRs`, `detectImprovements`, `achievements.js` y los gráficos de `ProgresoPage.jsx` nunca ven ninguno de los dos campos, porque leen `workouts` (Firestore/cache), no el estado en vivo del wizard.
+- **Sobreviven al borrador de `sessionStorage`.** El draft del wizard (`WorkoutDraftContext`, clave `workoutDraft`) guarda `detail` tal cual — como el stripping solo ocurre sobre una copia al momento de guardar, el borrador conserva ambos campos intactos: el brillo y el estado "ya resuelto para hoy" de cada ejercicio persisten si el usuario recarga la pantalla a mitad de un registro.
+- **`_suggested` se quita al editar a mano.** `updateSet(i, field, val)` en `ExerciseCard` limpia la marca del campo editado:
   ```js
   if (next._suggested?.[field]) {
     const { [field]: _cleared, ...restFlags } = next._suggested
@@ -1343,7 +1333,7 @@ if (!deloadActive) {
     else delete next._suggested
   }
   ```
-- **`addSet` nunca copia la marca.** Construye un objeto literal nuevo (`{ reps: sets[0]?.reps ?? 10, weight: sets[0]?.weight ?? 0 }`) sin spread del set de origen, así que una serie agregada a mano nunca hereda `_suggested`.
+- **`addSet` copia la ÚLTIMA serie, no la primera, y nunca copia `_suggested`.** `{ reps: sets[sets.length - 1]?.reps ?? 10, weight: sets[sets.length - 1]?.weight ?? 0 }` — objeto literal nuevo, sin spread del set de origen. Antes copiaba `sets[0]` (la primera serie) — en un esquema piramidal eso significaba que agregar una serie copiaba el peso más *liviano* del ejercicio en vez del más reciente/pesado, lo cual no tenía sentido si la intención es "una serie más como la que acabo de hacer".
 
 ### Estilo del brillo — `.input-suggested` (`src/index.css`)
 
@@ -1365,19 +1355,30 @@ if (!deloadActive) {
 
 Usa el violeta de la paleta (`app-purple-light` / `#9B7FD4`). El "borde" de 1.5px es en realidad un `box-shadow: 0 0 0 1.5px` (técnica de anillo sin ancho de borde real) — así no reserva espacio ni desplaza el layout, a diferencia de cambiar el `border-width` del input. El pulso lento (`suggestGlow`, 2.6s) se desactiva completamente bajo `prefers-reduced-motion: reduce`. La clase se aplica condicionalmente en `ExerciseCard`: `s._suggested?.reps ? 'input-suggested' : ''` y `s._suggested?.weight ? 'input-suggested' : ''` en los inputs de reps y peso respectivamente.
 
-### Texto acompañante
+### Qué se muestra en cada caso
 
-Badge y mensaje se derivan del mismo `plan` (recalculado en el render de `ExerciseCard` a partir de `progressionAdvice` y `lastSession.sets`, con `plan` forzado a `null` si `deloadActive`):
+`ExerciseCard` decide un único bloque de texto por prioridad (ver también el deload, que es una línea aparte e independiente — sección "Deload manual" más abajo):
 
-| `plan.type` | Badge | Mensaje |
-|---|---|---|
-| `'weight'` | `📈 Subí el peso` | `📈 Hoy: {value}kg × {reps} en la última serie` si `pyramid`; en `fixed`, `📈 Hoy: {value}kg × {reps}` si las reps quedaron iguales en todas las series, o solo `📈 Hoy: {value}kg` (sin `× reps`) si quedaron distintas entre series |
-| `'reps-target'` | `📈 Sumá reps` | `📈 Sumá reps (objetivo {value})` |
-| `'reps-bump'` | `📈 +1 rep` | `📈 Hoy: +1 rep (objetivo {effectiveThreshold} para subir a {nextWeight} kg)` si `jumpBonus > 0`; si no, `📈 Hoy: +1 rep` |
-| `null` con historial | — | `✓ Mantené el peso, vas bien.` |
-| sin historial | — | `💡 Primera vez con este ejercicio...` |
+| Condición | Contenido |
+|---|---|
+| `!progressionAdvice.hasHistory` | `💡 Primera vez con este ejercicio...` |
+| `advice.suggest` y hay al menos una opción disponible, sin resolver todavía | Tarjeta "¡Podés superarte!" con los botones de opciones (ver arriba) y "Hoy no" |
+| `advice.suggest` pero `exData.suggestionDismissed` (ya se resolvió hoy) | `✓ Ya definiste tu progresión para hoy.` |
+| `!advice.suggest` y `effectiveThreshold != null` | `Objetivo: {effectiveThreshold} reps en la última serie` (pyramid) o `...por serie` (fixed) — informativo, ninguna caja cambia |
+| `!advice.suggest` sin `effectiveThreshold` (caso residual) | `✓ Mantené el peso, vas bien.` |
 
-El mensaje de `'weight'` se arma en `ExerciseCard` a partir de `plan.reps` (el mapa `{ índice: reps }` que ya calculó `computeSuggestionPlan`): en `pyramid` siempre hay un solo valor (la última serie); en `fixed` se compara si todos los valores de `plan.reps` son iguales (`Object.values(plan.reps).every(r => r === repsValues[0])`) para decidir si mostrar `× reps` o solo el peso.
+El título de la tarjeta cambia si el ejercicio está en modo regreso (sección 15): `"🔁 Volviendo a tu nivel ({preGapLevel} kg) · ¡Podés superarte!"` en vez de `"¡Podés superarte! 💪"`.
+
+### Deload manual — solo una línea de referencia
+
+La descarga (`settings.deloadActive`, activación 100% manual en Configuración) **ya no modifica ningún valor precargado** — antes reducía peso (×0.65, `floorWeight`) y series (-1, mínimo 2) directamente en `buildEntry`. Ahora es puramente informativa: se sigue mostrando el banner que la *sugiere* (`shouldSuggestDeload()` en `useDeload.js`, sin cambios — fatiga promedio ≥ 7 en las últimas 40 sesiones), y cuando está activa, cada `ExerciseCard` muestra una línea de referencia calculada en vivo a partir de la serie más pesada de la precarga (que, recordar, ya es la última sesión real tal cual):
+
+```js
+const deloadPreview = deloadActive && maxWeight > 0 ? applyDeloadMultiplier(maxWeight, learnedWeights ?? []) : null
+// "Semana de descarga: probá con ~{deloadPreview} kg"
+```
+
+`applyDeloadMultiplier` (`utils/weights.js`, sin cambios) sigue siendo `floorWeight(peso × 0.65, learnedWeights)` — la misma fórmula de siempre, solo que ahora es una *sugerencia visual*, no algo que ya está escrito en las cajas. `useDeload.js` perdió `getDeloadWeight`/`getDeloadSets` (quedaron sin ningún consumidor tras este cambio).
 
 ---
 
@@ -1475,90 +1476,55 @@ El aviso de inactividad es exclusivamente informativo/UX — no crea ningún wor
 
 ---
 
-## 15. VUELTA SUAVE / REENTRADA (`src/utils/reentry.js`, `src/components/registro/FuerzaFlow.jsx`)
+## 15. MODO REGRESO (`src/utils/reentry.js`, `src/components/registro/FuerzaFlow.jsx`)
 
-Cuando un usuario retoma un ejercicio puntual después de 14+ días sin hacerlo, la app precarga peso y series reducidos y los va subiendo gradualmente en las sesiones siguientes, en vez de asumir que puede arrancar directo donde lo dejó. Es **por ejercicio** (no por usuario ni por sesión global): cada ejercicio tiene su propio historial y su propio parate.
+> **Historial**: hasta septiembre 2026 esto se llamaba "vuelta suave / reentrada" y **reducía peso y series en la precarga** tras un parate de 14+ días, subiendo gradualmente en 1-4 sesiones. Se reemplazó por completo: la precarga ya nunca se reduce sola (sección 13, "Precarga = última sesión real, siempre") — el modo regreso ahora es puramente un **detector** que, cuando corresponde, relaja el umbral de la sugerencia opcional de progresión, para que "recuperar" el peso de antes del parate sea más fácil de sugerir, no algo que la app le fuerza en las cajas.
 
-### Por qué (Bosquet 2013 + decisión de producto)
+**Por qué** (memoria muscular + decisión de producto): tras un parate, el nivel previo de fuerza se recupera más rápido de lo que costó alcanzarlo la primera vez — no hace falta un plan de varias sesiones reduciendo peso poco a poco; alcanza con no exigir la regla normal de "2 sesiones consecutivas al mismo peso" antes de sugerir subir, porque el usuario ya sabe a qué peso apuntar (el que manejaba antes). El techo (`preGapLevel`) evita sugerir de una pasarse del nivel previo en un solo salto.
 
-La fuerza máxima se mantiene razonablemente estable durante ~2-3 semanas de inactividad, pero la resistencia a la fuerza (aguantar el mismo volumen/reps a un peso dado) decae antes — por eso volver directo al peso y series de la última sesión puede llevar a fallar series o a una sesión de calidad mucho más baja de lo esperado, sin que el usuario lo anticipe. Se decidió aplicar la reducción también para paretes no fisiológicos (estrés, descanso, "sin_respuesta") y no solo para enfermedad/lesión: el motivo real de una pausa de 2+ semanas es difícil de auto-reportar con precisión, y una vuelta más suave no tiene costo real para quien sí mantuvo la forma, mientras evita una mala sesión para quien no. Por la misma razón (la memoria muscular permite recuperar el nivel previo rápido, no gradualmente en semanas), la reentrada dura solo 2-4 sesiones, no varias semanas.
+### `getReturnState(exerciseSessions, today, inactividad)` — detección
 
-**Nunca se quitan series** (corregido en septiembre 2026): la versión original descartaba la última serie del baseline cuando tenía 3+, sin ningún fundamento fisiológico — quitar series no reduce el riesgo de una mala sesión, solo reduce el volumen de golpe. La reentrada ahora reduce **exclusivamente el peso**; la cantidad de series del baseline se mantiene intacta.
+Sin ningún campo nuevo en Firestore — se deriva en cada llamada de las fechas del historial completo de ese ejercicio (no el slice de 5).
 
-### 1. Dos gaps, no uno: `exerciseGap` y `muscleGap`
+1. Busca el gap de 14+ días **más reciente** entre sesiones consecutivas del ejercicio (sin acotar cuántas sesiones atrás, a diferencia del sistema viejo — ver "por qué sin límite" abajo). Si no hay ninguna sesión posterior a ese gap todavía (el usuario no volvió), no hay modo regreso — la precarga usa la última sesión real tal cual y el usuario ajusta a mano (sin sugerencias de subida).
+2. `preGapLevel` = el mayor peso de la última serie (la más pesada en un esquema piramidal) entre el `baseline` (la sesión justo antes del gap) y hasta 2 sesiones más antes de él.
+3. **Activo** si `preGapLevel > 0` y el peso máximo de la última sesión real es **menor** que `preGapLevel`. Se autoexpira solo por peso alcanzado, no por cantidad de sesiones — por eso no hace falta acotar la búsqueda del gap a una ventana fija como antes (el viejo sistema necesitaba ese límite porque `N` era una cantidad fija de sesiones; acá no hay `N`).
+4. `motivo`: igual que antes, el `profile.inactividad` guardado solo cuenta si su fecha cae dentro de la ventana del parate detectado.
 
-El bug real que motivó este cambio: la reducción se calculaba mirando únicamente cuánto hacía que no se hacía **ese ejercicio puntual** (`exerciseGap`) — así, alguien que dejó de hacer Hip Thrust hace 3 semanas pero sigue entrenando Glúteos con otros ejercicios (Sentadilla búlgara, Puente de glúteo, etc.) recibía la misma reducción abrupta que alguien que no entrenó Glúteos en absoluto, cuando en realidad no hay ningún desentrenamiento muscular — solo se perdió la práctica de ese movimiento específico.
+Devuelve `{ active, preGapLevel, sessionsSinceReturn, gapDays, motivo, baseline }`.
 
-- **`exerciseGap`**: días desde la última sesión de **ese** ejercicio (igual que antes — `gapToToday` o el gap encontrado entre sesiones consecutivas).
-- **`muscleGap`** (`computeMuscleGap()`): días desde la última sesión de fuerza (cualquier ejercicio) que trabajó el mismo músculo (`originalMuscle ?? muscle`) **o** la misma `PATTERN_ZONE` (de `routineGenerator.js`, derivada del `pattern` del ejercicio) — recorriendo el historial completo de workouts, no solo el de este ejercicio. El propio ejercicio objetivo también es candidato en este barrido, así que `muscleGap` nunca es mayor que `exerciseGap` (si nada más lo reemplazó, ambos coinciden). Ejercicios sin `pattern` (personalizados) — tanto el objetivo como los del historial — solo matchean por músculo, nunca por zona.
+### `getProgressionAdvice(..., returnState)` — el umbral relajado
 
-### 2. Vuelta técnica — cuando el músculo sigue entrenado
+Mientras `returnState.active` es `true` y el motivo del parate **no** fue `'enfermedad'`/`'lesion'`:
+- Alcanza con la **última sesión sola** (no 2 consecutivas) llegando a `repsThreshold` para que `advice.suggest` sea `true`.
+- **Sin bono de salto** (`jumpBonus = 0` — `effectiveThreshold = repsThreshold` sin más): en modo regreso no aplica la lógica de "salto proporcionalmente grande" (sección 13), porque el objetivo no es el próximo escalón normal sino volver al nivel ya conocido.
+- El peso sugerido tiene un piso de +10% (no el incremento chico de siempre) y un techo en `preGapLevel`:
+  ```js
+  const floorBased = floorWeight(currentWeight * 1.10, learnedWeights)
+  newWeight = Math.min(returnState.preGapLevel, Math.max(getNextWeight(currentWeight, learnedWeights, equipCategory), floorBased))
+  ```
 
-- `exerciseGap < 14` → sin reentrada, igual que siempre.
-- `exerciseGap ≥ 14` y `muscleGap < 14` → **vuelta técnica**: el músculo/zona sigue entrenado por otro ejercicio — no hay desentrenamiento muscular real, solo se perdió la técnica/el peso específico de este movimiento puntual. Escalón fijo y mínimo: `R = 5%`, `N = 1` sesión. Mensaje: `"🌱 Vuelta técnica · −{r}% (venís entrenando {músculo})"`.
-- `exerciseGap ≥ 14` y `muscleGap ≥ 14` → tabla normal de escalones (abajo), pero el escalón se elige por `muscleGap`, no por `exerciseGap` — si otro ejercicio mantuvo el músculo más fresco de lo que sugiere este ejercicio solo, la reducción debe reflejar esa frescura real, no la del ejercicio puntual.
-- El modificador por motivo (`'enfermedad'`/`'lesion'`: `R += 5`, `N += 1`) se aplica en **ambos** casos — vuelta técnica incluida — con la misma regla de fechas que antes (`lastWorkoutDate` del parate dentro de la ventana `[baseline, returnBoundary)`).
+Si el motivo del parate fue `'enfermedad'` o `'lesion'`, se ignora todo lo anterior y se usa la regla normal de 2 sesiones (con bono de salto incluido) — precaución extra para paretes por causa médica, donde conviene confirmar con más de una sesión antes de sugerir subir.
 
-**Fundamento de la vuelta técnica**: si el músculo se sigue estimulando regularmente (aunque sea con otro ejercicio), no hay pérdida de fuerza ni de resistencia muscular que justifique una reducción de peso significativa — el único "desentrenamiento" real es de la coordinación motora específica de ese patrón/agarre/ángulo puntual, que se recupera en una sola sesión con un peso apenas por debajo del habitual, no en 2-3 sesiones graduales.
+`advice` expone `returnActive: true` y `preGapLevel` cuando el modo regreso está activo (con o sin motivo médico), para que `ExerciseCard` muestre el mensaje `"🔁 Volviendo a tu nivel ({preGapLevel} kg) · ¡Podés superarte!"` en la tarjeta de sugerencia (sección 13).
 
-### 3. Escalones normales — `getReentrySteps(gapDays, motivo)` (usa `muscleGap`)
+### Ejemplo (verificado en la implementación)
 
-| Días sin estímulo del músculo/zona | Reducción (R) | Sesiones de reentrada (N) |
-|---|---|---|
-| 14–20 | 10% | 2 |
-| 21–28 | 15% | 2 |
-| 29–56 | 20% | 3 |
-| 57+   | 25% | 3 |
-
-Cualquier motivo que no sea `'enfermedad'`/`'lesion'` (`estres`, `descanso`, `sin_respuesta`, o sin motivo) usa la tabla tal cual.
-
-### 4. Detección por ejercicio — `getReentryState(exerciseSessions, today, inactividad, muscleContext)`
-
-No hay ningún campo nuevo en Firestore: todo se deriva en cada llamada a partir de las fechas del historial. `muscleContext = { muscle, pattern, allWorkouts }` — `muscle`/`pattern` del ejercicio objetivo (para derivar su `PATTERN_ZONE`) y el array completo de workouts del usuario (para `computeMuscleGap`).
-
-Algoritmo (sesiones del ejercicio ordenadas de más reciente a más vieja):
-1. Si `today − sesión[0] ≥ 14` días → el usuario todavía no volvió a este ejercicio: `k = 0`, `baseline = sesión[0]`, `exerciseGap` = esa diferencia.
-2. Si no, se busca el gap de 14+ días más reciente entre sesiones consecutivas, mirando hasta 4 sesiones atrás (el N máximo posible es 3+1 por motivo médico): el primer `i` (0..3) tal que `sesión[i+1]` a `sesión[i]` tengan 14+ días de diferencia → `k = i+1`, `baseline = sesión[i+1]`, `exerciseGap` = esa diferencia.
-3. Si no se encuentra ningún gap en esa ventana, o `k ≥ N`, no está en reentrada (`inReentry: false`).
-4. El `motivo` de `profile.inactividad` solo se usa si su `lastWorkoutDate` cae dentro de la ventana del parate detectado — si no, es de otro parate o está obsoleto y se ignora.
-5. Se calcula `muscleGap` (punto 1) y, con él (o con `exerciseGap` en vuelta técnica, ver punto 2), `R`/`N`. `sessionNumber = k + 1`.
-
-Devuelve `{ inReentry, sessionNumber, totalSessions, reduction, baseline, exerciseGap, muscleGap, isTechnical, motivo, reentrySessionDates }` (`gapDays` se mantiene como alias de `exerciseGap` por compatibilidad).
-
-### 5. Reducción gradual
-
-Para la sesión `j` (1..N) del plan de reentrada, la reducción decrece linealmente: primera sesión con la reducción completa, última sesión casi sin reducción, preparando el regreso a la carga normal (en la vuelta técnica, con `N=1`, la sesión única ya se hace con la reducción completa de 5%):
-
+Última sesión antes del parate: 3 series a 60kg (hace 40 días). Gap. Primera sesión de vuelta: 3×10 a 45kg (hace 3 días) — llega al `repsThreshold` de nivel A/B (10). `preGapLevel = 60`. Sin motivo médico:
 ```
-r_j = R × (N − j + 1) / N
+getNextWeight(45, [], equip)        = 47.5   // salto normal, chico
+floorWeight(45 * 1.10, [])          = 47.5   // piso del 10%
+newWeight = min(60, max(47.5, 47.5)) = 47.5
 ```
+Si el motivo hubiera sido `'enfermedad'`, con una sola sesión posterior al parate no alcanza (se exige la regla normal de 2 sesiones) — no hay sugerencia todavía. Una vez que el peso máximo de la última sesión llegue a 60kg (el `preGapLevel`), el modo regreso queda inactivo y todo vuelve a la regla normal.
 
-### 6. Precarga — `buildEntry()` en `FuerzaFlow.jsx`
+### Qué NO toca
 
-Si `reentry.inReentry`, la precarga se arma desde el **baseline** (la última sesión antes del parate), no desde la última sesión real:
-- **Se mantienen exactamente las series del baseline** — ni se agregan ni se quitan.
-- Peso por serie: `floorWeight(peso_baseline × (1 − r_j/100), learnedWeights)`.
-- Reps: iguales a las del baseline, sin ajuste.
-- **Sin sugerencias de progresión** en esta rama: no se llama a `getProgressionAdvice`/`computeSuggestionPlan`, así que no hay glow violeta ni reps recalculadas con Epley.
-- Si hay descarga (deload) activa a la vez, se usa el **menor** entre el peso de reentrada y el peso de descarga (`Math.min`), calculados ambos de forma independiente desde el peso original del baseline — las dos reducciones no se suman.
+El sistema de pesos, Epley, `REP_RANGES`, el aviso de inactividad (sección 14) y la racha (sección 1) quedan sin cambios. La precarga (sección 13) tampoco se ve afectada por el modo regreso en absoluto — es exclusivamente una señal para `getProgressionAdvice`.
 
-En la tarjeta del ejercicio se muestra una línea sutil (verde, no violeta, para no confundirla con una sugerencia de progresión):
-- Vuelta técnica: `"🌱 Vuelta técnica · −{reduction}% (venís entrenando {ex.muscle})"`.
-- Vuelta normal: `"🌱 Vuelta suave · sesión {sessionNumber} de {totalSessions} (−{reduction}%)"`.
+### Orden del historial
 
-### 7. Historial efectivo
-
-Las fechas devueltas en `reentry.reentrySessionDates` (las sesiones de la propia reentrada) se excluyen del historial que alimenta la precarga y `getProgressionAdvice`, tanto **durante** como **después** de la reentrada — así, una vez terminada, la siguiente precarga vuelve a partir del baseline en vez de encadenar sobre sesiones ya reducidas, y la doble progresión no cuenta esas sesiones como si fueran a carga normal. Estas fechas **no** se excluyen de PRs, gráficos, logros ni del historial visual (modal "📊 Historial" de cada ejercicio): esas sesiones sí ocurrieron y cuentan como entrenamiento real a todos esos efectos.
-
-`reentrySessionDates` toma las sesiones **más cercanas al baseline** entre las `k` hechas desde la vuelta (no las más cercanas a hoy): así, si en algún momento se acumulan más de `N` sesiones normales después de que la reentrada terminó, la detección de gap dentro de la ventana de 4 sesiones deja de encontrar ese parate por sí sola y el sistema queda "expirado" de forma natural, sin excluir sesiones que ya son de carga normal.
-
-### 8. Qué NO toca
-
-El sistema de pesos, Epley (`estimateRepsAtWeight`), `REP_RANGES`, el bono por salto de peso (`getJumpRepBonus`), las reglas a-e de `computeSuggestionPlan`, el aviso de inactividad (sección 14) y la racha (sección 1) quedan sin cambios — la reentrada es una capa aparte que solo actúa sobre la precarga de peso/series y sobre qué sesiones ve la progresión.
-
-### 9. Orden del historial
-
-Igual que en el resto de la app (ver sección 5), nunca se asume que `workouts` está ordenado: tanto `getReentryState` como `getLastWeightsForExercise`/`getExerciseSessions`/`getLearnedWeights` (`useWorkouts.js`) ordenan explícitamente por fecha descendente (orden estable ante empates) antes de usar el historial, porque los borradores offline (`draftQueue.js`) pueden anteponerse al array sin garantía de orden. `computeMuscleGap` (dentro de `getReentryState`) recorre el array de `workouts` completo sin asumir orden tampoco — busca la fecha máxima entre coincidencias, no depende de que venga ordenado.
+Igual que en el resto de la app (sección 5): `getReturnState` ordena explícitamente el historial por fecha descendente (estable ante empates) antes de usarlo, sin asumir que `exerciseSessions`/`workouts` vienen ordenados — los borradores offline (`draftQueue.js`) pueden anteponerse al array sin garantía de orden.
 
 ---
 
@@ -1601,7 +1567,7 @@ El generador solo elige del catálogo base (`exercises.js`), no de los ejercicio
 
 ### Uso en `FuerzaFlow.jsx` (evita el bug de precarga)
 
-`useGeneratedRoutine()` sigue usando `buildEntry()` sobre cada ejercicio generado (igual que las rutinas prearmadas), así que aplica precarga por historial, sugerencias con brillo violeta y vuelta suave si corresponde. El bug que tenía `GeneradorTab.jsx` (`useRoutine()` armaba `sets: { reps, weight: 0 }` a mano, sin ninguna precarga) se corrigió: ahora ese flujo solo guarda los `id` de los ejercicios elegidos en el draft (`detail.pendingGeneratedIds`) y navega a `/registro`; un `useEffect` nuevo en `FuerzaFlow.jsx` detecta ese campo al montar, construye cada entrada con `buildEntry()` y limpia el campo. `saveAsPrearmada()` (guardar como rutina propia) no cambió.
+`useGeneratedRoutine()` sigue usando `buildEntry()` sobre cada ejercicio generado (igual que las rutinas prearmadas), así que cada uno se precarga con su última sesión real (sección 13). El bug que tenía `GeneradorTab.jsx` (`useRoutine()` armaba `sets: { reps, weight: 0 }` a mano, sin ninguna precarga) se corrigió: ahora ese flujo solo guarda los `id` de los ejercicios elegidos en el draft (`detail.pendingGeneratedIds`) y navega a `/registro`; un `useEffect` nuevo en `FuerzaFlow.jsx` detecta ese campo al montar, construye cada entrada con `buildEntry()` y limpia el campo. `saveAsPrearmada()` (guardar como rutina propia) no cambió.
 
 ### Sugerencia de siguiente ejercicio (`suggestNextExercise`, botón "✨ Sugerencia" en modo libre)
 
@@ -1685,7 +1651,7 @@ Se reusa si `date === hoy` **y** `realCount` (cantidad de workouts reales en mem
 
 Muestra `suggestion.routineName ?? suggestion.title` (o `'Cardio o Clase 🏃'` para el tipo cardio) como título, y `suggestion.sub ?? suggestion.reason` como detalle expandible. Al tocar "Empezar":
 - `routineId` → navega a `/registro` con `state: { type: 'fuerza', routineId }`, igual que antes.
-- `generatedIds` → arma un draft con `pendingGeneratedIds` (mismo mecanismo que `GeneradorTab.useRoutine`, sección 16) y navega a `/registro` sin `state` — `FuerzaFlow.jsx` los detecta al montar y construye cada entrada con `buildEntry` (precarga, sugerencias con brillo, vuelta suave).
+- `generatedIds` → arma un draft con `pendingGeneratedIds` (mismo mecanismo que `GeneradorTab.useRoutine`, sección 16) y navega a `/registro` sin `state` — `FuerzaFlow.jsx` los detecta al montar y construye cada entrada con `buildEntry` (precarga = última sesión real de cada ejercicio, sección 13).
 - `cardio` → navega a `/registro` con `state: { type: 'cardio' }`.
 
 ---

@@ -139,6 +139,34 @@ export const toggleNever = async (uid, exerciseId, currentList) => {
   return updated
 }
 
+// ─── Entrenamiento en curso (respaldo en la nube) ──────────────────────────────
+// Falla en silencio: sin red, el guardado local alcanza y esto sincroniza cuando vuelva la conexión.
+export const getWorkoutInProgress = async (uid) => {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'data', 'workoutInProgress'))
+    return snap.exists() ? snap.data() : null
+  } catch (err) {
+    console.warn('getWorkoutInProgress sin red:', err)
+    return null
+  }
+}
+
+export const saveWorkoutInProgress = async (uid, draftData) => {
+  try {
+    await setDoc(doc(db, 'users', uid, 'data', 'workoutInProgress'), draftData)
+  } catch (err) {
+    console.warn('saveWorkoutInProgress sin red, sigue solo en local:', err)
+  }
+}
+
+export const deleteWorkoutInProgress = async (uid) => {
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'data', 'workoutInProgress'))
+  } catch (err) {
+    console.warn('deleteWorkoutInProgress sin red:', err)
+  }
+}
+
 // ─── Custom Routines ──────────────────────────────────────────────────────────
 export const getCustomRoutines = async (uid) => {
   const q = query(collection(db, 'users', uid, 'customRoutines'), orderBy('createdAt', 'desc'))

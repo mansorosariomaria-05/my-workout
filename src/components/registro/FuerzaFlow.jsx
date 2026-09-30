@@ -235,8 +235,8 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   const currentRestSecs = exData.restSecs ?? restSec
 
   // Sugerencia opcional "¡Podés superarte!" — nunca se aplica sola, el usuario elige una opción o
-  // "Hoy no". El estado de "ya resuelto para esta sesión" vive en exData (persiste en el draft de
-  // sessionStorage), así no reaparece al recargar la página.
+  // "Hoy no". El estado de "ya resuelto para esta sesión" vive en exData (persiste en el borrador
+  // del entrenamiento en curso, ver WorkoutDraftContext), así no reaparece al recargar la página.
   const suggestionDismissed = !!exData.suggestionDismissed
   const weightOption = suggestionDismissed ? null : buildWeightOption(progressionAdvice, lastSets)
   const repsOption    = suggestionDismissed ? null : buildRepsOption(progressionAdvice, lastSets)

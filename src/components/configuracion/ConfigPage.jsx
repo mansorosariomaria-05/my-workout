@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
+import { useWorkoutDraft } from '../../context/WorkoutDraftContext'
 import { logout } from '../../services/auth'
 import { getWorkouts, saveWorkout } from '../../services/db'
 import Button from '../ui/Button'
@@ -37,6 +38,7 @@ function Toggle({ label, value, onChange }) {
 export default function ConfigPage() {
   const { user, profile, settings, updateProfile, updateSettings } = useAuthContext()
   const { workouts } = useWorkouts(user?.uid)
+  const { clearDraft: clearWorkoutInProgress } = useWorkoutDraft()
   const navigate = useNavigate()
 
   const [editingProfile, setEditingProfile] = useState(false)
@@ -57,6 +59,7 @@ export default function ConfigPage() {
   }
 
   const handleLogout = async () => {
+    clearWorkoutInProgress()
     await logout()
     navigate('/', { replace: true })
   }

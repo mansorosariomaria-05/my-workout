@@ -1726,6 +1726,77 @@ Verificado con corridas sintéticas sobre los helpers (casos exactos del pedido)
 
 ---
 
+## 19. ENTRENAMIENTO EN CURSO (`src/context/WorkoutDraftContext.jsx`, `src/utils/draftResolution.js`)
+
+### Antes de este cambio
+
+El borrador del wizard (`WorkoutWizard.jsx`) vivía en `sessionStorage`, clave `'workoutDraft'`. En iOS, cuando la PWA se cierra o pasa mucho tiempo en segundo plano, el sistema puede matar el proceso y `sessionStorage` se pierde — el usuario volvía a `/registro` y encontraba todo vacío, aunque hubiera cargado varios ejercicios.
+
+No confundir con `workout_draft_{uid}` (`src/utils/draftQueue.js`): esa es la cola de workouts **ya completados** que no se pudieron guardar en Firestore por falta de red — un mecanismo totalmente distinto, que este cambio no tocó.
+
+### Persistencia local — `workout_in_progress_{uid}`
+
+`WorkoutDraftContext.jsx` guarda el draft en `localStorage` (sobrevive al cierre de la app), con clave por usuario para no mezclar sesiones si hay más de una cuenta en el mismo dispositivo. Cada `setDraft(data)`:
+1. Preserva `startedAt` (timestamp) y `startedDate` (`YYYY-MM-DD` local) del draft existente si ya había uno — se fijan una sola vez, en el momento en que se crea el borrador (primer `setDraft` después de estar en `null`), y nunca se pisan en cambios posteriores.
+2. Pisa `updatedAt` con `Date.now()` en cada llamada.
+3. Escribe en `localStorage` de forma síncrona (try/catch — si el storage no está disponible, sigue funcionando solo en memoria).
+4. Programa el respaldo en la nube (debounce, ver abajo).
+
+Todo lo que ya persistía en el draft (`step`, `type`, `detail` con `exercises`/`sets`/`_suggested`/`suggestionDismissed`/`pendingGeneratedIds`, `fatigue`, `notes`, `date`) se mantiene tal cual — el cambio es solo el mecanismo de storage y los tres campos de timestamp nuevos.
+
+### Respaldo en la nube — `users/{uid}/data/workoutInProgress`
+
+Mismo patrón de documento singleton por usuario que `profile`/`settings`/`achievements`/`favorites`/`never` (`src/services/db.js`). `saveWorkoutInProgress`/`getWorkoutInProgress`/`deleteWorkoutInProgress` atrapan cualquier error de red internamente y no lo propagan: sin conexión, el guardado local alcanza y Firestore se sincroniza solo cuando vuelva la red (nunca bloquea ni muestra un error al usuario).
+
+El guardado en la nube está debounced a ~5 segundos después del último cambio (`scheduleCloudSave`, temporizador reiniciado en cada `setDraft`), para no escribir en Firestore en cada tecla. Además, hay un guardado inmediato (`flushCloudSave`, cancela el debounce pendiente y guarda ya) en:
+- `visibilitychange` → `document.visibilityState === 'hidden'` (la app pasa a segundo plano)
+- `pagehide` (la app se cierra o navega fuera)
+
+### Reglas de restauración al abrir la app
+
+`resolveDraft()` (llamado una sola vez por apertura, desde `Inicio.jsx`) hace la reconciliación local-vs-nube:
+
+```js
+pickNewerDraft(local, cloud)  // usa el que tenga updatedAt más reciente; si solo hay uno, ese
+isDraftExpired(draft)         // true si updatedAt tiene 7 días o más
+draftHasRealContent(draft)    // fuerza: al menos 1 ejercicio · cardio/clase: algún dato cargado
+```
+
+Estas tres funciones puras viven en `src/utils/draftResolution.js` (sin dependencias de React/Firebase) para poder testearlas de forma aislada. Si la nube ganó, `resolveDraft()` sobreescribe el `localStorage` con esa versión antes de devolverla, así el resto de la app (incluido `WorkoutWizard.jsx` si el usuario navega a `/registro`) ve siempre la versión correcta desde el contexto.
+
+Flujo en `Inicio.jsx`:
+- Si el draft ganador está expirado (7+ días) → se borra (local + nube) sin preguntar, sin mostrar nada.
+- Si no tiene contenido real (ej. quedó en el paso 1 sin cargar nada) → no se muestra el modal.
+- Si tiene contenido real y menos de 7 días → modal "¿Continuás donde lo dejaste?" (`Modal.jsx`), con resumen en una línea: `Tipo · detalle (cantidad de ejercicios o actividad/clase) · empezado hoy/ayer/el {fecha} a las HH:MM` (usa `startedAt`, no `updatedAt`).
+  - **Continuar** → navega a `/registro` (el draft ya está cargado en el contexto; `WorkoutWizard.jsx` lo lee vía `useWorkoutDraft()` en su `useState` inicial, exactamente igual que ya hacía con el draft de sesión).
+  - **Descartar** → borra local + nube, cierra el modal.
+  - Cerrar el modal tocando afuera o la X → NO descarta nada, solo lo oculta esta vez (el draft sigue ahí y se vuelve a ofrecer en la próxima apertura).
+- **Prioridad**: mientras la resolución está pendiente o hay un draft para retomar, se difieren el aviso de inactividad y el resumen semanal a otra apertura (no se pierden — el resumen semanal no llega a marcarse como "visto" esta vez, así que su `useEffect` reintenta la próxima vez que se cumplan sus condiciones).
+- El modal solo se renderiza dentro de `Inicio.jsx` (ruta `/`), así que nunca puede aparecer estando ya en `/registro` con ese mismo draft cargado.
+
+### Fecha del workout restaurado
+
+No hizo falta tocar `WorkoutWizard.jsx` para esto: su estado `date` ya se inicializaba como `savedDraft?.date ?? todayStr()` y se persiste en cada cambio del draft. Como ese campo se fija al crear el draft (mismo momento que `startedDate`) y solo cambia si el usuario edita el input de fecha, "usar `startedDate` salvo cambio manual" ya era el comportamiento existente — simplemente ahora sobrevive el cierre de la app en vez de perderse con `sessionStorage`.
+
+### Limpieza — cuándo se borra el draft (local + nube)
+
+`clearDraft()` (contexto) borra ambos lados siempre. Se llama en:
+- `WorkoutWizard.jsx` → `handleSave`, tras un `saveWorkout` exitoso — incluye el camino de guardado offline, porque `useWorkouts.saveWorkout` no relanza el error: si Firestore falla, cae a la cola offline (`draftQueue.saveDraft`) y devuelve un id igual, así que el bloque `try` que llama a `clearDraft()` cubre los dos casos sin cambios adicionales.
+- `WorkoutWizard.jsx` → confirmar "Sí, cancelar" en el diálogo de cancelación.
+- `WorkoutWizard.jsx` → `step === 0` (vuelta a la pantalla de elegir tipo, ya limpiaba el draft antes).
+- `ConfigPage.jsx` → `handleLogout`, antes de `logout()` (para que `uid` todavía sea válido al disparar el `deleteDoc`).
+- `Inicio.jsx` → botón "Descartar" del modal de continuar.
+
+`stripSuggestedFlags` sigue aplicándose sobre `exercises` antes de guardar el workout final en Firestore (sin cambios) — los flags de UI (`_suggested`, `suggestionDismissed`) sí se preservan en el borrador **en curso** (tienen sentido mientras se está entrenando), pero nunca llegan al workout guardado.
+
+### Reglas de Firestore
+
+No existe un `firestore.rules` en este repo (`firebase.json` no tiene clave `"firestore"`), y la CLI de Firebase instalada acá no tiene comando para leer las reglas en producción — las reglas actuales solo se pueden ver/editar desde la consola de Firebase. `workoutInProgress` vive bajo el mismo patrón de ruta que `profile`/`settings`/`achievements`/`favorites`/`never` (`users/{uid}/data/{docId}`), que ya funcionan hoy con distintos nombres de documento bajo ese mismo path — la conclusión práctica es que la regla vigente casi con certeza matchea `docId` como wildcard (no una lista fija de nombres), por lo que `workoutInProgress` ya queda cubierto sin necesidad de cambiar nada. No se creó ni desplegó ningún `firestore.rules` nuevo para no arriesgar reemplazar el ruleset real (gestionado en la consola) por una versión adivinada e incompleta. Si en algún momento se quiere verificar esto con certeza, hay que revisar las reglas directamente en la consola de Firebase (Firestore → Reglas) para el proyecto `my-workout-ro`.
+
+Verificado con un script de Node contra la implementación real de `draftResolution.js` (local más nuevo que nube → usa local; solo nube → usa nube; nube más nueva → usa nube; 8 días → expirado; 6 días → no expirado; fuerza sin ejercicios / cardio vacío → sin contenido real; fuerza con 1 ejercicio / cardio con actividad → contenido real) — todos los escenarios pasaron.
+
+---
+
 ## Documentación técnica extendida
 
 Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

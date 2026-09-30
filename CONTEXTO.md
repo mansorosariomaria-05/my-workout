@@ -261,7 +261,7 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 2. **Detalle** (`step=1`) → FuerzaFlow / CardioFlow / ClaseFlow
 3. **Sensación** (`step=2`) → slider fatigue 1-10 + nota libre → guardar
 
-**Draft persistente:** `WorkoutDraftContext` guarda el estado en `localStorage` (`workout_draft`). Si el usuario cierra y vuelve, retoma desde donde estaba.
+**Entrenamiento en curso persistente:** `WorkoutDraftContext` guarda el estado en `localStorage` (`workout_in_progress_{uid}`, con `startedAt`/`startedDate`/`updatedAt`) y lo respalda en Firestore (`users/{uid}/data/workoutInProgress`, debounced ~5s + flush al pasar a segundo plano). Sobrevive al cierre completo de la app (incluido iOS matando la PWA en segundo plano). Al reabrir, `Inicio.jsx` ofrece un modal "¿Continuás donde lo dejaste?" si hay contenido real y menos de 7 días; si tiene 7+ días se borra solo. Ver sección 19 de `LOGICA_TECNICA.md`.
 
 **Timer de sesión:** se guarda `workout_start_ts` en localStorage cuando arranca el step 1. Se muestra en el header durante la sesión.
 
@@ -434,7 +434,8 @@ Usado en logros, mensajes y saludos para adaptar terminaciones.
 | Key | Contenido |
 |---|---|
 | `workouts_cache_{uid}` | Array de workouts (evita spinner en recarga) |
-| `workout_draft` | Draft de la sesión en curso (WorkoutDraftContext) |
+| `workout_in_progress_{uid}` | Entrenamiento en curso (WorkoutDraftContext) — con respaldo en Firestore, ver sección 19 de LOGICA_TECNICA.md |
+| `workout_draft_{uid}` | Cola offline de workouts ya completados sin sincronizar (draftQueue.js) — no confundir con el anterior |
 | `workout_start_ts` | Timestamp de inicio de sesión (timer) |
 | `post_frase_YYYY-MM-DD` | Frase post-entrenamiento del día (se fija por día) |
 | `weekly_summary_{weekKey}` | Estado del modal de resumen semanal |

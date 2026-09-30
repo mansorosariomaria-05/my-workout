@@ -34,6 +34,46 @@ function writeSuggestionCache(uid, entry) {
 const WEEKLY_SUMMARY_KEY = 'weekly_summary_'
 const TYPE_LABELS = { fuerza: 'Fuerza', cardio: 'Cardio', clase: 'Clase', tabata: 'Tabata' }
 
+// ─── Modal "¿Continuás donde lo dejaste?" ─────────────────────────────────────
+function formatStartedWhen(startedAt) {
+  const d = new Date(startedAt)
+  const hhmm = format(d, 'HH:mm')
+  const dateStr = dateToLocal(d)
+  const today = getTodayLocal()
+  if (dateStr === today) return `empezado hoy a las ${hhmm}`
+  const y = new Date(); y.setDate(y.getDate() - 1)
+  if (dateStr === dateToLocal(y)) return `empezado ayer a las ${hhmm}`
+  return `empezado el ${format(d, "d 'de' MMM", { locale: es })} a las ${hhmm}`
+}
+
+function formatResumeSummary(draft) {
+  const tipo = TYPE_LABELS[draft.type] ?? draft.type
+  let detail = ''
+  if (draft.type === 'fuerza') {
+    const n = draft.detail?.exercises?.length ?? 0
+    detail = `${n} ejercicio${n === 1 ? '' : 's'}`
+  } else if (draft.type === 'cardio') {
+    detail = draft.detail?.activity || 'Cardio'
+  } else if (draft.type === 'clase') {
+    detail = draft.detail?.clase || 'Clase'
+  }
+  const when = formatStartedWhen(draft.startedAt)
+  return [tipo, detail, when].filter(Boolean).join(' · ')
+}
+
+function ResumeDraftModal({ draft, onContinue, onDiscard }) {
+  if (!draft) return null
+  return (
+    <div className="space-y-4">
+      <p className="text-app-text text-sm leading-relaxed">{formatResumeSummary(draft)}</p>
+      <div className="flex gap-2 pt-1">
+        <button onClick={onContinue} className="flex-1 py-2.5 rounded-xl bg-app-purple text-white text-sm font-medium">Continuar</button>
+        <button onClick={onDiscard} className="flex-1 py-2.5 rounded-xl bg-app-elevated text-app-muted text-sm border border-white/8">Descartar</button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 function fechaRelativa(dateStr) {
   if (!dateStr) return ''
@@ -616,10 +656,13 @@ export default function Inicio() {
   const { user, settings, profile, updateProfile } = useAuthContext()
   const navigate = useNavigate()
   const { workouts, loading, reload, getCurrentStreak } = useWorkouts(user?.uid)
+  const { resolveDraft, clearDraft: clearWorkoutInProgress } = useWorkoutDraft()
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)
   const [suggestion, setSuggestion] = useState(null)
   const [showSatBanner, setShowSatBanner] = useState(false)
+  const [resumeDraft, setResumeDraft] = useState(null)
+  const [resumeChecked, setResumeChecked] = useState(false)
 
   const diasSemana = getThisWeekCount(workouts)
   const { current: semanasRacha } = getCurrentStreak()
@@ -638,8 +681,26 @@ export default function Inicio() {
     })
   }
 
+  // Se resuelve una vez por apertura: local vs. nube, descarta si tiene 7+ días, y solo ofrece
+  // continuar si el borrador ganador tiene contenido real. Tiene prioridad sobre inactividad y
+  // resumen semanal — mientras no se resuelva (o si hay borrador para retomar), esos se difieren.
+  useEffect(() => {
+    if (!user?.uid) return
+    let active = true
+    resolveDraft().then(winner => {
+      if (!active) return
+      setResumeDraft(winner)
+      setResumeChecked(true)
+    })
+    return () => { active = false }
+  }, [user?.uid]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const continueDraft = () => { setResumeDraft(null); navigate('/registro') }
+  const discardDraft = () => { clearWorkoutInProgress(); setResumeDraft(null) }
+
   useEffect(() => {
     if (loading || !workouts.length) return
+    if (!resumeChecked || resumeDraft) return // el borrador en curso tiene prioridad esta apertura
     if (inactivityInfo) return // el aviso de inactividad tiene prioridad esta apertura
     if (new Date().getDay() !== 1) return
     const key = WEEKLY_SUMMARY_KEY + getWeekStartLocal()
@@ -649,7 +710,7 @@ export default function Inicio() {
     setWeeklySummaryStats(stats)
     setShowWeeklySummary(true)
     localStorage.setItem(key, '1')
-  }, [workouts, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workouts, loading, resumeChecked, resumeDraft]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let lastDate = getTodayLocal()
@@ -738,8 +799,12 @@ export default function Inicio() {
         )}
       </Modal>
 
-      <Modal isOpen={!!inactivityInfo} onClose={() => saveInactividad('sin_respuesta')} title="¡Qué bueno verte de vuelta! 💜">
+      <Modal isOpen={!!inactivityInfo && resumeChecked && !resumeDraft} onClose={() => saveInactividad('sin_respuesta')} title="¡Qué bueno verte de vuelta! 💜">
         {inactivityInfo && <InactivityModal daysSince={inactivityInfo.daysSince} onSave={saveInactividad} />}
+      </Modal>
+
+      <Modal isOpen={!!resumeDraft} onClose={() => setResumeDraft(null)} title="¿Continuás donde lo dejaste?">
+        <ResumeDraftModal draft={resumeDraft} onContinue={continueDraft} onDiscard={discardDraft} />
       </Modal>
     </div>
   )

@@ -3,6 +3,7 @@ import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toDateStr } from '../../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../../utils/streak'
+import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 import Modal from '../ui/Modal'
 
 const DAY_LABELS    = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -59,17 +60,24 @@ function WorkoutDetailBlock({ workout }) {
         </div>
       )}
 
-      {workout.type === 'cardio' && (
-        <p className="text-app-text text-xs">
-          {workout.activity}
-          {workout.activity && ' — '}
-          {[
-            workout.tiempo ? `${workout.tiempo} min` : null,
-            workout.distancia ? `${workout.distancia} km` : null,
-            workout.ritmo || null,
-          ].filter(Boolean).join(' · ')}
-        </p>
-      )}
+      {workout.type === 'cardio' && (() => {
+        const durationSeconds = getEffectiveDurationSeconds(workout)
+        const isBici = workout.activity === 'Bici'
+        const paceOrSpeed = isBici
+          ? (durationSeconds && workout.distancia ? `${computeSpeedKmh(durationSeconds, workout.distancia)} km/h` : null)
+          : (getEffectivePaceSecondsPerKm(workout) != null ? formatPace(getEffectivePaceSecondsPerKm(workout)) : null)
+        return (
+          <p className="text-app-text text-xs">
+            {workout.activity}
+            {workout.activity && ' — '}
+            {[
+              durationSeconds ? formatDuration(durationSeconds) : null,
+              workout.distancia ? `${workout.distancia} km` : null,
+              paceOrSpeed,
+            ].filter(Boolean).join(' · ')}
+          </p>
+        )
+      })()}
 
       {workout.type === 'clase' && (
         <p className="text-app-text text-xs">

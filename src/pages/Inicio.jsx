@@ -8,6 +8,7 @@ import { useWorkouts } from '../hooks/useWorkouts'
 import { useWorkoutDraft } from '../context/WorkoutDraftContext'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES, computeStreakStats } from '../utils/streak'
+import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../utils/cardio'
 import { getInactivityInfo } from '../utils/inactivity'
 import { computeDailySuggestion } from '../utils/dailySuggestion'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
@@ -477,7 +478,25 @@ function LastWorkoutModal({ workout }) {
           ))}
         </div>
       )}
-      {workout.type === 'cardio' && <div><p className="text-app-text text-sm">{workout.activity}</p>{workout.tiempo && <p className="text-app-muted text-xs">{workout.tiempo} min{workout.distancia ? ` · ${workout.distancia} km` : ''}</p>}</div>}
+      {workout.type === 'cardio' && (() => {
+        const durationSeconds = getEffectiveDurationSeconds(workout)
+        const isBici = workout.activity === 'Bici'
+        const paceOrSpeed = isBici
+          ? (durationSeconds && workout.distancia ? `${computeSpeedKmh(durationSeconds, workout.distancia)} km/h` : null)
+          : (getEffectivePaceSecondsPerKm(workout) != null ? formatPace(getEffectivePaceSecondsPerKm(workout)) : null)
+        return (
+          <div>
+            <p className="text-app-text text-sm">{workout.activity}</p>
+            <p className="text-app-muted text-xs">
+              {[
+                durationSeconds ? formatDuration(durationSeconds) : null,
+                workout.distancia ? `${workout.distancia} km` : null,
+                paceOrSpeed,
+              ].filter(Boolean).join(' · ')}
+            </p>
+          </div>
+        )
+      })()}
       {workout.type === 'clase' && <div><p className="text-app-text text-sm">{workout.clase}</p>{workout.duracion && <p className="text-app-muted text-xs">{workout.duracion} min</p>}</div>}
       {fatigue != null && (
         <div className="flex items-center justify-between py-1.5 border-t border-white/5">

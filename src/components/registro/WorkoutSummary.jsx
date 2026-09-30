@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Button from '../ui/Button'
 import { FRASES_POST } from '../../data/frases'
 import { detectPRs, detectImprovements } from '../../utils/prUtils'
+import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 
 const CONFETTI_COLORS = ['#7C5CBF', '#40916C', '#4A9EDB', '#F59E0B', '#E57373', '#9B7FD4']
 
@@ -136,12 +137,39 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
               </div>
             </>
           )}
-          {workout.type === 'cardio' && (
-            <div className="flex justify-between">
-              <span className="text-app-muted text-sm">Actividad</span>
-              <span className="text-app-text font-semibold">{workout.activity}</span>
-            </div>
-          )}
+          {workout.type === 'cardio' && (() => {
+            const durationSeconds = getEffectiveDurationSeconds(workout)
+            const isBici = workout.activity === 'Bici'
+            const paceOrSpeed = isBici
+              ? (durationSeconds && workout.distancia ? `${computeSpeedKmh(durationSeconds, workout.distancia)} km/h` : null)
+              : (getEffectivePaceSecondsPerKm(workout) != null ? formatPace(getEffectivePaceSecondsPerKm(workout)) : null)
+            return (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-app-muted text-sm">Actividad</span>
+                  <span className="text-app-text font-semibold">{workout.activity}</span>
+                </div>
+                {durationSeconds > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-app-muted text-sm">Tiempo</span>
+                    <span className="text-app-text font-semibold">{formatDuration(durationSeconds)}</span>
+                  </div>
+                )}
+                {workout.distancia > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-app-muted text-sm">Distancia</span>
+                    <span className="text-app-text font-semibold">{workout.distancia} km</span>
+                  </div>
+                )}
+                {paceOrSpeed && (
+                  <div className="flex justify-between">
+                    <span className="text-app-muted text-sm">{isBici ? 'Velocidad' : 'Ritmo'}</span>
+                    <span className="text-app-text font-semibold">{paceOrSpeed}</span>
+                  </div>
+                )}
+              </>
+            )
+          })()}
           {workout.type === 'clase' && (
             <div className="flex justify-between">
               <span className="text-app-muted text-sm">Clase</span>

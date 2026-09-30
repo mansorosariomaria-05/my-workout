@@ -1690,6 +1690,76 @@ Muestra `suggestion.routineName ?? suggestion.title` (o `'Cardio o Clase 🏃'` 
 
 ---
 
+## 18. REGISTRO DE CARDIO (`src/utils/cardio.js`, `src/components/registro/CardioFlow.jsx`)
+
+### Antes de este cambio
+
+El tiempo se pedía como un solo input numérico en minutos (`tiempo`, entero), la distancia en km (`distancia`), y el ritmo (`ritmo`) era texto libre tipeado a mano ("5:30"), pedido solo para la actividad "Running". Ese estado se investigó antes de tocar nada (para no romper compatibilidad): `achievements.js` (`getAvgPaceMinPerKm`/`ritmoSolido`, `getTotalRunningKm`) calcula el ritmo **de nuevo, por su cuenta**, dividiendo `w.tiempo / w.distancia` directamente — nunca lee el campo `ritmo` guardado. `ritmo` en Firestore era puramente un campo de display (usado solo en el detalle del calendario), sin ningún consumidor de cálculo.
+
+### Campos en Firestore (workout `type: 'cardio'`)
+
+```js
+{
+  type: 'cardio', date, fatigue, notes, activity,
+  durationSeconds: 1935,      // NUEVO — fuente de verdad del tiempo, en segundos
+  tiempo: 32,                 // sigue existiendo — minutos, redondeado, derivado de durationSeconds
+  distancia: 5.8,             // sin cambios
+  paceSecondsPerKm: 334,      // NUEVO — segundos por km, redondeado
+  ritmo: '5:34',              // sigue existiendo — "m:ss" (sin "/km"), derivado de paceSecondsPerKm
+  createdAt: serverTimestamp(),
+}
+```
+
+`durationSeconds` y `paceSecondsPerKm` son los campos nuevos y la fuente de verdad hacia adelante. `tiempo` y `ritmo` se siguen escribiendo, derivados de los nuevos campos en el momento de guardar (`WorkoutWizard.jsx`), **exactamente en el mismo formato que antes** (`tiempo` en minutos enteros, `ritmo` como "m:ss" sin sufijo) — así `achievements.js` y cualquier otro código que ya los lee sigue funcionando sin tocarlo. `ritmo`/`paceSecondsPerKm` quedan en `null` si el ritmo calculado supera 60 min/km (caso degenerado, ej. una caminata rarísima) en vez de guardar un valor sin sentido.
+
+### Compatibilidad con workouts viejos
+
+Los workouts guardados antes de este cambio no tienen `durationSeconds` ni `paceSecondsPerKm`. Dos helpers en `cardio.js` resuelven esto para **todo** el código que muestra un cardio:
+
+```js
+getEffectiveDurationSeconds(workout) // usa durationSeconds si existe; si no, workout.tiempo * 60
+getEffectivePaceSecondsPerKm(workout) // usa paceSecondsPerKm si existe; si no, lo deriva de duración + distancia
+```
+
+Todos los lugares que muestran un cardio (`WeekCalendar.jsx`, `WorkoutHistorial.jsx`, `ProgresoPage.jsx`, `Inicio.jsx` → `LastWorkoutModal`, `WorkoutSummary.jsx`) pasan por estos dos helpers en vez de leer `durationSeconds`/`tiempo` directamente — así un workout de antes de este cambio se muestra igual de bien que uno nuevo, sin ninguna migración de datos.
+
+### 1. Input de tiempo — tres campos numéricos
+
+`CardioFlow.jsx` reemplaza el input único de minutos por tres inputs en fila (horas : minutos : segundos), `inputMode="numeric"`, con `onFocus={e => e.target.select()}` para seleccionar el contenido al tocar. Horas es opcional (vacío = 0, sin tope). Minutos y segundos se clampean a `[0, 59]` en cada cambio (`clampMinSec`). Estos tres valores (`horas`/`minutos`/`segundos`) se guardan en el draft de la sesión (`data`, vía `WorkoutDraftContext`) igual que `distancia`/`activity`, así se preservan si el usuario cierra y retoma el registro.
+
+### 2. Distancia
+
+Sin cambios — el mismo input numérico en km de siempre.
+
+### 3. Ritmo / velocidad promedio — ya no es un input
+
+Se calcula en vivo, mostrado como campo de solo lectura (mismo estilo visual que los demás campos, un `<div>` en vez de `<input>`):
+- Para cualquier actividad menos "Bici": `formatPace(computePace(durationSeconds, km))` → `"m:ss /km"`.
+- Para "Bici": `computeSpeedKmh(durationSeconds, km)` → `"xx,x km/h"`, con el label del campo cambiando a "Velocidad promedio".
+- Si falta tiempo o distancia: `"—"`.
+
+Se recalcula en cada render a partir de los inputs de tiempo/distancia — no hay estado propio ni debounce, así que se actualiza en vivo mientras se tipea.
+
+### 4. Helpers puros (`src/utils/cardio.js`)
+
+| Función | Qué hace |
+|---|---|
+| `toSeconds(h, m, s)` | horas+minutos+segundos → segundos totales |
+| `formatDuration(seconds)` | `"h:mm:ss"` si hay horas, `"mm:ss"` si no (minutos siempre con 2 dígitos; horas nunca rellenadas) |
+| `computePace(seconds, km)` | segundos por km, o `null` si falta tiempo o distancia |
+| `formatPace(secPerKm)` | `"m:ss /km"` (minutos sin rellenar) — `"—"` si no hay pace o supera 60 min/km |
+| `computeSpeedKmh(seconds, km)` | `"xx,x"` (string, coma decimal) — `"—"` si falta tiempo o distancia |
+| `getEffectiveDurationSeconds(workout)` | `durationSeconds` si existe, si no lo deriva de `tiempo` (compatibilidad) |
+| `getEffectivePaceSecondsPerKm(workout)` | `paceSecondsPerKm` si existe, si no lo deriva de duración+distancia (compatibilidad) |
+
+### 5. Visualización
+
+Donde se muestra un cardio, el tiempo usa `formatDuration()` (`"h:mm:ss"` o `"mm:ss"`) y el ritmo `formatPace()` (`"m:ss /km"`), o la velocidad para Bici — reemplaza los `"{tiempo} min"` / texto libre de `ritmo` que se mostraban antes en cada pantalla.
+
+Verificado con corridas sintéticas sobre los helpers (casos exactos del pedido) y con un workout de cardio simulado sin `durationSeconds`/`paceSecondsPerKm` (formato viejo) mostrando el mismo resultado que uno con los campos nuevos, vía los helpers de compatibilidad.
+
+---
+
 ## Documentación técnica extendida
 
 Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

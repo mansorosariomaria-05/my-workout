@@ -10,6 +10,7 @@ import ClaseFlow from './ClaseFlow'
 import WorkoutSummary from './WorkoutSummary'
 import Button from '../ui/Button'
 import { todayStr } from '../../utils/dates'
+import { toSeconds, computePace, formatPace } from '../../utils/cardio'
 import { runAchievementCheck, ACHIEVEMENTS_META } from '../../utils/achievements'
 import { FuerzaIcon, CardioIcon, ClaseIcon } from '../icons/WorkoutIcons'
 
@@ -136,12 +137,23 @@ export default function WorkoutWizard({ initialType }) {
                          ? Number(detail.cintaInclinacion) : null,
         } : null,
       } : {}),
-      ...(type === 'cardio' ? {
-        activity:  detail.activity === 'otra' ? (detail.otra || '') : (detail.activity || ''),
-        tiempo:    detail.tiempo    ? Number(detail.tiempo)    : null,
-        distancia: detail.distancia ? Number(detail.distancia) : null,
-        ritmo:     detail.ritmo     || null,
-      } : {}),
+      ...(type === 'cardio' ? (() => {
+        const durationSeconds = toSeconds(detail.horas, detail.minutos, detail.segundos)
+        const distanciaKm     = detail.distancia ? Number(detail.distancia) : null
+        const paceSecPerKm    = computePace(durationSeconds, distanciaKm)
+        const validPace       = paceSecPerKm != null && Math.round(paceSecPerKm) <= 3600
+        return {
+          activity:  detail.activity === 'otra' ? (detail.otra || '') : (detail.activity || ''),
+          // durationSeconds es la fuente de verdad nueva; tiempo (minutos, redondeado) y ritmo
+          // ("m:ss", sin "/km") se siguen guardando derivados de ahí para que todo el código que
+          // ya lee esos dos campos (historial, logros, sugerencia diaria) siga funcionando igual.
+          durationSeconds: durationSeconds > 0 ? durationSeconds : null,
+          tiempo:          durationSeconds > 0 ? Math.round(durationSeconds / 60) : null,
+          distancia:       distanciaKm,
+          paceSecondsPerKm: validPace ? Math.round(paceSecPerKm) : null,
+          ritmo:           validPace ? formatPace(paceSecPerKm).replace(' /km', '') : null,
+        }
+      })() : {}),
       ...(type === 'clase' ? {
         clase:    detail.clase === 'otra' ? (detail.otra || '') : (detail.clase || ''),
         duracion: detail.duracion ? Number(detail.duracion) : 60,

@@ -37,7 +37,7 @@ src/
     registro/
       WorkoutWizard.jsx        # Flujo de 3 pasos: tipo → detalle → sensación → guardar
       FuerzaFlow.jsx           # Detalle de sesión de fuerza (corazón de la app)
-      CardioFlow.jsx           # Detalle de sesión de cardio
+      CardioFlow.jsx           # Detalle de sesión de cardio (tiempo h:m:s, ritmo/velocidad calculados)
       ClaseFlow.jsx            # Detalle de sesión de clase
       WorkoutSummary.jsx       # Pantalla de celebración post-guardado
 
@@ -104,6 +104,7 @@ src/
     weights.js                 # STANDARD_WEIGHTS, pesos aprendidos, nextWeight, floorWeight, deload
     routineGenerator.js        # generateRoutine(): selección y orden por patrón de movimiento
     dailySuggestion.js         # computeDailySuggestion(): sugerencia diaria (pura, sin fetch)
+    cardio.js                  # Tiempo/ritmo de cardio: toSeconds, formatDuration, computePace, etc.
     streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Vuelta suave: detección por ejercicio y por músculo/zona ("vuelta técnica")
@@ -158,8 +159,17 @@ users/{uid}/
 ### Estructura de un workout (Cardio)
 
 ```js
-{ type: 'cardio', date, fatigue, notes, activity, tiempo, distancia, ritmo, createdAt }
+{
+  type: 'cardio', date, fatigue, notes, activity,
+  durationSeconds,    // fuente de verdad del tiempo (segundos)
+  tiempo,             // minutos, redondeado — derivado de durationSeconds, se mantiene por compatibilidad
+  distancia,
+  paceSecondsPerKm,   // segundos por km — derivado de durationSeconds/distancia
+  ritmo,              // "m:ss" — derivado de paceSecondsPerKm, se mantiene por compatibilidad
+  createdAt,
+}
 ```
+Workouts guardados antes de este campo no tienen `durationSeconds`/`paceSecondsPerKm` — todo el código que muestra un cardio pasa por `getEffectiveDurationSeconds()`/`getEffectivePaceSecondsPerKm()` (`utils/cardio.js`), que los derivan de `tiempo`/`distancia` si faltan. Ver `LOGICA_TECNICA.md` sección 18.
 
 ### Estructura de un workout (Clase)
 

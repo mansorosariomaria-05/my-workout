@@ -5,6 +5,7 @@ import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal, dateToLocal } from '../../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../../utils/streak'
+import { formatDuration, getEffectiveDurationSeconds } from '../../utils/cardio'
 import { ChevronDown } from 'lucide-react'
 
 const REAL_TYPES = new Set(REAL_WORKOUT_TYPES)
@@ -315,8 +316,10 @@ function UltimasSesiones({ workouts }) {
         else if (w.type === 'clase' && w.clase)            subtitle = w.clase
 
         // Line 3: tiempo + notes
-        const tiempo   = w.tiempo ?? w.duracion ?? null
-        const hasLine3 = tiempo || w.notes
+        const tiempoLabel = w.type === 'cardio'
+          ? (getEffectiveDurationSeconds(w) ? formatDuration(getEffectiveDurationSeconds(w)) : null)
+          : (w.duracion ? `${w.duracion} min` : null)
+        const hasLine3 = tiempoLabel || w.notes
 
         return (
           <div key={i} className="rounded-xl px-4 py-3" style={{ backgroundColor: '#1a1625' }}>
@@ -350,8 +353,8 @@ function UltimasSesiones({ workouts }) {
             {/* Row 3: tiempo · notes italic */}
             {hasLine3 && (
               <p className="mt-0.5 text-xs truncate" style={{ color: '#6B7280' }}>
-                {tiempo && <span>{tiempo} min</span>}
-                {tiempo && w.notes && <span> · </span>}
+                {tiempoLabel && <span>{tiempoLabel}</span>}
+                {tiempoLabel && w.notes && <span> · </span>}
                 {w.notes && <em>{w.notes}</em>}
               </p>
             )}

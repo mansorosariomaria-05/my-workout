@@ -4,6 +4,7 @@ import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { CloudUpload } from 'lucide-react'
+import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 import Modal from '../ui/Modal'
 
 const TYPE_DOT = {
@@ -122,14 +123,25 @@ export default function WorkoutHistorial({ workouts }) {
               </div>
             )}
 
-            {selectedWorkout.activity && (
-              <div className="bg-app-bg rounded-xl p-3">
-                <p className="text-app-text text-sm font-medium">{selectedWorkout.activity}</p>
-                <p className="text-app-muted text-xs">
-                  {selectedWorkout.tiempo} min {selectedWorkout.distancia ? `· ${selectedWorkout.distancia} km` : ''}
-                </p>
-              </div>
-            )}
+            {selectedWorkout.activity && (() => {
+              const durationSeconds = getEffectiveDurationSeconds(selectedWorkout)
+              const isBici = selectedWorkout.activity === 'Bici'
+              const paceOrSpeed = isBici
+                ? (durationSeconds && selectedWorkout.distancia ? `${computeSpeedKmh(durationSeconds, selectedWorkout.distancia)} km/h` : null)
+                : (getEffectivePaceSecondsPerKm(selectedWorkout) != null ? formatPace(getEffectivePaceSecondsPerKm(selectedWorkout)) : null)
+              return (
+                <div className="bg-app-bg rounded-xl p-3">
+                  <p className="text-app-text text-sm font-medium">{selectedWorkout.activity}</p>
+                  <p className="text-app-muted text-xs">
+                    {[
+                      durationSeconds ? formatDuration(durationSeconds) : null,
+                      selectedWorkout.distancia ? `${selectedWorkout.distancia} km` : null,
+                      paceOrSpeed,
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+              )
+            })()}
 
             {selectedWorkout.clase && (
               <div className="bg-app-bg rounded-xl p-3">

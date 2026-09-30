@@ -1,11 +1,26 @@
-import { useState } from 'react'
+import { toSeconds, computePace, formatPace, computeSpeedKmh } from '../../utils/cardio'
 
 const ACTIVITIES = ['Running', 'Caminata', 'Rollers', 'Trekking', 'Bici', 'Tenis']
 
+// Minutos/segundos: 0-59, vacío se mantiene vacío.
+const clampMinSec = (val) => {
+  if (val === '') return ''
+  return String(Math.max(0, Math.min(59, Math.floor(Number(val) || 0))))
+}
+
 export default function CardioFlow({ data, onChange }) {
-  const { activity, tiempo, distancia, ritmo, fatigue, otra } = data
+  const { activity, horas, minutos, segundos, distancia, fatigue, otra } = data
 
   const set = (field, val) => onChange({ ...data, [field]: val })
+  const selectContent = (e) => e.target.select()
+
+  const durationSeconds = toSeconds(horas, minutos, segundos)
+  const km = Number(distancia) || 0
+  const isBici = activity === 'Bici'
+  const hasComputedValue = durationSeconds > 0 && km > 0
+  const computedValue = isBici
+    ? (hasComputedValue ? `${computeSpeedKmh(durationSeconds, km)} km/h` : '—')
+    : formatPace(computePace(durationSeconds, km))
 
   return (
     <div className="space-y-5 animate-fadeIn">
@@ -48,14 +63,35 @@ export default function CardioFlow({ data, onChange }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-app-muted text-xs mb-1.5 block">Tiempo (min)</label>
-          <input
-            type="number"
-            value={tiempo ?? ''}
-            onChange={e => set('tiempo', e.target.value)}
-            placeholder="45"
-            className="w-full bg-app-bg border border-white/10 rounded-xl px-3 py-2.5 text-app-text text-sm text-center focus:outline-none focus:border-app-green/60"
-          />
+          <label className="text-app-muted text-xs mb-1.5 block">Tiempo</label>
+          <div className="flex items-center gap-1">
+            <input
+              type="number" inputMode="numeric" min="0"
+              value={horas ?? ''}
+              onChange={e => set('horas', e.target.value)}
+              onFocus={selectContent}
+              placeholder="h"
+              className="w-full min-w-0 bg-app-bg border border-white/10 rounded-xl px-1 py-2.5 text-app-text text-sm text-center focus:outline-none focus:border-app-green/60"
+            />
+            <span className="text-app-muted text-sm">:</span>
+            <input
+              type="number" inputMode="numeric" min="0" max="59"
+              value={minutos ?? ''}
+              onChange={e => set('minutos', clampMinSec(e.target.value))}
+              onFocus={selectContent}
+              placeholder="min"
+              className="w-full min-w-0 bg-app-bg border border-white/10 rounded-xl px-1 py-2.5 text-app-text text-sm text-center focus:outline-none focus:border-app-green/60"
+            />
+            <span className="text-app-muted text-sm">:</span>
+            <input
+              type="number" inputMode="numeric" min="0" max="59"
+              value={segundos ?? ''}
+              onChange={e => set('segundos', clampMinSec(e.target.value))}
+              onFocus={selectContent}
+              placeholder="s"
+              className="w-full min-w-0 bg-app-bg border border-white/10 rounded-xl px-1 py-2.5 text-app-text text-sm text-center focus:outline-none focus:border-app-green/60"
+            />
+          </div>
         </div>
         <div>
           <label className="text-app-muted text-xs mb-1.5 block">Distancia (km)</label>
@@ -70,17 +106,12 @@ export default function CardioFlow({ data, onChange }) {
         </div>
       </div>
 
-      {(activity === 'Running') && (
-        <div>
-          <label className="text-app-muted text-xs mb-1.5 block">Ritmo promedio (min/km)</label>
-          <input
-            value={ritmo ?? ''}
-            onChange={e => set('ritmo', e.target.value)}
-            placeholder="5:30"
-            className="w-full bg-app-bg border border-white/10 rounded-xl px-3 py-2.5 text-app-text text-sm focus:outline-none focus:border-app-green/60"
-          />
+      <div>
+        <label className="text-app-muted text-xs mb-1.5 block">{isBici ? 'Velocidad promedio' : 'Ritmo promedio'}</label>
+        <div className="w-full bg-app-bg border border-white/10 rounded-xl px-3 py-2.5 text-app-text text-sm">
+          {computedValue}
         </div>
-      )}
+      </div>
 
     </div>
   )

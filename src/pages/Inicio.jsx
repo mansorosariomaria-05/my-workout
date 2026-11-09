@@ -610,7 +610,7 @@ function StatsCards({ diasSemana, goal, weeklyStreak, month }) {
 
       {/* Card derecha — "Racha semanal 3+", se da vuelta al tocarla (dorso: resumen del mes) */}
       <div className="flex-1">
-        <WeeklyStreakCard total={weeklyStreak} month={month} height={STATS_CARD_HEIGHT} />
+        <WeeklyStreakCard total={weeklyStreak} month={month} height={STATS_CARD_HEIGHT} showTitle={false} />
       </div>
 
     </div>

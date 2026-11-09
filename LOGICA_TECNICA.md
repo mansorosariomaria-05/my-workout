@@ -26,7 +26,7 @@ Documentación técnica permanente para que cualquier instancia de Claude pueda 
 
 ### La tarjeta
 
-- **Frente**: título **"Racha semanal 3+"**, `🔥 {total}` y el texto **"semanas con 3+ días"**.
+- **Frente**: título **"Racha semanal 3+"** (solo en Progreso: en Inicio se oculta con `showTitle={false}` porque el texto de abajo ya dice lo mismo), `🔥 {total}` y el texto **"semanas con 3+ días"**.
 - **Dorso** (se toca para darla vuelta; `FlipCard.jsx`, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`): arriba, chico, **"Este mes"**; luego **"X,X días por semana"**; una barra segmentada y los tres porcentajes de **fuerza, cardio y clase**, cada uno con su color de `TYPE_COLORS` (`utils/workoutTypes.js`: fuerza `#9B7FD4`, cardio `#4ade80`, clase `#60a5fa`, otros `#94A3B8`). Sin entrenamientos en el mes: **"Todavía no entrenaste este mes"**. Reemplaza al dorso anterior (las últimas 12 semanas).
 - Altura fija de 108 px (la de la tarjeta de días de al lado).
 

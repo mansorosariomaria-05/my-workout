@@ -4,6 +4,7 @@ import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
 import { generateRoutine, suggestNextExercise } from '../../utils/routineGenerator'
 import { applyDeloadMultiplier } from '../../utils/weights'
+import { reduceWeight } from '../../utils/returnRoutine'
 import { getReturnState } from '../../utils/reentry'
 import { getInactivityInfo } from '../../utils/inactivity'
 import { todayStr } from '../../utils/dates'
@@ -592,6 +593,15 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }
   }
 
+  // Rutina de regreso (utils/returnRoutine.js): SOLO cuando el usuario tocó "Empezar" en la tarjeta de
+  // Inicio (data.regreso). Parte de la entrada ya armada con buildEntry (última sesión real: mismas
+  // series y reps) y reduce únicamente el peso de cada serie, redondeando con floorWeight. Solo aplica a
+  // los ejercicios cargados al arrancar esa sesión — los que se agreguen después se precargan normal.
+  const applyReturnReduction = (entry, pct) => ({
+    ...entry,
+    sets: entry.sets.map(s => ({ ...s, weight: reduceWeight(s.weight, pct, getLearnedWeights(entry.exerciseId)) })),
+  })
+
   const addExercise = (ex) => {
     const entry = buildEntry(ex)
     if (exerciseList.length === 0) onTimerStart?.()
@@ -704,7 +714,8 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   // (precarga con historial, sugerencias, vuelta suave) igual que el generador inline y las prearmadas.
   useEffect(() => {
     if (data.pendingGeneratedIds?.length && !data.exercises?.length) {
-      const exs = data.pendingGeneratedIds.map(id => allExercises.find(e => e.id === id)).filter(Boolean).map(buildEntry)
+      let exs = data.pendingGeneratedIds.map(id => allExercises.find(e => e.id === id)).filter(Boolean).map(buildEntry)
+      if (data.regreso?.pct) exs = exs.map(entry => applyReturnReduction(entry, data.regreso.pct))
       onChange({ ...data, exercises: exs, pendingGeneratedIds: undefined })
       onTimerStart?.()
     }
@@ -1077,6 +1088,9 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
 
       {exerciseList.length > 0 && (
         <div>
+          {data.regreso?.pct > 0 && (
+            <p className="text-app-purple-light text-[11px] mb-1.5">🔁 Regreso: pesos −{data.regreso.pct} %</p>
+          )}
           <p className="text-app-muted text-xs mb-3">Ejercicios de la sesión</p>
           {exerciseList.map((entry, i) => {
             const ex = exercises.find(e => e.id === entry.exerciseId)

@@ -131,6 +131,9 @@ export default function WorkoutWizard({ initialType }) {
       deload:       settings?.deloadActive ?? false,
       muscleGroups: getMuscleGroups(),
       ...(type === 'fuerza' ? {
+        // Sesión armada desde la "Rutina de regreso" (Inicio): cuenta como sesión real normal; el flag
+        // y el % solo documentan que los pesos de la precarga se redujeron a propósito.
+        ...(detail.regreso && detail.exercises?.length ? { regreso: true, regresoPct: detail.regreso.pct ?? null } : {}),
         exercises: stripSuggestedFlags(detail.exercises),
         cinta: detail.cintas ? {
           tipo:        detail.cintaTipo || null,

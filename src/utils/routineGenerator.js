@@ -33,9 +33,11 @@ function equipFilter(e, equip) {
   )
 }
 
-// Cantidad de sesiones de fuerza con este exerciseId en los últimos 56 días (fechas string locales).
-export function historyScore(workouts, exerciseId) {
-  const today = todayStr()
+// Cantidad de sesiones de fuerza con este exerciseId en los 56 días previos a refDate (fechas string
+// locales). refDate es hoy por defecto; la rutina de regreso (returnRoutine.js) pasa la fecha del
+// último workout de fuerza, para elegir ejercicios que el usuario conoce aunque el parate sea largo.
+export function historyScore(workouts, exerciseId, refDate = null) {
+  const today = refDate ?? todayStr()
   const cutoffDate = parseLocalDate(today)
   cutoffDate.setDate(cutoffDate.getDate() - 56)
   const cutoff = dateToLocal(cutoffDate)
@@ -49,16 +51,26 @@ export function historyScore(workouts, exerciseId) {
 const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)]
 
 // Elige por mayor historyScore, desempate al azar entre los que empatan en el máximo.
-function pickByHistory(candidates, workouts) {
-  const scored = candidates.map(e => ({ e, score: historyScore(workouts, e.id) }))
+function pickByHistory(candidates, workouts, refDate = null) {
+  const scored = candidates.map(e => ({ e, score: historyScore(workouts, e.id, refDate) }))
   const maxScore = Math.max(...scored.map(s => s.score))
   const best = scored.filter(s => s.score === maxScore).map(s => s.e)
   return pickRandom(best)
 }
 
-function pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, usedPatterns) {
+// opts (todo opcional — sin opts el comportamiento es el de siempre):
+//   neverIds: Set de exerciseId excluidos (lista "never" del usuario).
+//   patterns: array de patrones permitidos para este músculo (el resto se descarta del pool).
+//   refDate: fecha de referencia del historyScore (por defecto hoy).
+function pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, usedPatterns, opts = {}) {
   if (target <= 0) return []
-  const pool = exercises.filter(e => e.muscle === muscle && equipFilter(e, equip))
+  const { neverIds = null, patterns = null, refDate = null } = opts
+  const byHistory = (candidates) => pickByHistory(candidates, workouts, refDate)
+  const pool = exercises.filter(e =>
+    e.muscle === muscle && equipFilter(e, equip) &&
+    !(neverIds && neverIds.has(e.id)) &&
+    (!patterns || patterns.includes(e.pattern))
+  )
   const picked = []
 
   // Slot 1 — principal: nivel A (si no hay, B), siempre por historial (incluso con regenerate).
@@ -69,7 +81,7 @@ function pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, 
   if (!principalCandidates.length) principalCandidates = validFor(['B'], false)
   if (!principalCandidates.length) principalCandidates = validFor(['A', 'B'], true) // permite repetir pattern
   if (principalCandidates.length) {
-    const principal = pickByHistory(principalCandidates, workouts)
+    const principal = byHistory(principalCandidates)
     picked.push(principal)
     globalUsed.add(principal.id)
     usedPatterns.add(principal.pattern)
@@ -81,7 +93,7 @@ function pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, 
     for (const level of ACCESORY_LEVEL_ORDER) {
       const candidates = validFor([level], false)
       if (candidates.length) {
-        found = regenerate ? pickRandom(candidates) : pickByHistory(candidates, workouts)
+        found = regenerate ? pickRandom(candidates) : byHistory(candidates)
         break
       }
     }
@@ -90,7 +102,7 @@ function pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, 
       for (const level of ACCESORY_LEVEL_ORDER) {
         const candidates = validFor([level], true)
         if (candidates.length) {
-          found = regenerate ? pickRandom(candidates) : pickByHistory(candidates, workouts)
+          found = regenerate ? pickRandom(candidates) : byHistory(candidates)
           break
         }
       }
@@ -200,7 +212,11 @@ function orderRoutine(picked) {
 // workouts: array de sesiones (para historyScore).
 // regenerate: si true, los slots accesorios se eligen al azar en vez de por historial (el principal
 // de cada músculo siempre sigue el historial, con o sin regenerate).
-export function generateRoutine({ muscles, count, equip, workouts, regenerate = false }) {
+//
+// Opcionales (los usa la rutina de regreso, utils/returnRoutine.js; sin ellos nada cambia):
+// neverIds: exerciseIds a excluir. patternsByMuscle: { [músculo]: patrones permitidos }.
+// referenceDate: 'YYYY-MM-DD' desde la que se cuentan los 56 días del historyScore (por defecto hoy).
+export function generateRoutine({ muscles, count, equip, workouts, regenerate = false, neverIds = null, patternsByMuscle = null, referenceDate = null }) {
   if (!muscles?.length) return []
 
   const perGroup  = Math.floor(count / muscles.length)
@@ -208,10 +224,13 @@ export function generateRoutine({ muscles, count, equip, workouts, regenerate = 
   const globalUsed = new Set()
   const usedPatterns = new Set()
   const allPicked = []
+  const neverSet = neverIds?.length ? new Set(neverIds) : null
 
   muscles.forEach((muscle, idx) => {
     const target = perGroup + (idx < remainder ? 1 : 0)
-    const picked = pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, usedPatterns)
+    const picked = pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, usedPatterns, {
+      neverIds: neverSet, patterns: patternsByMuscle?.[muscle] ?? null, refDate: referenceDate,
+    })
     allPicked.push(...picked)
   })
 

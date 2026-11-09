@@ -108,6 +108,7 @@ src/
     streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Modo regreso: detecta si un ejercicio volvió de un parate sin llegar aún a su nivel previo
+    returnRoutine.js           # Rutina de regreso: full body sugerido tras 15+ días sin fuerza, con pesos reducidos (solo si el usuario la elige)
     dates.js                   # Helpers de fechas locales
     genero.js                  # textoGenero() para acordar género en textos
 ```
@@ -141,6 +142,8 @@ users/{uid}/
   notes: '',
   deload: false,
   muscleGroups: ['Glúteos', 'Isquios'],
+  regreso: true,        // opcional: sesión armada desde la "Rutina de regreso" (pesos reducidos a propósito)
+  regresoPct: 15,       // opcional: % de reducción aplicado (solo informativo)
   exercises: [
     {
       exerciseId: 'glut_01',
@@ -240,7 +243,7 @@ El campo `alt` en el objeto de rutina es **solo para display** en la pantalla de
 
 ## Generador de rutinas (`utils/routineGenerator.js`)
 
-Función única `generateRoutine({ muscles, count, equip, workouts, regenerate })`, usada tanto por el tab "Generador" de Rutinas (`GeneradorTab.jsx`) como por el modo "Generador" inline del wizard de registro (`FuerzaFlow.jsx`) — antes eran dos implementaciones casi idénticas por separado.
+Función única `generateRoutine({ muscles, count, equip, workouts, regenerate, neverIds?, patternsByMuscle?, referenceDate? })` (los tres últimos son opcionales y los usa solo la rutina de regreso), usada tanto por el tab "Generador" de Rutinas (`GeneradorTab.jsx`) como por el modo "Generador" inline del wizard de registro (`FuerzaFlow.jsx`) — antes eran dos implementaciones casi idénticas por separado.
 
 - Cada ejercicio del catálogo tiene un `pattern` (patrón de movimiento, ej. `sentadilla`, `zancada`, `bisagra`, `empuje_horizontal`) y un flag `unilateral`. El generador nunca repite `pattern` en ejercicios consecutivos ni encadena dos unilaterales de tren inferior seguidos.
 - Por cada músculo elegido, el ejercicio principal (nivel A/B) se elige por historial reciente del usuario (sesiones de ese ejercicio en los últimos 56 días) — esto se mantiene incluso al regenerar, para que la doble progresión (sección de Progresión de carga) tenga sesiones consecutivas del mismo ejercicio para comparar. Los accesorios sí se sortean al azar al regenerar.
@@ -359,7 +362,8 @@ Compara las dos últimas sesiones reales de cada ejercicio:
 
 - **Aviso de inactividad** (`Inicio.jsx` + `utils/inactivity.js`): si pasaron 14+ días desde el último entrenamiento real, al abrir la app se pregunta el motivo (enfermedad, lesión, estrés, descanso) y se guarda en `profile.inactividad`. Es puramente informativo: no crea workouts, no crea documentos de pausa, no afecta la racha.
 - **Modo regreso** (`utils/reentry.js` → `getReturnState`, integrado en `getProgressionAdvice`): reemplaza la vieja "vuelta suave", que reducía peso/series solo en la precarga. Ahora **no toca la precarga** — es un detector: si hubo un parate de 14+ días en un ejercicio y ya volvió, pero el peso de la última sesión todavía no alcanza el que manejaba antes (`preGapLevel`), la sugerencia de progresión se relaja (alcanza con 1 sesión en vez de 2, sin bono de salto, techo en `preGapLevel`) y la tarjeta de sugerencia muestra "🔁 Volviendo a tu nivel". Se autoexpira solo al alcanzar `preGapLevel`. Con motivo enfermedad/lesión guardado para ese parate, se exige la regla normal de 2 sesiones por precaución.
-- Ver `LOGICA_TECNICA.md` secciones 13 y 15 para el detalle completo (fórmulas, casos borde, justificación).
+- **Rutina de regreso** (`utils/returnRoutine.js`, tarjeta en `Inicio.jsx`, precarga en `FuerzaFlow.jsx`): si pasaron **15+ días desde el último workout de type `'fuerza'`** (cardio/clase/tabata no cuentan), la sugerencia del día se reemplaza por la tarjeta "🔁 Rutina de regreso" con "Empezar" / "Hoy no" (oculta solo por ese día). Es un full body de 5 ejercicios armado con `generateRoutine` (rodilla, cadera posterior, empuje superior, tracción y core; el `historyScore` se cuenta desde la fecha del último fuerza, no desde hoy; respeta la lista `never`). **La precarga normal no cambia**: solo si el usuario toca "Empezar", los pesos de la última sesión real de cada ejercicio se reducen −10 % (15–28 días), −15 % (29–56) o −20 % (57+), +5 si `profile.nivel` es principiante, +5 si el motivo de inactividad de este mismo parate es enfermedad/lesión, redondeado con `floorWeight`; series y reps no cambian. La pantalla muestra "🔁 Regreso: pesos −X %" y el workout se guarda con `regreso: true` (cuenta como sesión real normal). No reemplaza ni modifica el aviso de 14 días ni el modo regreso: ese sigue encargándose de volver al nivel previo.
+- Ver `LOGICA_TECNICA.md` secciones 13, 15 y 20 para el detalle completo (fórmulas, casos borde, justificación).
 
 ---
 
@@ -368,6 +372,7 @@ Compara las dos últimas sesiones reales de cada ejercicio:
 Función **pura** (sin fetch propio a Firestore) evaluada contra el historial ya cargado en memoria por `useWorkouts` — antes hacía su propio `getWorkouts(uid, 500)` y, si fallaba por estar offline, sugería siempre la primera rutina fija como si no hubiera historial. Orden de evaluación:
 
 1. **Ya entrenó hoy** → `trained_today`.
+1b. **Rutina de regreso**: si pasaron 15+ días desde el último workout de fuerza → `{ type: 'regreso', ... }` (ver "Aviso de inactividad y modo regreso"); se omite si el usuario tocó "Hoy no" ese día (`skipReturn`).
 2. **Descanso inteligente**: si ya cumplió `profile.diasSemana` (default 3) días distintos esta semana, o entrenó 3 días seguidos — ya no es un domingo fijo.
 3. **Balance cardio/fuerza** de la semana actual (regla sin cambios): 0 cardio y 2+ fuerza, o 1 cardio con ≤2 días para cerrar la semana → sugerir Cardio.
 4. **Elegir 2 músculos foco de fuerza**, solo entre `LOWER = [Glúteos, Isquios, Cuádriceps]` y `UPPER = [Espalda, Pecho, Hombros]` (nunca gemelos/abductores/brazos/core): excluye los entrenados ayer/anteayer, prioriza por menos volumen esta semana y más días sin entrenar, con tope de 14 días (así una rutina nunca entrenada no le gana siempre a todo lo demás, como pasaba antes).

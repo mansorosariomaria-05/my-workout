@@ -2,6 +2,7 @@ import { REAL_WORKOUT_TYPES } from './streak.js'
 import { parseLocalDate, dateToLocal } from './dates.js'
 import { builtinRoutines } from '../data/routines.js'
 import { generateRoutine } from './routineGenerator.js'
+import { buildReturnSuggestion } from './returnRoutine.js'
 
 const LOWER = ['Glúteos', 'Isquios', 'Cuádriceps']
 const UPPER = ['Espalda', 'Pecho', 'Hombros']
@@ -43,12 +44,22 @@ function reasonFor(muscle, weekCount, daysSince) {
 //
 // workouts: array completo del usuario (todos los tipos). profile: perfil de AuthContext (o null).
 // today: 'YYYY-MM-DD' — inyectado en vez de calculado adentro, para que sea testeable con fechas fijas.
-export function computeDailySuggestion({ workouts, profile, today }) {
+//
+// neverIds: lista "never" del usuario, solo la usa la rutina de regreso. skipReturn: true cuando el
+// usuario tocó "Hoy no" en la tarjeta de regreso — muestra la sugerencia normal por el resto del día.
+export function computeDailySuggestion({ workouts, profile, today, neverIds = [], skipReturn = false }) {
   const real = (workouts ?? []).filter(w => w.date && REAL_WORKOUT_TYPES.includes(w.type))
   const isFirstEver = real.length === 0
 
   // a) Ya entrenó hoy.
   if (real.some(w => w.date === today)) return { type: 'trained_today' }
+
+  // a2) Rutina de regreso: 15+ días desde el último workout de FUERZA (cardio/clase/tabata no cuentan)
+  // reemplaza a la sugerencia normal. Ver returnRoutine.js.
+  if (!skipReturn) {
+    const regreso = buildReturnSuggestion({ workouts, profile, today, neverIds })
+    if (regreso) return regreso
+  }
 
   const mondayStr  = mondayOf(today)
   const yesterday  = addDays(today, -1)

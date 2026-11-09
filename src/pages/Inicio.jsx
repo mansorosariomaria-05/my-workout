@@ -11,6 +11,7 @@ import { REAL_WORKOUT_TYPES, computeStreakStats } from '../utils/streak'
 import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../utils/cardio'
 import { getInactivityInfo } from '../utils/inactivity'
 import { computeDailySuggestion } from '../utils/dailySuggestion'
+import { getNeverList } from '../services/db'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
 import HeroPortada from '../components/inicio/HeroPortada'
 import Logros from '../components/inicio/Logros'
@@ -29,6 +30,17 @@ function readSuggestionCache(uid) {
 
 function writeSuggestionCache(uid, entry) {
   try { localStorage.setItem(DAILY_SUGGESTION_KEY(uid), JSON.stringify(entry)) } catch {}
+}
+
+// "Hoy no" de la tarjeta de rutina de regreso: guarda la fecha (YYYY-MM-DD) en que se ocultó.
+const REGRESO_DISMISSED_KEY = (uid) => `regreso_dismissed_${uid}`
+
+function readRegresoDismissed(uid) {
+  try { return localStorage.getItem(REGRESO_DISMISSED_KEY(uid)) } catch { return null }
+}
+
+function writeRegresoDismissed(uid, dateStr) {
+  try { localStorage.setItem(REGRESO_DISMISSED_KEY(uid), dateStr) } catch {}
 }
 
 const WEEKLY_SUMMARY_KEY = 'weekly_summary_'
@@ -407,7 +419,7 @@ function LastAndSuggestion({ workouts }) {
 // El cálculo puro vive en utils/dailySuggestion.js (computeDailySuggestion) — evaluado contra el
 // historial ya cargado en memoria (workouts de useWorkouts), sin fetch propio a Firestore. Ver el
 // useEffect de más abajo (dentro de Inicio()) para el cacheo diario en localStorage.
-function DailySuggestionCard({ suggestion }) {
+function DailySuggestionCard({ suggestion, onDismissRegreso }) {
   const [expanded, setExpanded] = useState(false)
   const navigate = useNavigate()
   const { setDraft } = useWorkoutDraft()
@@ -425,6 +437,52 @@ function DailySuggestionCard({ suggestion }) {
       <p className="mx-4 text-center text-app-text text-sm font-semibold py-2">
         ¡Ya entrenaste! 💪 Descansá el resto del día 🤍
       </p>
+    )
+  }
+
+  // Rutina de regreso (utils/returnRoutine.js): full body con pesos reducidos, solo si el usuario la elige.
+  // "Empezar" arma el borrador con los ids pendientes y detail.regreso — FuerzaFlow aplica la reducción
+  // al construir la precarga de ESA sesión; "Hoy no" la oculta por hoy.
+  if (suggestion.type === 'regreso') {
+    const startRegreso = () => {
+      setDraft({
+        step: 1,
+        type: 'fuerza',
+        detail: {
+          exercises: [],
+          mode: 'libre',
+          selectedMuscles: suggestion.muscles ?? [],
+          selectedRoutine: '',
+          pendingGeneratedIds: suggestion.generatedIds,
+          regreso: { pct: suggestion.reductionPct, days: suggestion.daysSince },
+        },
+        fatigue: 5,
+        notes: '',
+        date: getTodayLocal(),
+      })
+      navigate('/registro')
+    }
+    return (
+      <div className="mx-4 rounded-xl border border-app-purple/30 px-3 py-3" style={{ backgroundColor: '#1a1625' }}>
+        <p className="text-app-text text-sm font-semibold">🔁 Rutina de regreso</p>
+        <p className="text-xs mt-1 leading-snug" style={{ color: '#94A3B8' }}>
+          Hace {suggestion.daysSince} días que no entrenás fuerza. Te armé un full body para retomar con pesos ajustados.
+        </p>
+        <div className="flex gap-2 mt-2.5">
+          <button
+            onClick={startRegreso}
+            className="flex-1 py-2 rounded-lg bg-app-purple text-white text-xs font-semibold active:opacity-70 transition-opacity"
+          >
+            Empezar
+          </button>
+          <button
+            onClick={onDismissRegreso}
+            className="flex-1 py-2 rounded-lg bg-app-elevated text-app-muted text-xs border border-white/8 active:opacity-70 transition-opacity"
+          >
+            Hoy no
+          </button>
+        </div>
+      </div>
     )
   }
 
@@ -660,6 +718,8 @@ export default function Inicio() {
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)
   const [suggestion, setSuggestion] = useState(null)
+  const [neverIds, setNeverIds] = useState(null)
+  const [regresoDismissTick, setRegresoDismissTick] = useState(0)
   const [showSatBanner, setShowSatBanner] = useState(false)
   const [resumeDraft, setResumeDraft] = useState(null)
   const [resumeChecked, setResumeChecked] = useState(false)
@@ -723,20 +783,47 @@ export default function Inicio() {
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [reload])
 
+  // Lista "never" (ejercicios que el usuario no quiere ver sugeridos): solo la usa la rutina de regreso.
+  // Si no carga en 3 s o falla (offline), se sigue con lista vacía.
+  useEffect(() => {
+    if (!user?.uid) return
+    let active = true
+    const timeout = new Promise(resolve => setTimeout(() => resolve([]), 3000))
+    Promise.race([getNeverList(user.uid), timeout])
+      .catch(() => [])
+      .then(ids => { if (active) setNeverIds(Array.isArray(ids) ? ids : []) })
+    return () => { active = false }
+  }, [user?.uid])
+
+  const dismissRegreso = () => {
+    if (!user?.uid) return
+    writeRegresoDismissed(user.uid, getTodayLocal())
+    setRegresoDismissTick(t => t + 1)
+  }
+
   useEffect(() => {
     if (!user?.uid) return
     if (loading && !workouts.length) return // sin datos todavía — la card queda en estado de carga
     const today = getTodayLocal()
     const realCount = workouts.filter(w => REAL_WORKOUT_TYPES.includes(w.type)).length
+    // "Hoy no" de la rutina de regreso: por hoy se muestra la sugerencia normal.
+    const skipReturn = readRegresoDismissed(user.uid) === today
+    // La reducción de la rutina de regreso depende del nivel y del motivo de inactividad: si cambian
+    // (ej. se responde el aviso de 14 días), la sugerencia cacheada de hoy se recalcula.
+    const profileKey = `${profile?.nivel ?? ''}|${profile?.inactividad?.motivo ?? ''}|${profile?.inactividad?.lastWorkoutDate ?? ''}`
     const cached = readSuggestionCache(user.uid)
-    if (cached && cached.date === today && cached.realCount === realCount) {
+    if (
+      cached && cached.date === today && cached.realCount === realCount &&
+      !!cached.skipReturn === skipReturn && (cached.profileKey ?? '') === profileKey
+    ) {
       setSuggestion(cached.suggestion)
       return
     }
-    const computed = computeDailySuggestion({ workouts, profile, today })
+    if (neverIds === null) return // esperando la lista "never" antes de calcular (máx. 3 s)
+    const computed = computeDailySuggestion({ workouts, profile, today, neverIds, skipReturn })
     setSuggestion(computed)
-    writeSuggestionCache(user.uid, { date: today, realCount, suggestion: computed })
-  }, [user?.uid, loading, workouts, profile]) // eslint-disable-line react-hooks/exhaustive-deps
+    writeSuggestionCache(user.uid, { date: today, realCount, suggestion: computed, skipReturn, profileKey })
+  }, [user?.uid, loading, workouts, profile, neverIds, regresoDismissTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading) return
@@ -785,7 +872,7 @@ export default function Inicio() {
         <div className="mb-2"><FraseDiariaCard workouts={workouts} /></div>
         <div className="mb-3"><WeekCalendar workouts={workouts} /></div>
         <div className="mb-2"><LastAndSuggestion workouts={workouts} /></div>
-        <div className="mb-2"><DailySuggestionCard suggestion={suggestion} /></div>
+        <div className="mb-2"><DailySuggestionCard suggestion={suggestion} onDismissRegreso={dismissRegreso} /></div>
         <div className="mb-2"><Logros workouts={workouts} compact /></div>
       </div>
 

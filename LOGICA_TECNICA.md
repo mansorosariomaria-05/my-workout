@@ -1609,6 +1609,7 @@ La versión anterior (`getDailySuggestion()`, eliminada) hacía su **propio fetc
 Sin fetch, sin `Date.now()` interno — recibe `today` (`'YYYY-MM-DD'`) inyectado, así es 100% testeable con fechas fijas. Solo considera `workouts` con `type` en `REAL_WORKOUT_TYPES` (`fuerza`/`cardio`/`clase`/`tabata`, de `streak.js`).
 
 1. **Ya entrenó hoy** (`real.some(w => w.date === today)`) → `{ type: 'trained_today' }`.
+1b. **Rutina de regreso** (sección 20): con 15+ días desde el último workout de fuerza devuelve `{ type: 'regreso', ... }` antes de todo lo demás, salvo que se pase `skipReturn: true` ("Hoy no"). Parámetros nuevos de `computeDailySuggestion`: `neverIds`, `skipReturn`.
 2. **Descanso inteligente** (reemplaza el domingo fijo):
    - `diasObjetivo = profile?.diasSemana ?? 3`. Si los días **distintos** con entrenamiento real de lunes a ayer ya llegan a `diasObjetivo` → `{ type: 'descanso', sub: 'Ya cumpliste tus {n} días de la semana 💜' }`.
    - Si hubo entrenamiento real ayer, anteayer y hace 3 días (3 días consecutivos) → `{ type: 'descanso', sub: 'Llevás 3 días seguidos...' }`.
@@ -1794,6 +1795,69 @@ No hizo falta tocar `WorkoutWizard.jsx` para esto: su estado `date` ya se inicia
 No existe un `firestore.rules` en este repo (`firebase.json` no tiene clave `"firestore"`), y la CLI de Firebase instalada acá no tiene comando para leer las reglas en producción — las reglas actuales solo se pueden ver/editar desde la consola de Firebase. `workoutInProgress` vive bajo el mismo patrón de ruta que `profile`/`settings`/`achievements`/`favorites`/`never` (`users/{uid}/data/{docId}`), que ya funcionan hoy con distintos nombres de documento bajo ese mismo path — la conclusión práctica es que la regla vigente casi con certeza matchea `docId` como wildcard (no una lista fija de nombres), por lo que `workoutInProgress` ya queda cubierto sin necesidad de cambiar nada. No se creó ni desplegó ningún `firestore.rules` nuevo para no arriesgar reemplazar el ruleset real (gestionado en la consola) por una versión adivinada e incompleta. Si en algún momento se quiere verificar esto con certeza, hay que revisar las reglas directamente en la consola de Firebase (Firestore → Reglas) para el proyecto `my-workout-ro`.
 
 Verificado con un script de Node contra la implementación real de `draftResolution.js` (local más nuevo que nube → usa local; solo nube → usa nube; nube más nueva → usa nube; 8 días → expirado; 6 días → no expirado; fuerza sin ejercicios / cardio vacío → sin contenido real; fuerza con 1 ejercicio / cardio con actividad → contenido real) — todos los escenarios pasaron.
+
+---
+
+## 20. RUTINA DE REGRESO (`src/utils/returnRoutine.js`, `src/pages/Inicio.jsx`, `src/components/registro/FuerzaFlow.jsx`)
+
+Un full body de 5 ejercicios que se **sugiere** al volver después de un parate largo de **fuerza**. Respeta el principio de la sección 13 ("Precarga = última sesión real, siempre"): nada se modifica solo — la precarga normal sigue igual, y la reducción de pesos solo se aplica a la sesión que el usuario arma tocando "Empezar".
+
+### Disparo
+
+`getReturnTrigger(workouts, today)`: toma la fecha más reciente entre los workouts con `type === 'fuerza'` (cardio, clase y tabata **no** cuentan; ignora fechas futuras). Si pasaron `RETURN_MIN_DAYS = 15` días o más, se dispara. Un usuario sin ningún workout de fuerza no dispara (no hay "regreso" posible).
+
+`computeDailySuggestion` lo evalúa justo después de "ya entrenó hoy" (si hoy ya entrenó cualquier cosa se muestra "¡Ya entrenaste!" y no la rutina de regreso) y **reemplaza** al resto de la sugerencia diaria: devuelve `{ type: 'regreso', daysSince, lastStrengthDate, reductionPct, generatedIds, muscles }`. Si no se pudo armar ningún ejercicio devuelve `null` y se sigue con la sugerencia normal.
+
+`Inicio.jsx` muestra la tarjeta "🔁 Rutina de regreso" ("Hace X días que no entrenás fuerza. Te armé un full body para retomar con pesos ajustados.") con dos botones:
+- **Empezar**: arma el borrador del wizard (`setDraft`) con `detail.pendingGeneratedIds`, `detail.selectedMuscles` y `detail.regreso = { pct, days }`, y navega a `/registro`. Igual que la sugerencia generada normal, `FuerzaFlow` construye cada ejercicio con `buildEntry` (mismas series, reps y pesos de la última sesión real) y, **solo si existe `data.regreso.pct`**, aplica `applyReturnReduction` encima.
+- **Hoy no**: guarda la fecha en `localStorage` (`regreso_dismissed_{uid}`) y recalcula con `skipReturn: true` — se muestra la sugerencia normal por el resto del día (al día siguiente la tarjeta vuelve si el parate sigue).
+
+El aviso de inactividad de 14 días (sección 14) **no se toca**: es independiente (cuenta cualquier tipo de workout real, umbral 14, y es solo informativo).
+
+Caché: la sugerencia del día se cachea en `daily_suggestion_{uid}`; la entrada ahora también guarda `skipReturn` y un `profileKey` (`nivel|motivo|lastWorkoutDate` de inactividad). Si cambia alguno (por ejemplo, se responde el aviso de 14 días con "Enfermedad"), la sugerencia cacheada de hoy se recalcula para que el % incluya el modificador nuevo. La lista "never" se pide a Firestore (`getNeverList`, con timeout de 3 s y fallback a lista vacía si falla u offline) antes de calcular por primera vez en el día.
+
+### Ejercicios
+
+Se usa `generateRoutine` (sección 16) con `equip: 'Gym completo'` (igual que `dailySuggestion`) y un músculo por slot, con patrones permitidos:
+
+| Slot | Músculo (alternativas) | Patrones permitidos |
+|---|---|---|
+| Rodilla | Cuádriceps | `sentadilla`, `zancada` (no `extension_rodilla`) |
+| Cadera posterior | Isquios o Glúteos | `bisagra`, `empuje_cadera` |
+| Empuje superior | Pecho u Hombros | `empuje_horizontal` / `empuje_vertical` (Pecho); `empuje_vertical` (Hombros) |
+| Tracción | Espalda | `traccion_vertical`, `traccion_horizontal` |
+| Core | Abdominales o Core & Estabilidad | `core_flexion`, `core_antiextension`, `core_rotacion` |
+
+Cuando un slot tiene dos músculos posibles, gana el que tenga el ejercicio con mayor `historyScore` (empate → el primero de la tabla). Solo cuentan ejercicios de **nivel A o B** (los que `generateRoutine` elige como principal de un músculo; "Core & Estabilidad" son todos D, así que en la práctica el core sale de Abdominales). Cada músculo aporta 1 ejercicio (`count` = cantidad de slots cubiertos, normalmente 5) y el orden es el de `orderRoutine` sin cambios (compuestos primero, core al final, reglas duras/blandas de patrón y zona).
+
+Cambios en `routineGenerator.js` (todos **opcionales** y sin efecto si no se pasan — el generador de Rutinas, el modo Generador, "Sugerencia" del modo libre y la sugerencia normal se comportan igual que antes):
+- `historyScore(workouts, exerciseId, refDate)` / `generateRoutine({ referenceDate })`: la ventana de 56 días se cuenta hacia atrás desde `referenceDate` en vez de desde hoy. La rutina de regreso pasa la **fecha del último workout de fuerza**, así elige ejercicios conocidos aunque el parate sea largo (con la ventana "hoy − 56", un parate de 56+ días daría historial vacío y elegiría al azar).
+- `generateRoutine({ neverIds })`: excluye los `exerciseId` de la lista "never" del usuario (`data/never`, ver sección 9 — sigue sin UI para editarla, pero si tiene datos se respeta).
+- `generateRoutine({ patternsByMuscle })`: restringe el pool de cada músculo a los patrones indicados.
+
+### Reducción de pesos
+
+`reductionPct = base + modificadores`, con `days` = días desde el último workout de fuerza:
+
+| Días desde el último fuerza | Reducción base |
+|---|---|
+| 15 a 28 | −10 % |
+| 29 a 56 | −15 % |
+| 57 o más | −20 % |
+
+Modificadores (se suman en puntos porcentuales):
+- **+5** si `profile.nivel` es principiante (acepta `'principiante'` del onboarding y `'Principiante (<1 año)'` de ConfigPage).
+- **+5** si `profile.inactividad.motivo` es `enfermedad` o `lesion` **y corresponde a este mismo parate**: `inactividad.lastWorkoutDate >= lastStrengthDate` (la fecha del último workout real cuando se respondió el aviso es igual o posterior al último de fuerza; si es anterior, el motivo es de un parate viejo y se ignora).
+
+Máximo posible: 20 + 5 + 5 = −30 %. No se diferencia tren superior de inferior.
+
+Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pesos de la última sesión real de cada ejercicio (`getLastWeightsForExercise` vía `buildEntry`) y, serie por serie, hace `floorWeight(peso × (1 − pct/100), pesosAprendidos)` (sección 12: el mayor peso del pool aprendido + estándar que sea ≤ objetivo y ≥ 85 % del objetivo; si no hay, múltiplo de 2.5 hacia abajo, mínimo 1), con tope en el peso original. **Series y repeticiones no se tocan.** Peso vacío o 0 (peso corporal) queda igual. Un ejercicio sin historial se precarga como siempre (series vacías por defecto). Los ejercicios que el usuario agregue a mano después de empezar se precargan normal (sin reducción).
+
+### Alcance, flag y relación con el modo regreso
+
+- La reducción vive en el borrador (`detail.regreso`) y solo afecta a la sesión que arranca con "Empezar". En la pantalla de entrenamiento se ve un indicador discreto "🔁 Regreso: pesos −X %" sobre la lista de ejercicios.
+- Al guardar (`WorkoutWizard.handleSave`) el workout lleva `regreso: true` y `regresoPct: X` (solo si `detail.regreso` existe y quedan ejercicios cargados). Son campos informativos: **la sesión cuenta como una sesión real normal** para racha, historial, PRs, logros y precarga (la próxima precarga será la de esta sesión, con los pesos reducidos).
+- **Modo regreso (sección 15) sin cambios**: `getReturnState` ve el parate de 14+ días en cada ejercicio y, como el peso máximo de esta sesión reducida queda por debajo de `preGapLevel`, queda activo; `getProgressionAdvice` relaja entonces el umbral (1 sola sesión, sin bono de salto, tope en `preGapLevel`) y ofrece, de forma opcional, subir de a poco hasta recuperar el nivel previo. La rutina de regreso solo decide con qué pesos *arranca* esa primera sesión; volver al nivel anterior sigue siendo trabajo del modo regreso.
 
 ---
 

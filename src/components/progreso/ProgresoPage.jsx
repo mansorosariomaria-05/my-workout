@@ -13,6 +13,8 @@ import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
 import { detectPRs } from '../../utils/prUtils'
 import { computeRecords } from '../../utils/progressStats'
+import { TYPE_COLORS } from '../../utils/workoutTypes'
+import WeeklyStreakCard from './WeeklyStreakCard'
 import { getExerciseUnit } from '../../utils/exerciseUnit'
 import { WorkoutIcon } from '../icons/WorkoutIcons'
 
@@ -276,13 +278,6 @@ function WeekRow({ workouts }) {
 
 // ─── Últimas sesiones (Bloque 7) ──────────────────────────────────────────────
 
-const WORKOUT_ICON_COLORS = {
-  fuerza: '#9B7FD4',
-  cardio: '#4ade80',
-  clase:  '#60a5fa',
-  tabata: '#f59e0b',
-}
-
 function UltimasSesiones({ workouts }) {
   const sessions = workouts.filter(w => REAL_TYPES.has(w.type) && w.date).slice(0, 5)
 
@@ -293,7 +288,7 @@ function UltimasSesiones({ workouts }) {
   return (
     <div className="flex flex-col gap-2">
       {sessions.map((w, i) => {
-        const iconColor = WORKOUT_ICON_COLORS[w.type] ?? '#94A3B8'
+        const iconColor = TYPE_COLORS[w.type] ?? '#94A3B8'
         const relDate   = formatDistanceToNow(parseISO(w.date + 'T12:00:00'), { addSuffix: true, locale: es })
         const hasPR     = w.type === 'fuerza' && detectPRs(w, workouts.filter(h => h.date < w.date)).length > 0
 
@@ -365,13 +360,14 @@ function UltimasSesiones({ workouts }) {
 
 export default function ProgresoPage() {
   const { profile } = useAuthContext()
-  const { workouts, loading, getCurrentStreak } = useWorkouts()
+  const { workouts, loading, getWeeklyStreak3Plus, getMonthSummary } = useWorkouts()
   const [showAllExercises, setShowAllExercises] = useState(false)
   const [showHistorial, setShowHistorial]        = useState(false)
 
   const data        = useMemo(() => computeAll(workouts),            [workouts])
   const topEx       = useMemo(() => computeTopExercises(workouts),   [workouts])
-  const { record }  = useMemo(() => getCurrentStreak(),              [workouts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const { total: weeklyStreak } = getWeeklyStreak3Plus() // "Racha semanal 3+" (memoizada en useWorkouts), la misma que Inicio
+  const month = getMonthSummary()                         // dorso de la tarjeta: resumen del mes en curso
   const totalPRs    = useMemo(() => computeRecords(workouts).total,   [workouts]) // fuente única de récords (progressStats)
 
   if (loading) return (
@@ -429,7 +425,7 @@ export default function ProgresoPage() {
           <SectionTitle>Tu camino</SectionTitle>
           <div className="grid grid-cols-2 gap-2">
             <CaminoCard emoji="🏋️" value={String(total)}       label="entrenamientos totales" />
-            <CaminoCard emoji="🔥" value={`${record} sem.`}    label="récord de racha" />
+            <WeeklyStreakCard total={weeklyStreak} month={month} />
             <CaminoCard emoji="🏆" value={String(totalPRs)}    label="PRs históricos" />
             <CaminoCard emoji="📅" value={String(uniqueDays)}  label="días únicos entrenados" />
             <CaminoCard emoji="📈" value={mayorProgresoVal} name={mayorProgresoName} label="mayor progreso" />
@@ -442,7 +438,6 @@ export default function ProgresoPage() {
           <SectionTitle>Tus victorias</SectionTitle>
           <div className="flex gap-2">
             <VictoriaCard icon="🏆" value={mejorMarcaVal} sub={mejorMarcaSub || null} color={GREEN}  label="mejor marca" />
-            <VictoriaCard icon="🔥" value={`${record} sem.`} sub={null} color={PURPLE} label="récord de racha" />
             <VictoriaCard
               icon={avgFatigaHistorica != null ? '💪' : ''}
               value={avgFatigaHistorica != null ? avgFatigaHistorica.toFixed(1) : '—'}

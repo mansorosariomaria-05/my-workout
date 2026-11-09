@@ -2,7 +2,7 @@ import { useContext, useMemo } from 'react'
 import { parseISO } from 'date-fns'
 import { WorkoutsContext } from '../context/WorkoutsContext'
 import { dateToLocal, getTodayLocal } from '../utils/dates'
-import { computeStreak } from '../utils/streak'
+import { computeWeeklyStreak3Plus, computeMonthSummary } from '../utils/progressStats'
 
 // Lee el historial COMPLETO de workouts del estado compartido (WorkoutsProvider, src/context/
 // WorkoutsContext.jsx): una sola carga, una sola sincronización de borradores y un solo conjunto de
@@ -100,16 +100,18 @@ export function useWorkouts() {
   }
 
   // Returns { current, record } — ver src/utils/streak.js para la regla completa.
-  // Racha estricta (utils/streak.js): la misma función para Inicio, Progreso y los logros. Se memoiza por
-  // workouts y por día, así no se recalcula en cada render.
+  // "Racha semanal 3+" (total de semanas con 3+ días) y resumen del mes en curso (dorso de la tarjeta): la misma
+  // fuente para Inicio y Progreso (utils/progressStats.js). Se memoizan por workouts y por día.
   const today = getTodayLocal()
-  const streak = useMemo(() => computeStreak(workouts, today), [workouts, today])
-  const getCurrentStreak = () => streak
+  const weeklyStreak = useMemo(() => computeWeeklyStreak3Plus(workouts, today), [workouts, today])
+  const monthSummary = useMemo(() => computeMonthSummary(workouts, today), [workouts, today])
+  const getWeeklyStreak3Plus = () => weeklyStreak
+  const getMonthSummary = () => monthSummary
 
   return {
     workouts, loading, loadError, saveWorkout,
     getLastWeightsForExercise, getExerciseSessions, getPRForExercise, getLearnedWeights,
     getLastFatigueForExercise, getTrainedMusclesRecovery,
-    getWeekWorkouts, getCurrentStreak, reload: refresh, forceReload,
+    getWeekWorkouts, getWeeklyStreak3Plus, getMonthSummary, reload: refresh, forceReload,
   }
 }

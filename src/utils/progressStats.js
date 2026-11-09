@@ -10,14 +10,12 @@
 //     normalizado (así las alternativas alt-… no fragmentan el historial).
 
 import { exercises as DEFAULT_CATALOG } from '../data/exercises.js'
-import { REAL_WORKOUT_TYPES, computeStreak } from './streak.js'
+import { REAL_WORKOUT_TYPES, STREAK_MIN_DAYS } from './streak.js'
 import { getExerciseUnit } from './exerciseUnit.js'
 import { getSessionDurationSeconds } from './sessionDuration.js'
 import { getEffectiveDurationSeconds } from './cardio.js'
 import { getTodayLocal } from './dates.js'
 import { addDays, daysBetween, mondayOf, sundayOf, monthOf } from './weeks.js'
-
-export { computeStreak }
 
 const REAL = new Set(REAL_WORKOUT_TYPES)
 
@@ -272,6 +270,67 @@ export function computeTotals(workouts, today = getTodayLocal()) {
   }
 }
 
+// ─── Racha semanal 3+ ────────────────────────────────────────────────────────
+
+// "Racha semanal 3+": cantidad TOTAL de semanas (lunes a domingo) de todo el historial con 3 o más días
+// DISTINTOS de entrenamiento real. No exige semanas consecutivas y nunca baja (un parate largo no la reinicia).
+// La semana en curso suma apenas alcanza 3 días. Reemplaza a la racha de semanas consecutivas.
+export function computeWeeklyStreak3Plus(workouts, today = getTodayLocal()) {
+  const weeks = new Map()
+  realWorkouts(workouts, today).forEach(w => {
+    const mon = mondayOf(w.date)
+    if (!weeks.has(mon)) weeks.set(mon, new Set())
+    weeks.get(mon).add(w.date)
+  })
+  let total = 0
+  weeks.forEach(days => { if (days.size >= STREAK_MIN_DAYS) total += 1 })
+  const currentWeekStart = mondayOf(today)
+  const currentWeekDays = weeks.get(currentWeekStart)?.size ?? 0
+  return { total, minDays: STREAK_MIN_DAYS, currentWeekStart, currentWeekDays, currentWeekCounts: currentWeekDays >= STREAK_MIN_DAYS }
+}
+
+// Reparte 100 entre las categorías con el método del resto mayor (los porcentajes enteros suman exactamente
+// 100). Desempate: mayor resto, luego mayor cantidad, luego el orden recibido.
+function percentagesSummingTo100(entries) {
+  const total = entries.reduce((a, e) => a + e.count, 0)
+  const rows = entries.map((e, i) => {
+    const exact = (e.count * 100) / total
+    return { ...e, i, floor: Math.floor(exact), rest: exact - Math.floor(exact) }
+  })
+  let left = 100 - rows.reduce((a, r) => a + r.floor, 0)
+  const order = [...rows].sort((a, b) => b.rest - a.rest || b.count - a.count || a.i - b.i)
+  for (const r of order) { if (left <= 0) break; if (r.count > 0 || r.rest > 0) { r.floor += 1; left -= 1 } }
+  return Object.fromEntries(rows.map(r => [r.key, r.floor]))
+}
+
+// Un decimal con coma: 3.5 → "3,5"; 4 → "4,0".
+export const formatDaysPerWeek = (n) => (n == null ? '—' : n.toFixed(1).replace('.', ','))
+
+// Dorso de la tarjeta: resumen del MES CALENDARIO en curso (del día 1 hasta hoy).
+//   avgDaysPerWeek = días distintos entrenados en el mes / (días transcurridos del mes / 7), con un decimal
+//   percentages    = % de fuerza, cardio y clase sobre la cantidad de entrenamientos reales del mes (workouts,
+//                    no días), redondeados para que sumen 100; "otros" (p. ej. tabata) solo si existen
+// Sin entrenamientos en el mes → { empty: true, ... }.
+export function computeMonthSummary(workouts, today = getTodayLocal()) {
+  const month = monthOf(today)
+  const daysElapsed = Number(today.slice(8, 10))
+  const real = realWorkouts(workouts, today).filter(w => w.date >= month + '-01')
+  if (!real.length) return { empty: true, month, daysElapsed, trainedDays: 0, workouts: 0, avgDaysPerWeek: null, counts: null, percentages: null }
+
+  const count = (t) => real.filter(w => w.type === t).length
+  const counts = { fuerza: count('fuerza'), cardio: count('cardio'), clase: count('clase') }
+  const otros = real.length - counts.fuerza - counts.cardio - counts.clase
+  if (otros > 0) counts.otros = otros
+  const entries = Object.entries(counts).map(([key, c]) => ({ key, count: c }))
+  const trainedDays = new Set(real.map(w => w.date)).size
+  return {
+    empty: false, month, daysElapsed, trainedDays, workouts: real.length,
+    avgDaysPerWeek: Math.round((trainedDays / (daysElapsed / 7)) * 10) / 10,
+    counts,
+    percentages: percentagesSummingTo100(entries),
+  }
+}
+
 // ─── Cansancio (fuente única del estado) ─────────────────────────────────────
 
 const finiteFatigue = (w) => {
@@ -500,7 +559,8 @@ export function computeProgressStats({ workouts, catalog = DEFAULT_CATALOG, prof
     mayorProgreso: computeMayorProgreso(workouts, catalog),
     masTrabajado: computeMasTrabajado(workouts, catalog),
     totals: computeTotals(workouts, today),
-    streak: computeStreak(workouts, today),
+    weeklyStreak: computeWeeklyStreak3Plus(workouts, today),
+    monthSummary: computeMonthSummary(workouts, today),
 
     keyInsight: rules[0]?.text ?? null,
     keyInsightRule: rules[0]?.rule ?? null,

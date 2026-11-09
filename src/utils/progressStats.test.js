@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   computeProgressStats, computeKeyInsight, computeRecords, computeMayorProgreso, computeMasTrabajado,
   computeTotals, getFatigueStatus, resolvePeriod, pctChange, getWeeklyGoal, groupExercises,
+  computeWeeklyStreak3Plus, computeMonthSummary, formatDaysPerWeek,
 } from './progressStats.js'
-import { computeStreak } from './streak.js'
 import { addDays, mondayOf } from './weeks.js'
 
 // ── Historiales inventados ───────────────────────────────────────────────────
@@ -286,75 +286,147 @@ describe('cansancio', () => {
   })
 })
 
-describe('racha estricta', () => {
-  it('semanas consecutivas con 3+ días; una semana cerrada con menos de 3 corta la racha', () => {
+describe('racha semanal 3+ (total de semanas con 3+ días)', () => {
+  const total = (ws, today = TODAY) => computeWeeklyStreak3Plus(desc(ws), today)
+
+  it('cuenta el TOTAL de semanas con 3+ días aunque no sean consecutivas (huecos y parates largos)', () => {
     const ws = [
-      ...[8, 7, 6, 5].flatMap(n => weekDays(M(n), 3)),   // 4 semanas
-      ...weekDays(M(4), 2),                              // semana de 2 días → corta
-      ...[3, 2, 1].flatMap(n => weekDays(M(n), 3)),      // 3 semanas
+      ...weekDays(M(30), 3), ...weekDays(M(29), 4),     // 2 semanas hace casi 7 meses
+      ...weekDays(M(20), 2),                            // 2 días: no cuenta
+      ...weekDays(M(10), 3),                            // tras un parate de ~19 semanas
+      ...weekDays(M(5), 5), ...weekDays(M(4), 1),       // 5 días cuenta; 1 día no
+      ...weekDays(M(1), 3),
     ]
-    const r = computeStreak(desc(ws), TODAY)
-    expect(r.current).toBe(3)
-    expect(r.record).toBe(4)
-    expect(r.currentStart).toBe(M(3))
-    expect(r.currentEnd).toBe(addDays(M(1), 6))
-    expect(r.recordStart).toBe(M(8))
-    expect(r.recordEnd).toBe(addDays(M(5), 6))
+    expect(total(ws).total).toBe(5)
   })
 
-  it('una semana con 0 días también corta', () => {
-    const ws = [...[6, 5, 4].flatMap(n => weekDays(M(n), 3)), ...[2, 1].flatMap(n => weekDays(M(n), 3))]
-    const r = computeStreak(desc(ws), TODAY)
-    expect(r.current).toBe(2)
-    expect(r.record).toBe(3)
+  it('nunca baja: un parate largo no la reinicia y las semanas no se pierden con el paso del tiempo', () => {
+    const ws = [...weekDays(M(30), 3), ...weekDays(M(29), 3), ...weekDays(M(10), 3)]
+    expect(total(ws).total).toBe(3)
+    expect(total(ws, addDays(TODAY, 365)).total).toBe(3)            // un año después, sin entrenar
+    expect(total([...ws, ...weekDays(M(1), 3)]).total).toBe(4)       // solo puede subir
   })
 
-  it('semana en curso incompleta: no suma, pero tampoco corta', () => {
-    const ws = [...[5, 4, 3, 2, 1].flatMap(n => weekDays(M(n), 3)), ...weekDays(M(0), 1)]
-    const r = computeStreak(desc(ws), TODAY)
-    expect(r.current).toBe(5)
-    expect(r.currentEnd).toBe(addDays(M(1), 6))
-    const sinNada = computeStreak(desc([...[5, 4, 3, 2, 1].flatMap(n => weekDays(M(n), 3))]), TODAY)
-    expect(sinNada.current).toBe(5)
+  it('la semana en curso suma apenas alcanza 3 días (con menos, no suma)', () => {
+    const base = [...weekDays(M(3), 3), ...weekDays(M(2), 4)]
+    const con2 = total([...base, ...weekDays(M(0), 2)])
+    expect(con2.total).toBe(2)
+    expect(con2.currentWeekDays).toBe(2)
+    expect(con2.currentWeekCounts).toBe(false)
+    const con3 = total([...base, ...weekDays(M(0), 3)])
+    expect(con3.total).toBe(3)
+    expect(con3.currentWeekDays).toBe(3)
+    expect(con3.currentWeekCounts).toBe(true)
+    expect(con3.currentWeekStart).toBe(M(0))
+    expect(con3.minDays).toBe(3)
   })
 
-  it('la semana en curso suma apenas llega a 3 días', () => {
-    const ws = [...[5, 4, 3, 2, 1].flatMap(n => weekDays(M(n), 3)), ...weekDays(M(0), 3)]
-    const r = computeStreak(desc(ws), TODAY)
-    expect(r.current).toBe(6)
-    expect(r.record).toBe(6)
-    expect(r.currentEnd).toBe(addDays(M(0), 6))
+  it('cuenta días DISTINTOS (varios entrenamientos el mismo día cuentan una vez) y todos los tipos reales', () => {
+    const mismoDia = [wk('fuerza', M(1)), wk('cardio', M(1)), wk('clase', M(1)), wk('fuerza', addDays(M(1), 1))]
+    expect(total(mismoDia).total).toBe(0)                           // solo 2 días distintos
+    const mezcla = [wk('fuerza', M(1)), wk('cardio', addDays(M(1), 2)), wk('tabata', addDays(M(1), 4))]
+    expect(total(mezcla).total).toBe(1)
   })
 
-  it('si la semana anterior no llegó a 3, la racha actual es 0 aunque la actual todavía no haya empezado', () => {
-    const ws = [...[4, 3, 2].flatMap(n => weekDays(M(n), 3)), ...weekDays(M(1), 2)]
-    const r = computeStreak(desc(ws), TODAY)
-    expect(r.current).toBe(0)
-    expect(r.currentStart).toBeNull()
-    expect(r.record).toBe(3)
+  it('ignora pausas, descansos y fechas futuras; sin historial es 0', () => {
+    const ws = [
+      { type: 'pausa', date: addDays(M(2), 0) }, { type: 'descanso', date: addDays(M(2), 1) }, { type: 'pausa', date: addDays(M(2), 2) },
+      ...weekDays(addDays(M(0), 7), 3),                              // semana que viene
+    ]
+    expect(total(ws).total).toBe(0)
+    expect(total([]).total).toBe(0)
+    expect(computeWeeklyStreak3Plus(undefined, TODAY).total).toBe(0)
   })
 
-  it('devuelve las últimas 12 semanas con sus días; la última es la actual', () => {
-    const r = computeStreak(desc([...weekDays(M(1), 4), ...weekDays(M(0), 2)]), TODAY)
-    expect(r.last12).toHaveLength(12)
-    expect(r.last12[11]).toMatchObject({ weekStart: M(0), days: 2, met: false, isCurrent: true })
-    expect(r.last12[10]).toMatchObject({ weekStart: M(1), days: 4, met: true, isCurrent: false })
-    expect(r.last12[0].weekStart).toBe(M(11))
+  it('está en el resultado de computeProgressStats junto con el resumen del mes', () => {
+    const s = stats([...weekDays(M(1), 3), ...weekDays(M(0), 3)])
+    expect(s.weeklyStreak.total).toBe(2)
+    expect(s.monthSummary.empty).toBe(false)
+    expect(s.streak).toBeUndefined()   // la racha de semanas consecutivas ya no existe
+  })
+})
+
+describe('resumen del mes (dorso de la tarjeta)', () => {
+  const day = (n, type = 'clase') => wk(type, '2026-11-' + String(n).padStart(2, '0'))
+
+  it('día 1 del mes: días por semana = días distintos / (1 / 7)', () => {
+    const m = computeMonthSummary([day(1, 'fuerza')], '2026-11-01')
+    expect(m).toMatchObject({ empty: false, month: '2026-11', daysElapsed: 1, trainedDays: 1, workouts: 1, avgDaysPerWeek: 7 })
+    expect(m.percentages).toEqual({ fuerza: 100, cardio: 0, clase: 0 })
+    expect(formatDaysPerWeek(m.avgDaysPerWeek)).toBe('7,0')
   })
 
-  it('sin workouts: todo en cero y fechas null; solo cuentan los tipos reales y las fechas hasta hoy', () => {
-    const vacio = computeStreak([], TODAY)
-    expect(vacio).toMatchObject({ current: 0, record: 0, currentStart: null, recordStart: null })
-    expect(vacio.last12).toHaveLength(12)
-    const noReales = computeStreak([{ type: 'pausa', date: '2026-11-03' }, ...weekDays('2026-11-16', 3)], TODAY)
-    expect(noReales.record).toBe(0)
+  it('a mitad de mes: 5 días distintos en 15 días → 2,3 días por semana (los entrenamientos extra del mismo día no suman días)', () => {
+    const ws = [day(1), day(3), day(5), day(8), day(8, 'cardio'), day(12)]
+    const m = computeMonthSummary(desc(ws), '2026-11-15')
+    expect(m.trainedDays).toBe(5)
+    expect(m.workouts).toBe(6)
+    expect(m.avgDaysPerWeek).toBe(2.3)                              // 5 / (15 / 7) = 2,33
+    expect(formatDaysPerWeek(m.avgDaysPerWeek)).toBe('2,3')
   })
 
-  it('el récord se mantiene cuando la racha actual es menor; ante un empate gana el más reciente', () => {
-    const ws = [...[8, 7].flatMap(n => weekDays(M(n), 3)), ...[3, 2].flatMap(n => weekDays(M(n), 3))]
-    const r = computeStreak(desc(ws), TODAY)
-    expect(r.record).toBe(2)
-    expect(r.recordStart).toBe(M(3))
+  it('a fin de mes: 12 días distintos en 30 días → 2,8; y en un mes de 31 días', () => {
+    const doce = [1, 3, 4, 7, 9, 11, 14, 17, 20, 23, 26, 29].map(n => day(n))
+    expect(computeMonthSummary(desc(doce), '2026-11-30').avgDaysPerWeek).toBe(2.8)           // 12 / (30 / 7)
+    const nueve = [1, 4, 9, 12, 16, 20, 24, 27, 31].map(n => wk('clase', '2026-12-' + String(n).padStart(2, '0')))
+    const m = computeMonthSummary(desc(nueve), '2026-12-31')
+    expect(m.avgDaysPerWeek).toBe(2)                                                          // 9 / (31 / 7) = 2,03
+    expect(formatDaysPerWeek(m.avgDaysPerWeek)).toBe('2,0')
+  })
+
+  it('solo cuenta el mes en curso hasta hoy: ignora el mes anterior, el futuro y los tipos no reales', () => {
+    const ws = [wk('clase', '2026-10-31'), wk('clase', '2026-10-30'), day(2), day(13), { type: 'pausa', date: '2026-11-05' }]
+    const m = computeMonthSummary(desc(ws), TODAY)                    // hoy = 12
+    expect(m.workouts).toBe(1)
+    expect(m.trainedDays).toBe(1)
+    expect(m.daysElapsed).toBe(12)
+    expect(m.avgDaysPerWeek).toBe(0.6)                                // 1 / (12 / 7)
+  })
+
+  it('los porcentajes enteros de fuerza, cardio y clase suman siempre 100', () => {
+    const tres = computeMonthSummary(desc([day(1, 'fuerza'), day(2, 'cardio'), day(3, 'clase')]), '2026-11-10')
+    expect(tres.percentages).toEqual({ fuerza: 34, cardio: 33, clase: 33 })
+    const sesgado = computeMonthSummary(desc([day(1, 'fuerza'), day(2, 'fuerza'), day(3, 'cardio'), ...[4, 5, 6, 7].map(n => day(n, 'clase'))]), '2026-11-10')
+    expect(sesgado.percentages).toEqual({ fuerza: 29, cardio: 14, clase: 57 })
+    // barrido: todas las combinaciones de 0 a 6 entrenamientos por tipo (y con tabata)
+    for (let f = 0; f <= 6; f++) for (let c = 0; c <= 6; c++) for (let k = 0; k <= 6; k++) for (let t = 0; t <= 2; t++) {
+      if (f + c + k + t === 0) continue
+      const ws = []
+      let n = 1
+      const add = (type, q) => { for (let i = 0; i < q; i++) ws.push(day(n++ % 28 + 1, type)) }
+      add('fuerza', f); add('cardio', c); add('clase', k); add('tabata', t)
+      const m = computeMonthSummary(desc(ws), '2026-11-28')
+      const sum = Object.values(m.percentages).reduce((a, b) => a + b, 0)
+      expect(sum).toBe(100)
+      const total = f + c + k + t
+      expect(Math.abs(m.percentages.fuerza - (f * 100) / total)).toBeLessThan(1)
+      expect(Math.abs(m.percentages.cardio - (c * 100) / total)).toBeLessThan(1)
+      expect(Math.abs(m.percentages.clase - (k * 100) / total)).toBeLessThan(1)
+      expect('otros' in m.percentages).toBe(t > 0)
+    }
+  })
+
+  it('"otros" (tabata) aparece solo si existe y entra en el reparto', () => {
+    const sin = computeMonthSummary(desc([day(1, 'fuerza'), day(2, 'clase')]), '2026-11-10')
+    expect('otros' in sin.percentages).toBe(false)
+    expect('otros' in sin.counts).toBe(false)
+    const con = computeMonthSummary(desc([day(1, 'fuerza'), day(2, 'fuerza'), day(3, 'cardio'), day(4, 'clase'), day(5, 'tabata')]), '2026-11-10')
+    expect(con.percentages).toEqual({ fuerza: 40, cardio: 20, clase: 20, otros: 20 })
+    expect(con.counts).toEqual({ fuerza: 2, cardio: 1, clase: 1, otros: 1 })
+  })
+
+  it('mes sin entrenamientos: estado vacío', () => {
+    const vacio = computeMonthSummary([], TODAY)
+    expect(vacio).toMatchObject({ empty: true, month: '2026-11', trainedDays: 0, workouts: 0, avgDaysPerWeek: null, counts: null, percentages: null })
+    const soloMesPasado = computeMonthSummary(desc([wk('clase', '2026-10-20'), wk('fuerza', '2026-10-21')]), TODAY)
+    expect(soloMesPasado.empty).toBe(true)
+    expect(formatDaysPerWeek(null)).toBe('—')
+  })
+
+  it('formatDaysPerWeek: un decimal con coma', () => {
+    expect(formatDaysPerWeek(3.5)).toBe('3,5')
+    expect(formatDaysPerWeek(4)).toBe('4,0')
+    expect(formatDaysPerWeek(0.6)).toBe('0,6')
   })
 })
 

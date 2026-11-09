@@ -2,7 +2,7 @@ import { getAchievements, unlockAchievement, getTabataRecordCount } from '../ser
 import { dateToLocal } from './dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { computeStreak, REAL_WORKOUT_TYPES } from './streak'
+import { REAL_WORKOUT_TYPES } from './streak'
 import { computeRecords } from './progressStats'
 
 // ─── Achievement metadata (no React/icon refs) ────────────────────────────────
@@ -298,7 +298,9 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
     if (qualEntry) push('finDeSeActivo', fmtWeek(qualEntry[0]))
   }
 
-  const { record: rachaRecord } = computeStreak(workouts)
+  // Semanas SEGUIDAS con 3+ días (helper propio de este archivo; antes salía de computeStreak, que se reemplazó
+  // por la "Racha semanal 3+" — mismo resultado, verificado con 3000 historiales al azar).
+  const rachaRecord = computeMaxStreak(workouts, 3)
   if (!a.rachaFuego?.unlocked  && rachaRecord >= 4)  push('rachaFuego',  '4 semanas seguidas con 3+ días')
   if (!a.rachaElite?.unlocked  && rachaRecord >= 12) push('rachaElite',  '12 semanas seguidas con 3+ días')
 

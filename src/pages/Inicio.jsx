@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isToday, isYesterday, differenceInDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -7,7 +7,7 @@ import { useAuthContext } from '../context/AuthContext'
 import { useWorkouts } from '../hooks/useWorkouts'
 import { useWorkoutDraft } from '../context/WorkoutDraftContext'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
-import { REAL_WORKOUT_TYPES, computeStreakStats } from '../utils/streak'
+import { REAL_WORKOUT_TYPES } from '../utils/streak'
 import { getWeeklyGoal } from '../utils/progressStats'
 import { getInactivityInfo } from '../utils/inactivity'
 import { computeDailySuggestion } from '../utils/dailySuggestion'
@@ -17,7 +17,7 @@ import HeroPortada from '../components/inicio/HeroPortada'
 import Logros from '../components/inicio/Logros'
 import WeekCalendar from '../components/inicio/WeekCalendar'
 import Modal from '../components/ui/Modal'
-import FlipCard from '../components/ui/FlipCard'
+import WeeklyStreakCard from '../components/progreso/WeeklyStreakCard'
 
 const DAILY_SUGGESTION_KEY = (uid) => `daily_suggestion_${uid}`
 
@@ -557,29 +557,9 @@ function DailySuggestionCard({ suggestion, onDismissRegreso }) {
 }
 
 // ─── Stats cards ─────────────────────────────────────────────────────────────
-// Grilla 2x2 del dorso de la racha — mismo orden que los buckets de computeStreakStats.
-const BACK_GRID_DEFS = [
-  { key: 'zero',      label: '0 días' },
-  { key: 'oneTwo',     label: '1-2 días' },
-  { key: 'threeFour',  label: '3-4 días' },
-  { key: 'fivePlus',   label: '5+ días' },
-]
 const STATS_CARD_HEIGHT = '108px'
 
-function RachaBack({ stats }) {
-  return (
-    <div className="grid grid-cols-2 h-full w-full gap-1 px-3 py-2">
-      {BACK_GRID_DEFS.map(({ key, label }) => (
-        <div key={key} className="flex flex-col items-center justify-center">
-          <span className="text-lg font-bold leading-none" style={{ color: '#9B7FD4' }}>{stats.buckets[key]}</span>
-          <span className="text-[8px] text-app-muted text-center leading-tight mt-0.5">{label}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function StatsCards({ diasSemana, goal, semanasRacha, streakStats }) {
+function StatsCards({ diasSemana, goal, weeklyStreak, month }) {
   // El anillo se llena con el objetivo semanal del perfil (profile.diasSemana), no con un tope fijo.
   const maxDays = Math.max(1, goal)
   const clampedDays = Math.min(diasSemana, maxDays)
@@ -628,32 +608,9 @@ function StatsCards({ diasSemana, goal, semanasRacha, streakStats }) {
         )}
       </div>
 
-      {/* Card derecha — racha, se da vuelta al tocarla */}
+      {/* Card derecha — "Racha semanal 3+", se da vuelta al tocarla (dorso: resumen del mes) */}
       <div className="flex-1">
-        <FlipCard
-          height={STATS_CARD_HEIGHT}
-          flipLabel="Ver estadísticas de la racha"
-          unflipLabel="Volver a la racha"
-          front={
-            <div
-              className="w-full h-full py-3 px-3 rounded-2xl border border-white/[0.06] flex flex-col items-center justify-center"
-              style={{ backgroundColor: '#1a1625' }}
-            >
-              <span className="text-4xl font-bold leading-none flex items-center gap-1.5" style={{ color: '#9B7FD4' }}>
-                <span className="text-3xl">🔥</span>{semanasRacha}
-              </span>
-              <p className="text-[10px] text-app-muted text-center mt-1 px-1 leading-tight">racha semanal</p>
-            </div>
-          }
-          back={
-            <div
-              className="w-full h-full rounded-2xl border border-white/[0.06]"
-              style={{ backgroundColor: '#1a1625' }}
-            >
-              <RachaBack stats={streakStats} />
-            </div>
-          }
-        />
+        <WeeklyStreakCard total={weeklyStreak} month={month} height={STATS_CARD_HEIGHT} />
       </div>
 
     </div>
@@ -664,7 +621,7 @@ function StatsCards({ diasSemana, goal, semanasRacha, streakStats }) {
 export default function Inicio() {
   const { user, settings, profile, updateProfile } = useAuthContext()
   const navigate = useNavigate()
-  const { workouts, loading, reload, getCurrentStreak } = useWorkouts()
+  const { workouts, loading, reload, getWeeklyStreak3Plus, getMonthSummary } = useWorkouts()
   const { resolveDraft, clearDraft: clearWorkoutInProgress } = useWorkoutDraft()
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)
@@ -676,8 +633,8 @@ export default function Inicio() {
   const [resumeChecked, setResumeChecked] = useState(false)
 
   const diasSemana = getThisWeekCount(workouts)
-  const { current: semanasRacha } = getCurrentStreak() // racha estricta, memoizada en useWorkouts
-  const streakStats = useMemo(() => computeStreakStats(workouts, getTodayLocal()), [workouts])
+  const { total: weeklyStreak } = getWeeklyStreak3Plus() // "Racha semanal 3+", memoizada en useWorkouts
+  const monthSummary = getMonthSummary()                   // dorso de la tarjeta: resumen del mes en curso
   const weeklyGoal = getWeeklyGoal(profile)
   const inactivityInfo = computeInactivityInfo(workouts, profile)
 
@@ -809,7 +766,7 @@ export default function Inicio() {
       )}
 
       <div className="flex-1 flex flex-col mt-2 pb-2 overflow-x-hidden">
-        <div className="mb-2"><StatsCards diasSemana={diasSemana} goal={weeklyGoal} semanasRacha={semanasRacha} streakStats={streakStats} /></div>
+        <div className="mb-2"><StatsCards diasSemana={diasSemana} goal={weeklyGoal} weeklyStreak={weeklyStreak} month={monthSummary} /></div>
         {showSatBanner && (
           <div className="mb-2 mx-4">
             <div className="flex items-center gap-3 rounded-xl px-4 py-3"

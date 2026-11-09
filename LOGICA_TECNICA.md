@@ -4,88 +4,56 @@ Documentación técnica permanente para que cualquier instancia de Claude pueda 
 
 ---
 
-## 1. SISTEMA DE RACHA (`computeStreak()`) — RACHA ESTRICTA desde noviembre 2026
+## 1. RACHA SEMANAL 3+ (`computeWeeklyStreak3Plus()`)
 
-> **Historial**: hasta septiembre 2026 este sistema tenía 4 estados (`active`/`frozen`/`paused`/`broken`) acoplados a las pausas registradas (sección 2). Se reemplazó por completo por una regla única sin estados — ver "Por qué se eliminaron los estados" más abajo. Las pausas **ya no participan** del cálculo de racha.
+> **Historial.** Hasta septiembre 2026 la racha tenía 4 estados (`active`/`frozen`/`paused`/`broken`) acoplados a las pausas (sección 2); se reemplazó por una regla sin estados (semanas de 1-2 días neutras, reinicio tras 4 semanas vacías). En noviembre 2026 pasó primero a una "racha estricta" de semanas consecutivas y, el mismo mes, a la métrica actual: **"Racha semanal 3+"**, un total acumulado. **La racha de semanas consecutivas se eliminó** (ver "Eliminación de la racha consecutiva").
 
-### Ubicación
+### Definición
 
-`src/utils/streak.js` — función pura `computeStreak(workouts, today = getTodayLocal())`, sin dependencias de React ni de Firestore directamente (recibe el array de workouts ya cargado). Consumida por `getCurrentStreak()` de [useWorkouts.js](src/hooks/useWorkouts.js), que devuelve el resultado **memoizado** (`useMemo` por `workouts` y por día): Inicio, Progreso y los logros usan **la misma función**. El módulo `progressStats.js` la reexporta.
+- **Valor** = cantidad **TOTAL** de semanas (lunes a domingo) de **todo el historial** con **3 o más días distintos** de entrenamiento real.
+- **No requiere semanas consecutivas** y **nunca baja**: un parate largo, o una semana floja, no la reinicia ni le resta; solo puede subir.
+- **La semana en curso suma apenas alcanza 3 días** (no hace falta esperar al domingo). Con menos de 3 todavía no suma.
+- Solo cuentan los tipos reales (`REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']`, `utils/streak.js`); `pausa` y `descanso` no. Un día cuenta una vez aunque haya varios entrenamientos. Las fechas posteriores a hoy se ignoran. El umbral de 3 días es `STREAK_MIN_DAYS` (`utils/streak.js`), fijo e independiente del objetivo semanal del perfil (`profile.diasSemana`, sección 26).
+- Semana = lunes a domingo, con fechas `YYYY-MM-DD` (`utils/weeks.js`, sin `Date`/UTC; ver sección 5).
 
-> **Cambio de noviembre 2026 — racha estricta.** Hasta entonces las semanas de 1-2 días eran *neutras* (ni sumaban ni cortaban) y la racha solo se reiniciaba tras 4 semanas vacías, así que "N sem." podía incluir semanas separadas. Ahora la racha cuenta semanas **realmente consecutivas**. Las rachas de los usuarios pueden bajar respecto de lo que veían antes (el récord también se recalcula con la regla nueva).
+### Código y consumidores
 
-### La regla
+`src/utils/progressStats.js` → `computeWeeklyStreak3Plus(workouts, today)` devuelve `{ total, minDays, currentWeekStart, currentWeekDays, currentWeekCounts }`. El cálculo es: agrupar los días distintos de workouts reales por lunes y contar los lunes con `días ≥ 3`.
 
-- **Semana** = lunes a domingo (`weeks.js`, aritmética sobre strings `YYYY-MM-DD`, sin `Date`/UTC; ver sección 5).
-- **Solo cuentan días de entrenamiento real**: `type` en `REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']` (constante única exportada desde `streak.js`). Los workouts con fecha posterior a hoy no cuentan.
-- **Semana con ≥ 3 días distintos** (`STREAK_MIN_DAYS`) → suma **+1** a la racha.
-- **Semana ya cerrada con menos de 3 días** (incluidas las de 0) → **corta** la racha (`current` vuelve a 0).
-- **La semana en curso suma +1 en cuanto llega a 3 días**; si todavía no los tiene, **no suma pero tampoco corta**.
-- **`record`** = la racha más larga de todo el historial con esta misma regla; ante un empate, la más reciente.
+- [useWorkouts.js](src/hooks/useWorkouts.js): `getWeeklyStreak3Plus()` y `getMonthSummary()` (memoizados con `useMemo` por `workouts` y por día). Son la **misma fuente** para Inicio y Progreso.
+- [WeeklyStreakCard.jsx](src/components/progreso/WeeklyStreakCard.jsx): la tarjeta (con `FlipCard`) que se usa **tal cual** en Inicio (`StatsCards`) y en Progreso (bloque "Tu camino").
+- Progreso: se eliminó la tarjeta de racha duplicada de "Tus victorias" (quedan "mejor marca" y la de fatiga).
 
-### Qué devuelve
+### La tarjeta
 
-```js
-{
-  current, record,                       // semanas de la racha actual y del récord
-  currentStart, currentEnd,              // lunes de la primera semana y domingo de la última semana de la racha actual (null si es 0)
-  recordStart, recordEnd,                // lo mismo para el récord
-  last12: [{ weekStart, weekEnd, days, met, isCurrent }, ...]   // las últimas 12 semanas (la última es la actual)
-}
-```
+- **Frente**: título **"Racha semanal 3+"**, `🔥 {total}` y el texto **"semanas con 3+ días"**.
+- **Dorso** (se toca para darla vuelta; `FlipCard.jsx`, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`): arriba, chico, **"Este mes"**; luego **"X,X días por semana"**; una barra segmentada y los tres porcentajes de **fuerza, cardio y clase**, cada uno con su color de `TYPE_COLORS` (`utils/workoutTypes.js`: fuerza `#9B7FD4`, cardio `#4ade80`, clase `#60a5fa`, otros `#94A3B8`). Sin entrenamientos en el mes: **"Todavía no entrenaste este mes"**. Reemplaza al dorso anterior (las últimas 12 semanas).
+- Altura fija de 108 px (la de la tarjeta de días de al lado).
+
+### Dorso: resumen del mes (`computeMonthSummary(workouts, today)`)
+
+Mes calendario en curso, del día 1 hasta hoy, solo workouts reales:
+
+- **Días por semana** = `días distintos entrenados en el mes / (días transcurridos del mes / 7)`, redondeado a **1 decimal**. "Días transcurridos" = el día del mes de hoy (hoy cuenta). Se muestra con coma (`formatDaysPerWeek`: 3,5 · 4,0). Ejemplos: el día 1 con un entrenamiento → 7,0; el día 15 con 5 días distintos → 2,3; el día 30 con 12 días distintos → 2,8.
+- **Porcentajes** de fuerza, cardio y clase = `entrenamientos del tipo / entrenamientos reales del mes × 100` (se cuentan **workouts**, no días), repartidos con el **método del resto mayor** para que los enteros sumen **exactamente 100** (desempate: mayor resto, luego mayor cantidad, luego el orden fuerza → cardio → clase → otros). **"Otros"** (por ejemplo tabata) aparece **solo si existen** y entra en el reparto.
+- **Mes vacío** → `{ empty: true, ... }` (valores `null`).
+
+### Eliminación de la racha consecutiva
+
+Se eliminaron `computeStreak()` (racha estricta de semanas consecutivas, con récord y fechas), `computeStreakStats()` (los buckets de las últimas 12 semanas del dorso anterior) y `getCurrentStreak()`; ya no existe el concepto de "récord de racha" en Inicio ni en Progreso.
+
+**Logros que dependían de esa función** (no cambió su lógica): `rachaFuego` ("4 semanas seguidas con 3+ días") y `rachaElite` ("12 semanas seguidas con 3+ días") leían `computeStreak(workouts).record`. Ahora leen `computeMaxStreak(workouts, 3)`, un helper que ya existía en `achievements.js` (usado por otros logros): la mayor cantidad de **semanas seguidas** con 3+ días. Es el **mismo resultado** que el récord de la función anterior (verificado con 3000 historiales al azar). Los demás logros de racha (`semanaActiva`, `dosSemanas`, `piernasAcero`, `balancePerfecto`, `semanaPerfecta`, `hamburguesaMerecida`) y la medalla `w_racha_viva` ya eran independientes de la función eliminada.
 
 ### Casos de ejemplo (verificados en `progressStats.test.js`)
 
-| Escenario | Resultado |
+| Escenario | `total` |
 |---|---|
-| 5 semanas seguidas con 3+ días | `current: 5` |
-| 4 semanas de 3 días, 1 semana de **2 días**, 3 semanas de 3 días | `current: 3`, `record: 4` — la semana de 2 días corta |
-| Una semana cerrada con **0 días** en el medio | Corta |
-| 5 semanas de 3 días y la semana en curso con 1 día | `current: 5` — la semana en curso no suma pero no corta |
-| Lo mismo, y la semana en curso llega a 3 días | `current: 6` — suma sin esperar al domingo |
-| Semana anterior con 2 días, semana en curso todavía vacía | `current: 0` |
-| Documentos `type: 'pausa'` o `'descanso'` | No afectan: quedan fuera de `REAL_WORKOUT_TYPES` |
-
-### Consumidores del resultado
-
-- [useWorkouts.js](src/hooks/useWorkouts.js): `getCurrentStreak()` (devuelve `computeStreak(workouts, hoy)` memoizado).
-- [Inicio.jsx](src/pages/Inicio.jsx): `const { current: semanasRacha } = getCurrentStreak()` para el frente de la tarjeta (`🔥 {semanasRacha}`), y `computeStreakStats(workouts, getTodayLocal())` por separado para el dorso (ver subsección siguiente) — ambos pasados a `<StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} streakStats={streakStats} />`.
-- [ProgresoPage.jsx](src/components/progreso/ProgresoPage.jsx): llama a la **misma** `getCurrentStreak()` del hook (`const { record } = useMemo(() => getCurrentStreak(), [workouts])`) para `CaminoCard`/`VictoriaCard` — **ya no tiene su propio cálculo de `record` duplicado** dentro de `computeAll()` (fue eliminado; antes eran dos implementaciones independientes que podían mostrar números distintos entre Inicio y Progreso — ver sección 9). Ambas pantallas muestran siempre 🔥, sin distinción de color/ícono por estado.
-- [Logros.jsx](src/components/inicio/Logros.jsx): la medalla `w_racha_viva` ya no recibe `streakState` como prop — `Logros`/`computeWeeklyMedals` perdieron ese parámetro por completo. Ver sección 4 para el nuevo criterio de `w_racha_viva`.
-- [achievements.js](src/utils/achievements.js): `rachaFuego`/`rachaElite` usan `computeStreak(workouts).record` (mismos umbrales: ≥4 y ≥12). `computeMaxStreak()` (usada por `checkPiernasAcero`) y el chequeo inline de `dosSemanas` ahora filtran por `REAL_WORKOUT_TYPES` — antes contaban cualquier `type`, incluyendo `'pausa'`/`'descanso'`, como día "entrenado" (bug histórico, ver sección 9).
-
-### Estadísticas de la tarjeta de racha (`computeStreakStats()`)
-
-La tarjeta de racha de `Inicio.jsx` es una tarjeta que se da vuelta (`FlipCard`, `src/components/ui/FlipCard.jsx` — genérica y reutilizable, envuelve un `<button aria-pressed aria-label>`, reusa las clases `.flip-card`/`.flip-inner`/`.flip-front`/`.flip-back` de `index.css` que ya usaba `TrophyCard` en `Logros.jsx`, y respeta `prefers-reduced-motion` — `.flip-inner` pierde la transición, así el giro es instantáneo en vez de animado). Ambas caras usan una altura compacta fija (`STATS_CARD_HEIGHT = '108px'`, la misma que la card de días de al lado tenía de forma implícita antes de que existiera el flip — necesaria porque el truco CSS del flip posiciona el frente y el dorso en `absolute`, así que el contenedor necesita una altura explícita para no colapsar a 0).
-
-- **Frente**: solo `🔥 {current}`, con el número al **mismo tamaño y peso que el número grande de la card de días** (`text-4xl font-bold`) — antes era más chico (`text-2xl`), inconsistente con el recuadro de al lado. Debajo, "racha semanal" con el mismo estilo chico que ya tenía.
-- **Dorso**: grilla compacta de 2×2, un número destacado por celda (`text-lg font-bold`) con su etiqueta chica debajo — **0 días**, **1-2 días**, **3-4 días**, **5+ días** — nada más (sin récord, sin promedio, sin porcentajes por tipo, sin pie "Últimas 12 semanas": se sacaron para que el dorso entre holgado en la altura compacta).
-
-La card de días, además, ahora muestra "Esta semana" arriba a la izquierda (mismas clases que la etiqueta "días" del centro: `text-[9px] text-app-muted`) — existía en el pedido original pero nunca se había implementado.
-
-`computeStreakStats(workouts, today)` (función pura, `src/utils/streak.js`) calcula los 4 buckets:
-
-**Período**: las últimas 12 semanas **completas** (lunes a domingo), sin incluir la semana en curso — `lastCompleteMonday = mondayOf(today) - 7 días`, y las 12 semanas van desde `lastCompleteMonday - 11×7` hasta `lastCompleteMonday`. Si el primer entrenamiento real del usuario es más reciente que ese inicio nominal, el período se acorta a las semanas desde esa primera semana (`startMonday = max(firstMonday, nominalStartMonday)`) — así un usuario nuevo con 3 semanas de historial ve estadísticas de 3 semanas, no 12 con 9 vacías. Solo cuenta `type` en `REAL_WORKOUT_TYPES` (`'pausa'`/`'descanso'` quedan afuera, igual que en `computeStreak`).
-
-**`buckets`**: `{ zero, oneTwo, threeFour, fivePlus }` — cantidad de semanas del período con 0, 1-2, 3-4, o 5+ días únicos de entrenamiento real. A diferencia del diseño anterior (que tenía un bucket por cada valor de 1 a 4 y excluía las semanas de 0 días), acá las semanas de 0 días sí se cuentan, en su propio bucket — la suma de los 4 buckets siempre da exactamente `weeksConsidered`.
-
-**`record`**: se reusa directamente `computeStreak(workouts).record` (el récord histórico completo, no acotado a las 12 semanas) — la función lo sigue devolviendo, aunque ya no se muestra en el dorso (se sacó del diseño por espacio).
-
-`average` y `typePercents` (porcentaje de sesiones por tipo, redondeo por método de restos mayores) **se eliminaron** de `computeStreakStats` — quedaron sin ningún consumidor tras simplificar el dorso a la grilla de 4 números.
-
-Verificado con corridas sintéticas: 12 semanas con distribución mixta de días (buckets exactos, sumando 12), y usuario con historial corto (período acortado, buckets sumando solo esas semanas). La primera corrida del script de verificación falló por un error del propio script (no anclaba el historial antes de la ventana de 12 semanas, así que el período se acortaba a partir de la primera semana con datos) — corregido el test, no la función.
-
-### Por qué se eliminaron los estados (`active`/`frozen`/`paused`/`broken`)
-
-**Simplicidad**: 4 estados + un override post-loop para "descongelar" eran difíciles de razonar y de mantener — cualquier cambio en pausas podía romper silenciosamente el cálculo de racha (ver el bug de `getCurrentStreak()` documentado en versiones anteriores de este archivo). Una sola regla ("3+ días suma, menos no corta, 4 semanas vacías resetea") es más fácil de explicar, de testear y de razonar sobre casos límite.
-
-**No castigar entrenar "un poco" igual que no entrenar nada**: con el sistema viejo, una semana de 1-2 días contaba exactamente igual que una semana de 0 días para efectos de mantener la racha activa post-pausa, y una semana floja dentro de una racha ya rota. Con la regla nueva, una semana floja es explícitamente neutra — ni te hace avanzar, pero tampoco te penaliza como si no hubieras hecho nada. Esto refleja mejor cómo entrena la gente en la vida real: semanas irregulares (viajes, imprevistos, mucho trabajo) no deberían borrar meses de constancia.
-
-**Silverman & Barasch (2023)** — sobre gamificación de rachas: romper una racha larga tiene un efecto desmotivador desproporcionado respecto al beneficio motivador que dio mientras estaba activa; muchos usuarios abandonan el hábito por completo después de "perder" una racha larga, en vez de simplemente retomarla. El diseño con estados (`frozen`/`paused`/`broken`) hacía visible y explícito cada quiebre — la regla nueva evita mostrar una racha "rota" salvo que realmente haya pasado un mes entero (4 semanas) sin ningún entrenamiento, reduciendo la frecuencia con la que el usuario ve ese mensaje desmotivador.
-
-**Lally et al. (2010)** — sobre formación de hábitos: saltear una sola oportunidad de repetir el hábito no tiene un efecto medible en el proceso de automatización del hábito (a diferencia de lo que popularmente se asume). Esto respalda no castigar semanas sueltas de baja actividad: el hábito de entrenar no se "resetea" porque una semana tuvo 2 días en lugar de 3.
-
-**Perdonar la vida real**: 4 semanas (un mes) de tolerancia antes de resetear la racha da margen para vacaciones, enfermedades cortas, viajes de trabajo, mudanzas, etc. sin necesidad de que el sistema sepa *por qué* el usuario no entrenó — no hace falta que registre una pausa ni justifique nada. Esto es lo que reemplaza, de forma mucho más simple, a lo que antes hacían las pausas explícitas con `frozen`/`paused`.
+| Semanas con 3, 4, 2, 3, 5, 1 y 3 días separadas por parates largos | 5 (cuentan las de 3, 4, 3, 5 y 3) |
+| Lo mismo, un año después sin entrenar | 5 (nunca baja) |
+| Semana en curso con 2 días | No suma (`currentWeekCounts: false`) |
+| Semana en curso con 3 días | Suma (+1) |
+| Tres entrenamientos el mismo día | Cuentan como 1 día |
+| `pausa` / `descanso` / fechas futuras | No cuentan |
 
 ---
 
@@ -207,7 +175,7 @@ function computeWeeklyMedals(workouts, profile) {
 }
 ```
 
-`REAL_WORKOUT_TYPES` se importa desde [streak.js](src/utils/streak.js) (`import { REAL_WORKOUT_TYPES } from '../../utils/streak'`) — es la misma constante que usa `computeStreak()` para la racha, ya no hay una copia local `REAL_TYPES` redefinida dentro de `Logros.jsx`.
+`REAL_WORKOUT_TYPES` se importa desde [streak.js](src/utils/streak.js) (`import { REAL_WORKOUT_TYPES } from '../../utils/streak'`) — es la misma constante que usa la "Racha semanal 3+" (`progressStats.js`), ya no hay una copia local `REAL_TYPES` redefinida dentro de `Logros.jsx`.
 
 ### Reglas de exclusión por contexto
 
@@ -218,15 +186,15 @@ function computeWeeklyMedals(workouts, profile) {
 ### Medalla `w_racha_viva`: significado nuevo
 
 Desde que se eliminaron los estados de racha (sección 1), `w_racha_viva` pasó a significar simplemente **"esta semana ya suma a la racha"**:
-- `completed = new Set(thisWeek.map(w => w.date)).size >= 3` — el mismo umbral de 3 días que usa `computeStreak()` para calificar una semana.
+- `completed = new Set(thisWeek.map(w => w.date)).size >= 3` — el mismo umbral de 3 días que usa la "Racha semanal 3+" (sección 1) para calificar una semana.
 - **Ya no se excluye del pool en ningún caso** — antes desaparecía por completo si la racha estaba `frozen`/`paused`/`broken`; ahora siempre es una opción posible dentro de la categoría `libre`, completada o no según si la semana en curso ya llegó a 3 días.
 
 ### Cadena completa de datos
 
 ```
-useWorkouts.js: getCurrentStreak() → computeStreak(workouts) → { current, record }
+useWorkouts.js: getWeeklyStreak3Plus() → computeWeeklyStreak3Plus(workouts) → { total, ... }
     ↓
-Inicio.jsx: const { current: semanasRacha, record: rachaRecord } = getCurrentStreak()
+Inicio.jsx: const { total: weeklyStreak } = getWeeklyStreak3Plus()
     ↓
 Inicio.jsx: <Logros workouts={workouts} compact />
     ↓
@@ -234,7 +202,7 @@ Logros.jsx: computeWeeklyMedals(workouts, profile)
             → dentro del switch: case 'w_racha_viva': completed = días reales de esta semana >= 3
 ```
 
-**Nota importante**: `Logros.jsx` **no llama `getCurrentStreak()` ni `computeStreak()` directamente** — calcula `w_racha_viva` de forma independiente, filtrando `workouts` por fecha ≥ lunes de esta semana (mismo criterio que `computeStreak` usaría para la semana en curso, pero sin pasar por esa función). Ya no recibe ningún prop de racha desde `Inicio.jsx` — el componente `Logros` perdió por completo la prop `streakState`.
+**Nota importante**: `Logros.jsx` **no llama `getWeeklyStreak3Plus()` directamente** — calcula `w_racha_viva` de forma independiente, filtrando `workouts` por fecha ≥ lunes de esta semana (mismo criterio de semana que la "Racha semanal 3+" para la semana en curso, pero sin pasar por esa función). Ya no recibe ningún prop de racha desde `Inicio.jsx` — el componente `Logros` perdió por completo la prop `streakState`.
 
 ### El reset semanal es automático
 
@@ -352,7 +320,7 @@ parseISO('2026-06-16')  // → igual de peligroso sin especificar hora
 parseISO('2026-06-16T12:00:00')  // → mediodía LOCAL → timezone-safe
 ```
 
-El patrón `parseISO(date + 'T12:00:00')` es la convención en todo el codebase (aparece en `computeStreak()` de `streak.js`, `achievements.js`, `WeekCalendar.jsx`, `ProgresoPage.jsx`, `InlineRangePicker`) cuando se necesita un objeto `Date` a partir de un string `YYYY-MM-DD` para hacer aritmética de fechas. El mediodía local da suficiente margen para que cambios de DST o desfases de timezone nunca desplacen el día calculado.
+El patrón `parseISO(date + 'T12:00:00')` es la convención en todo el codebase (aparece en `progressStats.js`, `achievements.js`, `WeekCalendar.jsx`, `ProgresoPage.jsx`, `InlineRangePicker`) cuando se necesita un objeto `Date` a partir de un string `YYYY-MM-DD` para hacer aritmética de fechas. El mediodía local da suficiente margen para que cambios de DST o desfases de timezone nunca desplacen el día calculado.
 
 ### Por qué se usa `format(new Date(), 'yyyy-MM-dd')` en lugar de `.toISOString().split('T')[0]`
 
@@ -811,7 +779,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: cualquier cambio en la lógica de carga o guardado pasa por acá. Desde noviembre 2026 es un lector del **estado compartido** de `WorkoutsProvider` (`src/context/WorkoutsContext.jsx`, sección 22): ya no hay una carga/estado/listener por instancia (esa era la causa raíz del bug de race condition de entonces); acá viven solo los cálculos derivados (`getLastWeightsForExercise`, `getPRForExercise`, `getLearnedWeights`, `getCurrentStreak`, etc.).
 
 ### `src/utils/streak.js`
-**Qué hace**: única fuente de verdad del cálculo de racha (`computeStreak(workouts)`, sección 1) y de la constante `REAL_WORKOUT_TYPES` (los 4 tipos que cuentan como entrenamiento real: `fuerza`, `cardio`, `clase`, `tabata`).
+**Qué hace**: define la constante `REAL_WORKOUT_TYPES` (los 4 tipos que cuentan como entrenamiento real: `fuerza`, `cardio`, `clase`, `tabata`) y `STREAK_MIN_DAYS` (3, el umbral de la "Racha semanal 3+"). El cálculo de la racha vive en `progressStats.js` (`computeWeeklyStreak3Plus`, sección 1).
 **Por qué es crítico**: función pura, sin dependencias de React/Firestore — se puede testear de forma aislada. `useWorkouts.js`, `Logros.jsx` y `achievements.js` importan de acá; no debería volver a haber una copia local de la lógica de semanas/racha en ningún otro archivo.
 
 ### `src/context/AuthContext.jsx`
@@ -819,8 +787,8 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida. `updateProfile` actualiza el estado local con un merge superficial (`{ ...prev, ...data }`) y escribe en Firestore solo `data` con `setDoc(..., { merge: true })` — Firestore sí mergea mapas anidados (como `inactividad`) campo a campo, mientras que el estado local reemplaza ese campo entero.
 
 ### `src/pages/Inicio.jsx`
-**Qué hace**: home de la app. Llama `getCurrentStreak()` y pasa `semanasRacha`/`rachaRecord` a `StatsCards`. Ya no le pasa nada de racha a `Logros` — `Logros` calcula `w_racha_viva` de forma independiente (sección 3). Contiene `computeWeeklyStats()` (resumen semanal), `getDailySuggestion()` y `computeInactivityInfo()` (aviso de inactividad, sección 14).
-**Por qué es crítico**: `ProgresoPage.jsx` también llama a `getCurrentStreak()` por su cuenta (misma función, mismo estado compartido) — ambas pantallas deben mostrar siempre los mismos números de racha, ya que las dos consumen exactamente `computeStreak()` sin ninguna lógica propia adicional. También es donde se decide la prioridad entre el modal de inactividad y el `WeeklySummaryModal` cuando ambos podrían corresponder el mismo día (sección 14).
+**Qué hace**: home de la app. Llama `getWeeklyStreak3Plus()` y `getMonthSummary()` y pasa el total y el resumen del mes a `StatsCards` (que usa `WeeklyStreakCard`). Ya no le pasa nada de racha a `Logros` — `Logros` calcula `w_racha_viva` de forma independiente (sección 3). Contiene `computeWeeklyStats()` (resumen semanal), `getDailySuggestion()` y `computeInactivityInfo()` (aviso de inactividad, sección 14).
+**Por qué es crítico**: `ProgresoPage.jsx` usa la **misma** tarjeta (`WeeklyStreakCard`) y las mismas funciones del hook (`getWeeklyStreak3Plus()` / `getMonthSummary()`, memoizadas en `useWorkouts`), así que ambas pantallas muestran siempre el mismo número de "Racha semanal 3+" y el mismo resumen del mes, sin ninguna lógica propia adicional.
 
 ### `src/utils/inactivity.js`
 **Qué hace**: exporta `getInactivityInfo(profile)` — helper puro de una línea (`profile?.inactividad ?? null`) para leer el aviso de inactividad ya respondido. La detección/guardado en sí vive en `Inicio.jsx` (sección 14).
@@ -836,7 +804,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 
 ### `src/components/registro/WorkoutWizard.jsx`
 **Qué hace**: flujo de pasos para registrar un workout (tipo → detalle → sensación). Solo ofrece `fuerza`/`cardio`/`clase` como tipos — el flujo de pausa (`PausaFlow` + `InlineRangePicker`) se eliminó por completo (sección 2). Llama `workoutsHook.saveWorkout()` y muestra `WorkoutSummary`. Maneja el draft persistente del formulario (distinto del draft offline de `draftQueue.js`) y el timer de sesión.
-**Por qué es crítico**: el orden de operaciones al guardar (save a Firestore → optimistic update de cache → navegación) afecta directamente lo que ve `getCurrentStreak()` cuando el usuario llega a `Inicio` inmediatamente después de guardar.
+**Por qué es crítico**: el orden de operaciones al guardar (save a Firestore → optimistic update de cache → navegación) afecta directamente lo que ve la tarjeta "Racha semanal 3+" (`getWeeklyStreak3Plus()`) cuando el usuario llega a `Inicio` inmediatamente después de guardar.
 
 ### `src/components/registro/WorkoutSummary.jsx`
 **Qué hace**: pantalla post-guardado con confetti, stats, PRs (`detectPRs`), mejoras vs. sesión anterior (`detectImprovements`, filtrando duplicados con `prs`), logros nuevos y frase del día. Auto-cierra a los 8s.
@@ -844,7 +812,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 
 ### `src/components/progreso/ProgresoPage.jsx`
 **Qué hace**: página de progreso con múltiples bloques — "Tu camino" (stats agregadas), "Tus victorias", historial en calendario mensual, progresión de ejercicios, gráficos de fatiga y volumen, "Últimas Sesiones" (usa `WorkoutIcon` + `TYPE_COLORS` + `detectPRs`).
-**Por qué es crítico**: llama `getCurrentStreak()` propia (el mismo estado compartido que `Inicio.jsx`) — pero desde septiembre 2026 ya no tiene su propio cálculo de `record` duplicado dentro de `computeAll()`, usa directamente el `record` de `getCurrentStreak()` para que ambas pantallas siempre coincidan (sección 1). `MonthCalendar.jsx` (calendario mensual) y `WeekRow` (fila de "esta semana", dentro de este mismo archivo) ya no tienen tratamiento especial de pausa — ambos filtran por `REAL_WORKOUT_TYPES` como `WeekCalendar.jsx` (sección 2).
+**Por qué es crítico**: la tarjeta "Racha semanal 3+" de "Tu camino" es `WeeklyStreakCard` (la misma de Inicio); "PRs históricos" sale de `computeRecords` (`progressStats.js`, sección 26). Desde noviembre 2026 ya no hay tarjeta de racha en "Tus victorias".
 
 ### `src/utils/prUtils.js`
 **Qué hace**: exporta `detectPRs` (vs. máximo histórico absoluto) y `detectImprovements` (vs. sesión inmediatamente anterior). Archivo pequeño pero crítico para no confundir ambas semánticas.
@@ -1314,7 +1282,7 @@ Importante: el `useEffect` del resumen semanal simplemente **no llega a ejecutar
 
 ### No afecta la racha
 
-El aviso de inactividad es exclusivamente informativo/UX — no crea ningún workout, no crea ningún documento de pausa, y no toca `computeStreak()` (sección 1) de ninguna manera. `daysSince`/`lastRealDate` se calculan de forma completamente independiente al `weekMap` que usa la racha, aunque ambos parten del mismo array `workouts` filtrado por `REAL_WORKOUT_TYPES`.
+El aviso de inactividad es exclusivamente informativo/UX — no crea ningún workout, no crea ningún documento de pausa, y no toca la "Racha semanal 3+" (sección 1) de ninguna manera. `daysSince`/`lastRealDate` se calculan de forma completamente independiente al `weekMap` que usa la racha, aunque ambos parten del mismo array `workouts` filtrado por `REAL_WORKOUT_TYPES`.
 
 ---
 
@@ -1795,7 +1763,7 @@ Objetivo: que ningún entrenamiento se pierda, se duplique ni desaparezca de la 
 
 ### 5. Historial completo, estado compartido y caché (#1)
 
-- **Sin límite.** `getWorkoutsSnapshot(uid, limitN = null)` / `getWorkouts` traen **todos** los workouts del usuario (`orderBy('date', 'desc')` sin `limit`). Pasar un número sigue limitando, pero la carga principal no lo usa. Racha, récord, `computeStreakStats`, `detectPRs`, `getLearnedWeights`, precarga, modo regreso, `computeInactivityInfo`, rutina de regreso y logros (`cienDias`, `primerPaso`, `medioAnio`, `aniversario`, `hasFuerzaHistory`, "50"/"100 entrenamientos") operan ahora sobre el historial completo **sin ningún cambio en sus reglas**. Costo: una lectura de Firestore por workout en cada carga (con el caché se muestra al instante y se actualiza en segundo plano).
+- **Sin límite.** `getWorkoutsSnapshot(uid, limitN = null)` / `getWorkouts` traen **todos** los workouts del usuario (`orderBy('date', 'desc')` sin `limit`). Pasar un número sigue limitando, pero la carga principal no lo usa. La racha (hoy "Racha semanal 3+"), `detectPRs`, `getLearnedWeights`, precarga, modo regreso, `computeInactivityInfo`, rutina de regreso y logros (`cienDias`, `primerPaso`, `medioAnio`, `aniversario`, `hasFuerzaHistory`, "50"/"100 entrenamientos") operan ahora sobre el historial completo **sin ningún cambio en sus reglas**. Costo: una lectura de Firestore por workout en cada carga (con el caché se muestra al instante y se actualiza en segundo plano).
 - **Un solo estado.** `WorkoutsProvider` (`WorkoutsContext.jsx`, montado en `App.jsx` dentro de `AuthProvider`) es el único dueño de: el estado de la lista, la carga (`load` con contador de lecturas `loadSeq`), el mapa de recientes, `syncPending` (borradores, con el candado de `draftQueue.syncDrafts`), `saveWorkout` (IDs fijos + fallback a borrador de 8 s) y **un solo** conjunto de listeners (`online`, `visibilitychange`). `useWorkouts()` (`src/hooks/useWorkouts.js`, ya sin parámetro) lee ese estado y expone los cálculos derivados; `Inicio`, `WorkoutWizard`, `ProgresoPage`, `RutinasPage`, `ConfigPage` y `Logros` ven todos la misma lista. Un guardado en el wizard ya es visible en el resto de las pantallas sin releer.
 - **Cambio de usuario.** El estado lleva el `uid` al que pertenece; al cambiar de usuario se invalida cualquier lectura en vuelo (`loadSeq++`), se limpian los recientes y se vuelve a cargar; un logout/login nunca recibe datos del usuario anterior.
 - **Frecuencia de lectura.** Se lee al abrir/loguear, tras cada guardado exitoso (en segundo plano), al volver la conexión y, con `refresh()` (lo usa `Inicio` al volver a primer plano o cambiar de día), como máximo una vez por minuto (`REFRESH_MIN_INTERVAL_MS`). `forceReload()` relee ya (lo usa la importación de datos de `ConfigPage`). Antes, cada instancia del hook (cada pantalla) hacía su propia lectura al montarse. Navegar entre pantallas ya no relee nada.
@@ -1968,9 +1936,9 @@ Con el wizard real (jsdom, contextos y subformularios simulados, reloj simulado)
 
 ## 26. MÓDULO DE CÁLCULOS DE PROGRESO (`src/utils/progressStats.js`, noviembre 2026)
 
-Módulo único, de **funciones puras** (sin React ni Firestore), que reúne los cálculos de la sección Progreso. Recibe `workouts`, el catálogo de ejercicios (`data/exercises.js` por defecto) y el perfil. Pruebas automáticas en `src/utils/progressStats.test.js` (vitest, `npm test`, 66 casos con historiales inventados). Archivos relacionados: `src/utils/weeks.js` (aritmética de fechas y semanas), `src/utils/streak.js` (racha estricta), `src/utils/sessionDuration.js` (duración de fuerza, sección 25).
+Módulo único, de **funciones puras** (sin React ni Firestore), que reúne los cálculos de la sección Progreso. Recibe `workouts`, el catálogo de ejercicios (`data/exercises.js` por defecto) y el perfil. Pruebas automáticas en `src/utils/progressStats.test.js` (vitest, `npm test`, 72 casos con historiales inventados). Archivos relacionados: `src/utils/weeks.js` (aritmética de fechas y semanas), `src/utils/streak.js` (tipos reales y umbral de 3 días), `src/utils/sessionDuration.js` (duración de fuerza, sección 25).
 
-> **Estado de integración.** El módulo ya es la fuente única de: la **racha** (Inicio, Progreso, logros), los **récords** (tarjeta "PRs históricos" de Progreso y el logro "Superaste 3 PRs") y el **estado de cansancio** (sugerencia de descarga). Los demás indicadores (período, volumen, duración, cardio, mayor progreso, más trabajado, totales, dato clave) **están calculados y probados pero todavía no se muestran**: el rediseño de la pantalla es el próximo paso. Las tarjetas actuales de `ProgresoPage` ("mayor progreso", "más trabajado", "mejor marca", fatiga) siguen con su cálculo anterior (ver sección 21 de este archivo y `AUDITORIA_PROGRESO.md`).
+> **Estado de integración.** El módulo ya es la fuente única de: la **Racha semanal 3+** (Inicio y Progreso), los **récords** (tarjeta "PRs históricos" de Progreso y el logro "Superaste 3 PRs") y el **estado de cansancio** (sugerencia de descarga). Los demás indicadores (período, volumen, duración, cardio, mayor progreso, más trabajado, totales, dato clave) **están calculados y probados pero todavía no se muestran**: el rediseño de la pantalla es el próximo paso. Las tarjetas actuales de `ProgresoPage` ("mayor progreso", "más trabajado", "mejor marca", fatiga) siguen con su cálculo anterior (ver sección 21 de este archivo y `AUDITORIA_PROGRESO.md`).
 
 ### Convenciones
 
@@ -2019,9 +1987,9 @@ Módulo único, de **funciones puras** (sin React ni Firestore), que reúne los 
 | `useWorkouts.js` — `getLastFatigueForExercise` | `fatigue ?? 5` de las últimas 2 sesiones del ejercicio |
 | `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `WorkoutHistorial.jsx` | Colores/niveles por sesión: ≤ 4 bajo, 5-7 intermedio, ≥ 8 alto (`WorkoutSummary` usa `fatigue ?? 5`) |
 
-### Racha estricta (`computeStreak(workouts, today)` en `utils/streak.js`) — reemplaza a la anterior
+### Racha semanal 3+ y resumen del mes (`computeWeeklyStreak3Plus`, `computeMonthSummary`)
 
-Ver la sección 1. En una línea: **semanas consecutivas con 3 o más días distintos de entrenamiento real; una semana ya cerrada con menos de 3 la corta; la semana en curso suma si ya tiene 3 días y, si todavía no, ni suma ni corta.** Devuelve `current`, `record`, `currentStart`/`currentEnd` y `recordStart`/`recordEnd` (lunes de la primera semana y domingo de la última de cada racha; ante un empate de récord gana la más reciente) y `last12` (las últimas 12 semanas con sus días, la última es la actual). `getCurrentStreak()` de `useWorkouts` la devuelve **memoizada** (`useMemo` por `workouts` y por día).
+Ver la sección 1 (definición completa, fórmulas del promedio mensual y de los porcentajes, y la eliminación de la racha consecutiva). En una línea: **`total` = cantidad TOTAL de semanas (lunes a domingo) del historial con 3 o más días distintos de entrenamiento real; no requiere semanas consecutivas y nunca baja; la semana en curso suma apenas llega a 3 días.** `computeProgressStats` las devuelve como `weeklyStreak` y `monthSummary`; `useWorkouts` las expone memoizadas (`getWeeklyStreak3Plus()`, `getMonthSummary()`).
 
 ### Agrupación de ejercicios (`groupExercises`)
 
@@ -2062,14 +2030,14 @@ Los números usan coma decimal (es-AR) y hasta 2 decimales. Mismos datos ⇒ mis
 
 ### Cambios en pantallas existentes (solo estos)
 
-- **Inicio:** la racha viene de la función estricta (memoizada); el anillo semanal se llena con **`profile.diasSemana`** (`getWeeklyGoal`, respaldo 3) en lugar del tope fijo de 4: el color depende de la proporción días/objetivo y los mensajes "Semana óptima" / "ideal" se dan al llegar al objetivo / pasarlo. `computeStreakStats` también se memoiza.
+- **Inicio:** la tarjeta de la derecha es "Racha semanal 3+" (`WeeklyStreakCard`, con el resumen del mes en el dorso); el anillo semanal se llena con **`profile.diasSemana`** (`getWeeklyGoal`, respaldo 3) en lugar del tope fijo de 4: el color depende de la proporción días/objetivo y los mensajes "Semana óptima" / "ideal" se dan al llegar al objetivo / pasarlo. `computeStreakStats` también se memoiza.
 - **Logro "Superaste 3 PRs"** (y `primerAumento`, `diezPRs`): leen `computeRecords`.
 - **Progreso (pantalla actual):** el nombre en "+N kg en …" se muestra **completo** (antes se recortaba a 2 palabras); los rótulos "reps" pasan a "seg" en los ejercicios en segundos (`ProgresoPage`: eventos de "Principales progresiones"; `ExerciseProgress`: "Última serie", que además deja de mostrar "· 0kg"; `GeneradorTab` y el generador de `FuerzaFlow`: el esquema de una rutina generada dice "3×30 seg" en vez de "3×12"). "PRs históricos" usa `computeRecords`.
 - **Descarga** (`ConfigPage`, `useDeload`): usan `getFatigueStatus`.
 
 ### Pruebas (`npm test`)
 
-`vitest run` con `vitest.config.js` (entorno Node, sin plugins de la app). Cubren: períodos y comparación (4w, 12w, all, variación con anterior 0), semana en curso (incompleta y cumplida), racha cortada, racha con semana en curso incompleta, récords en kg / segundos / reps y con primera sesión, mayor progreso con menos de 3 sesiones, alternativas `alt-…`, workouts sin `durationSeconds`, clase con duración, cardio sin tiempo, cansancio con pocos registros, y las 5 reglas del dato clave (y su prioridad).
+`vitest run` con `vitest.config.js` (entorno Node, sin plugins de la app). Cubren: períodos y comparación (4w, 12w, all, variación con anterior 0), semana en curso (incompleta y cumplida), total de semanas de la racha 3+ con huecos y parates largos, semana en curso con menos de 3 días y con 3, promedio de días por semana el día 1 / a mitad / a fin de mes, porcentajes que suman 100, mes vacío, récords en kg / segundos / reps y con primera sesión, mayor progreso con menos de 3 sesiones, alternativas `alt-…`, workouts sin `durationSeconds`, clase con duración, cardio sin tiempo, cansancio con pocos registros, y las 5 reglas del dato clave (y su prioridad).
 
 ---
 

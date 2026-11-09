@@ -72,7 +72,7 @@ src/
     SplashScreen.jsx
 
   context/
-    AuthContext.jsx            # user, profile, settings, updateProfile, updateSettings
+    AuthContext.jsx            # user, profile, settings, profileStatus (loading/error/missing/ready), updateProfile, completeOnboarding
     WorkoutDraftContext.jsx    # Draft en localStorage para continuar sesión interrumpida
     WorkoutsContext.jsx        # Estado ÚNICO y compartido del historial COMPLETO de workouts: una sola carga, sync de borradores y listeners
 
@@ -106,6 +106,7 @@ src/
     draftQueue.js              # Cola offline de workouts (IDs fijos, candado de sync, aviso si localStorage falla)
     workoutSave.js             # Guardado con fallback a borrador (8 s), lista de workouts y lectura segura con contador
     withTimeout.js             # Tope de tiempo para promesas (la original no se cancela)
+    profileLoad.js             # Carga del perfil con estados explícitos + screenFor (qué pantalla corresponde)
     dates.js                   # Helpers de fechas locales
     genero.js                  # textoGenero() para acordar género en textos
 ```
@@ -399,13 +400,16 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 
 ## Auth y perfil (AuthContext)
 
-`AuthContext` expone: `{ user, profile, settings, loading, updateProfile, updateSettings }`
+`AuthContext` expone: `{ user, profile, settings, profileStatus, loading, authTimedOut, retryProfile, updateProfile, completeOnboarding, updateSettings }`
 
 **Flujo de inicio:**
-1. `onAuthChange` → si hay user, carga `profile` y `settings` en paralelo
-2. Si `!user` → `AuthScreen` (login con Google)
-3. Si `!profile?.onboardingDone` → `Onboarding` (10 pasos)
-4. Si todo OK → rutas normales
+1. `onAuthChange` → si hay user nuevo, pasa a `profileStatus: 'loading'` (pantalla "Cargando…") y carga `profile` y `settings` en paralelo (tope 15 s)
+2. Si `!user` → `AuthScreen` (login)
+3. Si la carga falla o tarda → pantalla con "Reintentar" (nunca onboarding)
+4. `Onboarding` (10 pasos) solo si el servidor confirmó que el perfil no existe, o existe con `onboardingDone` distinto de true
+5. Si todo OK → rutas normales
+
+Decide `screenFor` (`utils/profileLoad.js`). Ver `LOGICA_TECNICA.md` sección 23.
 
 **Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `tipoRutina`, `sesionesFuerzaObjetivo`, `lesionesYes`, `lesiones`, `equipamiento`, `onboardingDone`, `inactividad` (último parate detectado — ver "Aviso de inactividad y modo regreso"). El campo legacy `pausa` ya no se pregunta ni se guarda (ni en el onboarding ni en ConfigPage) y ningún código lo lee; los perfiles viejos en Firestore pueden conservarlo y no se borra.
 

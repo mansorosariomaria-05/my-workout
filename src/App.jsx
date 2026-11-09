@@ -13,8 +13,9 @@ import Tabata from './pages/Tabata'
 import Progreso from './pages/Progreso'
 import ConfigPage from './components/configuracion/ConfigPage'
 import SplashScreen from './components/SplashScreen'
+import { screenFor } from './utils/profileLoad'
 
-function LoadingScreen({ message, showRetry }) {
+function LoadingScreen({ message = 'Cargando…', showRetry, onRetry }) {
   return (
     <div className="min-h-screen bg-app-bg flex flex-col items-center justify-center gap-3">
       <div className="w-12 h-12 bg-app-purple rounded-xl flex items-center justify-center">
@@ -26,7 +27,7 @@ function LoadingScreen({ message, showRetry }) {
       )}
       {showRetry && (
         <button
-          onClick={() => window.location.reload()}
+          onClick={onRetry ?? (() => window.location.reload())}
           className="mt-2 px-4 py-2 rounded-xl text-sm font-medium"
           style={{ backgroundColor: 'rgba(124,92,191,0.2)', color: '#9B7FD4', border: '1px solid rgba(124,92,191,0.3)' }}
         >
@@ -38,16 +39,18 @@ function LoadingScreen({ message, showRetry }) {
 }
 
 function AppRoutes() {
-  const { user, profile, loading, authTimedOut } = useAuthContext()
+  const { user, profile, profileStatus, loading, authTimedOut, retryProfile } = useAuthContext()
 
-  if (loading) return <LoadingScreen />
-
-  if (authTimedOut && user === undefined) {
-    return <LoadingScreen message="No pudimos verificar tu sesión. Revisá tu conexión." showRetry />
+  // Qué pantalla corresponde: ver screenFor (utils/profileLoad.js). El onboarding solo aparece con el
+  // perfil resuelto; mientras carga o si falla, nunca.
+  const screen = screenFor({ user, profile, profileStatus, loading, authTimedOut })
+  if (screen === 'session-timeout') return <LoadingScreen message="No pudimos verificar tu sesión. Revisá tu conexión." showRetry />
+  if (screen === 'loading') return <LoadingScreen />
+  if (screen === 'auth') return <AuthScreen />
+  if (screen === 'profile-error') {
+    return <LoadingScreen message="No pudimos cargar tu perfil. Revisá tu conexión e intentá de nuevo." showRetry onRetry={retryProfile} />
   }
-
-  if (user === null) return <AuthScreen />
-  if (!profile?.onboardingDone) return <Onboarding />
+  if (screen === 'onboarding') return <Onboarding />
 
   return (
     <Routes>

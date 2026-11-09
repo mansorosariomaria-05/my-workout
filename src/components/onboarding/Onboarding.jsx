@@ -43,7 +43,7 @@ const OPTIONS = {
 }
 
 export default function Onboarding() {
-  const { updateProfile } = useAuthContext()
+  const { completeOnboarding } = useAuthContext()
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
     genero: '', name: '', objectives: [], nivel: '', diasSemana: 4,
@@ -72,7 +72,7 @@ export default function Onboarding() {
       setSaving(true)
       const primaryKey = [...data.objectives].sort((a, b) => OBJ_PRIORITY.indexOf(a) - OBJ_PRIORITY.indexOf(b))[0] ?? 'bienestar'
       const objetivo = OBJ_OPTIONS.find(o => o.key === primaryKey)?.objetivo ?? 'Bienestar general'
-      await updateProfile({ ...data, objetivo, onboardingDone: true })
+      await completeOnboarding({ ...data, objetivo })
       setSaving(false)
     } else {
       setStep(s => s + 1)

@@ -459,6 +459,8 @@ Por qué: el token de sesión se guarda en `localStorage`. Esto hace que la sesi
 
 ### Por qué el timeout de Auth es de 15s y qué hace cuando dispara
 
+> *El fragmento siguiente es el código original (anterior a noviembre 2026), útil para entender el timeout. La carga del perfil se reescribió con estados explícitos: ver sección 23.*
+
 ```js
 // src/context/AuthContext.jsx
 const [user, setUser] = useState(undefined)   // undefined = indeterminado
@@ -501,17 +503,13 @@ useEffect(() => {
 |-------|-------------|-------------------|
 | `undefined` | Estado indeterminado — Firebase todavía no respondió (o no respondió a tiempo) | Mostrar `LoadingScreen` (con opción de reintentar si `authTimedOut`) |
 | `null` | Firebase confirmó explícitamente que **no** hay sesión activa | Mostrar `AuthScreen` |
-| objeto `FirebaseUser` | Sesión activa confirmada | Cargar perfil y mostrar la app |
+| objeto `FirebaseUser` | Sesión activa confirmada | Cargar el perfil (pantalla "Cargando…") y mostrar la app o el onboarding según su estado (sección 23) |
 
 ```js
-// src/App.jsx — AppRoutes
-if (loading) return <LoadingScreen />
-if (authTimedOut && user === undefined) {
-  return <LoadingScreen message="No pudimos verificar tu sesión. Revisá tu conexión." showRetry />
-}
-if (user === null) return <AuthScreen />
-if (!profile?.onboardingDone) return <Onboarding />
-// → rutas normales
+// src/App.jsx — AppRoutes (desde noviembre 2026 decide screenFor, utils/profileLoad.js; ver sección 23)
+//   session-timeout → loading → auth → profile-error → onboarding → app
+// El perfil tiene estados explícitos (loading / error / missing / ready): el onboarding solo aparece con el
+// perfil ya resuelto, nunca mientras carga ni si falló la lectura.
 ```
 
 ### Guardado, borradores offline y sincronización
@@ -871,8 +869,8 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: función pura, sin dependencias de React/Firestore — se puede testear de forma aislada. `useWorkouts.js`, `Logros.jsx` y `achievements.js` importan de acá; no debería volver a haber una copia local de la lógica de semanas/racha en ningún otro archivo.
 
 ### `src/context/AuthContext.jsx`
-**Qué hace**: provee `user`, `profile`, `settings`, `loading`, `authTimedOut`, `updateProfile`, `updateSettings` vía Context. Maneja el timeout de 15s de Auth. Distingue `user === undefined` de `user === null`. `updateProfile` es optimista desde septiembre 2026 (sección 14): actualiza `profile` en memoria antes de esperar la escritura a Firestore.
-**Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida. `updateProfile` hace merge superficial (`{ ...(profile ?? {}), ...data }`) — pasarle un objeto anidado (como `inactividad`) reemplaza ese campo entero, no lo mergea a su vez.
+**Qué hace**: provee `user`, `profile`, `settings`, `profileStatus` (`idle`/`loading`/`error`/`missing`/`ready`), `loading` (derivado), `authTimedOut`, `retryProfile`, `updateProfile`, `completeOnboarding`, `updateSettings` vía Context. Maneja el timeout de 15s de Auth. Distingue `user === undefined` de `user === null`. Carga del perfil con estados explícitos: sección 23. `updateProfile` es optimista desde septiembre 2026 (sección 14) y desde noviembre 2026 escribe **solo los campos recibidos** (merge).
+**Por qué es crítico**: modificarlo sin entender la distinción `undefined`/`null` puede mostrar la pantalla de login a usuarios offline que en realidad tienen una sesión válida. `updateProfile` actualiza el estado local con un merge superficial (`{ ...prev, ...data }`) y escribe en Firestore solo `data` con `setDoc(..., { merge: true })` — Firestore sí mergea mapas anidados (como `inactividad`) campo a campo, mientras que el estado local reemplaza ese campo entero.
 
 ### `src/pages/Inicio.jsx`
 **Qué hace**: home de la app. Llama `getCurrentStreak()` y pasa `semanasRacha`/`rachaRecord` a `StatsCards`. Ya no le pasa nada de racha a `Logros` — `Logros` calcula `w_racha_viva` de forma independiente (sección 3). Contiene `computeWeeklyStats()` (resumen semanal), `getDailySuggestion()` y `computeInactivityInfo()` (aviso de inactividad, sección 14).
@@ -915,7 +913,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: usar `new Date().toISOString().split('T')[0]` en vez de `getTodayLocal()` produce bugs de timezone reales en dispositivos con UTC negativo (verificado en iOS UTC-3).
 
 ### `src/services/db.js`
-**Qué hace**: todas las operaciones de lectura/escritura a Firestore — `getWorkouts`, `saveWorkout`, `getCustomExercises`, `saveCustomExercise`, `getUserProfile`, `getSettings`, `getFavorites`/`toggleFavorite`, `getNeverList`/`toggleNever`, `getCustomRoutines` y CRUD relacionado, `saveTabataRecord`/`getTabataRecordCount`, etc.
+**Qué hace**: todas las operaciones de lectura/escritura a Firestore — `getWorkouts`, `saveWorkout`, `getCustomExercises`, `saveCustomExercise`, `getUserProfileSnapshot` (perfil + `fromCache`), `getSettings`, `getFavorites`/`toggleFavorite`, `getNeverList`/`toggleNever`, `getCustomRoutines` y CRUD relacionado, `saveTabataRecord`/`getTabataRecordCount`, etc.
 **Por qué es crítico**: `getWorkouts`/`getWorkoutsSnapshot` traen **todos** los workouts del usuario por defecto (`limitN = null`; desde noviembre 2026, antes se llamaba con 100) y **propagan** los errores de lectura; pasar un número limita a los N más recientes (hoy nadie lo usa). Agregar campos nuevos a los documentos puede requerir índices compuestos nuevos en Firestore si se combinan con `where`/`orderBy` adicionales.
 
 ### `src/utils/achievements.js`
@@ -1332,9 +1330,9 @@ Se modificó `AuthContext.jsx` para que `updateProfile` actualice el estado loca
 ```js
 const updateProfile = async (data) => {
   if (!user) return
-  const updated = { ...(profile ?? {}), ...data }
-  setProfile(updated) // optimistic
-  await saveUserProfile(user.uid, updated)
+  setProfile(prev => ({ ...(prev ?? {}), ...data })) // optimistic
+  setStatus('ready')
+  await saveUserProfile(user.uid, data)       // solo los campos recibidos, con merge (noviembre 2026)
 }
 ```
 Esto es necesario para que el modal de inactividad se cierre al toque apenas el usuario elige un motivo, sin esperar el round-trip de red — mismo motivo por el que `saveWorkout()` en `useWorkouts.js` ya era optimista (sección 6). Cambio retrocompatible: los otros dos consumidores de `updateProfile` (`Onboarding.jsx`, `ConfigPage.jsx`) solo hacían `await updateProfile(...)` y seguían con otra cosa — siguen funcionando igual, solo que ahora el `profile` en memoria se actualiza más rápido.
@@ -1761,7 +1759,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 ## 21. BUGS CONOCIDOS E INCONSISTENCIAS (auditoría de noviembre 2026)
 
-> **Estado (noviembre 2026): #1, #2, #3, #4 y #9 están RESUELTOS (sección 22); el resto sigue solo reportado.** Los hallazgos se escribieron durante la limpieza de noviembre 2026, que no cambió comportamiento. Números de línea al commit de la limpieza. Los marcados "sin verificar" salen de leer el código, no de reproducirlos en un dispositivo. Complementa `AUDITORIA.md` (octubre 2026), que ya listaba el tope de 100 (B1) y el borrado automático de ejercicios custom (A3).
+> **Estado (noviembre 2026): #1, #2, #3, #4 y #9 están RESUELTOS (sección 22) y #8 (sección 23); el resto sigue solo reportado.** Los hallazgos se escribieron durante la limpieza de noviembre 2026, que no cambió comportamiento. Números de línea al commit de la limpieza. Los marcados "sin verificar" salen de leer el código, no de reproducirlos en un dispositivo. Complementa `AUDITORIA.md` (octubre 2026), que ya listaba el tope de 100 (B1) y el borrado automático de ejercicios custom (A3).
 
 ### Gravedad alta
 
@@ -1781,7 +1779,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **7. Ejercicios custom (sin `pattern` ni `unilateral`).** Se crean en `FuerzaFlow.jsx:559` con `level: 'C'`, `equip: ''` y sin esos campos; solo existen en el modo libre. Efectos: `generateRoutine`/`orderRoutine`/`pickForMuscle` leen únicamente el catálogo (`exercises.js`), así que **nunca** los eligen ni los ven en `historyScore` (un custom que la usuaria entrena todas las semanas no pesa en la elección). `suggestNextExercise` (`routineGenerator.js:293-297`) busca cada ejercicio de la sesión en el catálogo: un custom da `undefined`, no entra en `usedPatterns`, y si es el último de la lista `lastExercise` es `null` → se saltan las reglas duras/blandas de patrón y zona; `hasMainAlready` (`:303`) no lo cuenta como principal (nivel `undefined`), entonces vuelve a sugerir un principal de ese músculo. `hardRulesOk` con dos patrones `undefined` devolvería `false` (`undefined === undefined`) — hoy no se llama con customs, pero es una trampa si se reutiliza. En `PATTERN_REGION[undefined]` → `undefined`, por lo que un custom contaría como "no core" en `tierOf` si llegara a ordenarse.
 
-**8. `AuthContext` puede quedar cargando para siempre si falla la lectura del perfil.** `AuthContext.jsx:21-37`: el callback de `onAuthChange` es `async`, hace `clearTimeout(timeout)` al entrar y luego `await Promise.all([getUserProfile, getSettings])` sin `try/catch`. Si `getDoc` rechaza (primer inicio de sesión en un dispositivo sin red y sin caché del documento), `setLoading(false)` no se ejecuta y el timeout de 15 s ya fue cancelado → pantalla de carga permanente más un rechazo de promesa sin capturar.
+**8. ✅ RESUELTO (noviembre 2026, sección 23) — `AuthContext` podía quedar cargando para siempre si fallaba la lectura del perfil.** *(Descripción original:)* `AuthContext.jsx:21-37`: el callback de `onAuthChange` es `async`, hace `clearTimeout(timeout)` al entrar y luego `await Promise.all([getUserProfile, getSettings])` sin `try/catch`. Si `getDoc` rechaza (primer inicio de sesión en un dispositivo sin red y sin caché del documento), `setLoading(false)` no se ejecuta y el timeout de 15 s ya fue cancelado → pantalla de carga permanente más un rechazo de promesa sin capturar.
 
 **9. ✅ RESUELTO (noviembre 2026, sección 22) — `useWorkouts.load` podía pisar datos nuevos con una respuesta vieja.** *(Descripción original:)* `useWorkouts.js:28-45,68`: varios `load()` concurrentes (el de `saveWorkout`, el de `visibilitychange` y el intervalo de `Inicio.jsx:725-731`, el `online`) sin token de orden. Si una carga empezó antes de que `addDoc` confirmara y termina después de la actualización optimista de `saveWorkout`, `setWorkouts(data)` y `writeCache` reemplazan el estado sin el workout recién guardado hasta la próxima recarga (racha, calendario y precarga lo "pierden" un rato).
 
@@ -1801,7 +1799,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **16. "Últimas 8 semanas" son los últimos 40 workouts.** `useDeload.js:9` y `ConfigPage.jsx:106` usan `workouts.slice(0, 40)` como si fueran 8 semanas (con 2 sesiones por semana son 20 semanas; con 10, 4). Además asumen el array ordenado por fecha descendente, algo que los borradores pendientes (antepuestos) no garantizan. Afecta solo la sugerencia de descarga.
 
-**17. Escrituras de perfil sin rollback ni captura.** `AuthContext.jsx:45-50` (`updateProfile`) actualiza en memoria y luego hace `await saveUserProfile` sin `catch`; `Inicio.jsx:680-690` (`saveInactividad`) no espera ni captura. Si Firestore rechaza, el estado local queda con un valor que no se guardó. Además `updated = { ...profile, ...data }` usa el `profile` del cierre: dos `updateProfile` seguidos en el mismo render parten del mismo perfil viejo y el segundo puede reescribir valores del primero.
+**17. Escrituras de perfil sin rollback ni captura** *(parcialmente mejorado en noviembre 2026: `updateProfile` ya escribe solo los campos recibidos y usa `setProfile` funcional, así que el perfil viejo del cierre no pisa datos; sigue sin rollback ni `catch`)*. `AuthContext.jsx:45-50` (`updateProfile`) actualiza en memoria y luego hace `await saveUserProfile` sin `catch`; `Inicio.jsx:680-690` (`saveInactividad`) no espera ni captura. Si Firestore rechaza, el estado local queda con un valor que no se guardó. Además `updated = { ...profile, ...data }` usa el `profile` del cierre: dos `updateProfile` seguidos en el mismo render parten del mismo perfil viejo y el segundo puede reescribir valores del primero.
 
 **18. Fechas futuras.** `WorkoutWizard.jsx` permite elegir cualquier fecha. `computeInactivityInfo` (`Inicio.jsx:208-221`) toma la fecha máxima sin descartar futuras: un workout cargado con fecha futura apaga el aviso de inactividad de 14 días hasta que esa fecha pasa. (La rutina de regreso sí ignora fechas futuras, `returnRoutine.js` `getReturnTrigger`.)
 
@@ -1869,6 +1867,45 @@ Simulación en Node (Firestore falso con `setDoc` idempotente, `localStorage` fa
 - Cada carga lee todos los workouts (lecturas de Firestore proporcionales al historial). Si en el futuro pesa, la salida natural es una lectura incremental (solo `date >= última fecha conocida`) sobre el caché; no se hizo para no tocar la fiabilidad de lo ya resuelto.
 - Si el caché de `localStorage` no entra completo (se recorta a 300/100), el primer pintado al abrir muestra solo los más recientes hasta que termina la lectura completa.
 - El resto de la sección 21 (hallazgos no marcados como resueltos) no cambió.
+
+---
+
+## 23. CARGA DEL PERFIL Y ESTADOS (noviembre 2026)
+
+### El bug: onboarding visible ~1 segundo para un usuario ya registrado
+
+**Causa (reproducida con una simulación del código anterior):** en el callback de `onAuthChange`, `AuthContext` hacía `setUser(firebaseUser)` **antes** de leer el perfil y el flag `loading` ya estaba en `false` (se baja una vez resuelta la primera notificación de Auth, incluida la de "no hay sesión"). Si el usuario aparecía después de ese momento —un login desde `AuthScreen`, o una sesión restaurada que llega después de una primera notificación sin usuario— había un render con `user` definido, `loading === false` y `profile === null` (aún sin leer). `App.jsx` evaluaba `!profile?.onboardingDone` y mostraba el onboarding (la pregunta de género) hasta que terminaba la lectura (~1 s) y `setProfile` lo mandaba a Inicio. Secuencia observada con la lógica vieja: `loading → auth → onboarding → app`.
+
+**Descartado:** (a) *Caché de Firestore*: el SDK (v10, `readDocumentViaSnapshotListener`) **rechaza** `getDoc` cuando el documento no existe en el caché y el resultado es `fromCache` ("Failed to get document because the client is offline"), así que no devuelve un falso "no existe" desde el caché; igual ahora no se depende de eso (ver abajo). (b) *Commits de hoy*: `bb3b24d` (limpieza) no tocó `AuthContext`/`App.jsx`; `de4960d` (`WorkoutsProvider`) solo envolvió el árbol en `App.jsx` y no participa en la carga del perfil. El defecto es anterior (la estructura de `AuthContext` data de junio 2026; la notificación sin usuario antes del login siempre existió).
+
+### Estados del perfil (`profileStatus` en `AuthContext`)
+
+| Estado | Significa | Pantalla (`screenFor`, `src/utils/profileLoad.js`) |
+|---|---|---|
+| `idle` | no hay usuario | `auth` (login) |
+| `loading` | leyendo perfil y ajustes | **"Cargando…"** (fondo y colores del tema: `bg-app-bg`, ícono morado). Nunca onboarding ni la app vacía |
+| `error` | la lectura falló, tardó más de 15 s (`PROFILE_LOAD_TIMEOUT_MS`) o el dato no está confirmado | mensaje + botón **"Reintentar"** (`retryProfile`). Nunca onboarding |
+| `missing` | el **servidor** confirmó que el perfil no existe (usuario nuevo) | `onboarding` |
+| `ready` | perfil cargado | `onboarding` si `onboardingDone !== true`; si no, `app` |
+
+`loading` (expuesto) es derivado: `user === undefined` sin timeout, o hay usuario con `profileStatus === 'loading'`. Orden de `screenFor`: `session-timeout` (Auth no respondió en 15 s) → `loading` → `auth` → `profile-error` → `onboarding` → `app`.
+
+### Cómo se carga (`loadProfileState`, `AuthContext.loadFor`)
+
+1. Al recibir un usuario **nuevo** (login o sesión recién restaurada): se resetean `profile`/`settings`, se hace `setUser` y `setStatus('loading')` **en el mismo lote de render**, y recién ahí se lee. Así nunca existe un render con usuario y sin perfil que caiga en el onboarding.
+2. `getUserProfileSnapshot(uid)` devuelve `{ profile, fromCache }`; `loadProfileState` lee perfil y ajustes con tope de 15 s (`withTimeout`) y decide: perfil inexistente + `fromCache` → `error` (no es una respuesta); perfil inexistente confirmado por el servidor → `missing`; perfil desde el caché con `onboardingDone !== true` → `error` (puede estar viejo o parcial); cualquier otro perfil → `ready` (un perfil completo desde el caché sin red sí vale: la app arranca offline).
+3. Un contador (`seqRef`) descarta lecturas viejas (cambio rápido de usuario, logout, reintento).
+4. Si Auth vuelve a notificar al **mismo** usuario ya `ready`, no se pasa a `loading` (no se desmonta la app en uso).
+5. Cierra el hallazgo #8: ya no hay un `async` sin `try/catch` que deje la pantalla cargando para siempre; cualquier fallo termina en `error` con "Reintentar".
+
+### Protección del perfil existente
+
+- `updateProfile(data)` escribe **solo** `data` con `setDoc(..., { merge: true })` (antes reenviaba el perfil completo de memoria, que podía estar desactualizado) y actualiza el estado local con un `setProfile` funcional.
+- `completeOnboarding(data)` (lo usa `Onboarding.jsx` en el último paso): antes de escribir relee el perfil; **si ya existe con `onboardingDone: true` no escribe nada** y adopta ese perfil. Solo si no existe (o está incompleto) escribe `{ ...data, onboardingDone: true }` con merge. Si la relectura falla, escribe igual (el estado ya era `missing`/incompleto y la escritura es merge).
+
+### Verificación
+
+Simulación con jsdom y el `AuthProvider` real (Auth y Firestore simulados), 21 casos: la lógica anterior reproduce `loading → auth → onboarding → app`; la nueva da `auth → loading → app` (login con lectura lenta) y `loading → app` (arranque con sesión) sin pasar nunca por onboarding; error → "Reintentar" → app; usuario nuevo sin perfil (servidor) → onboarding; "no existe"/incompleto desde el caché → error; perfil completo desde el caché → app; perfil con `onboardingDone` falso → onboarding; evento repetido sin desmontar; cambio de usuario descarta la lectura vieja; `completeOnboarding` no pisa un perfil completo; `updateProfile` envía solo los campos nuevos; demora excesiva → error. No se probó contra Firebase real.
 
 ---
 

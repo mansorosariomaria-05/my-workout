@@ -8,9 +8,12 @@ import {
 import { parseLocalDate, getTodayLocal } from '../utils/dates'
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
-export const getUserProfile = async (uid) => {
+// profile: los datos, o null si el documento no existe. fromCache: true si NO viene confirmado por el
+// servidor (con el SDK, un documento inexistente desde el caché rechaza en vez de devolver null; igual
+// el llamador debe tratar "null + fromCache" como no confirmado, nunca como "perfil nuevo").
+export const getUserProfileSnapshot = async (uid) => {
   const snap = await getDoc(doc(db, 'users', uid, 'data', 'profile'))
-  return snap.exists() ? snap.data() : null
+  return { profile: snap.exists() ? snap.data() : null, fromCache: snap.metadata.fromCache }
 }
 
 export const saveUserProfile = async (uid, profile) => {

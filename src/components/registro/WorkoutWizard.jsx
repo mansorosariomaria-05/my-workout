@@ -11,6 +11,7 @@ import WorkoutSummary from './WorkoutSummary'
 import Button from '../ui/Button'
 import { todayStr } from '../../utils/dates'
 import { getExerciseUnit } from '../../utils/exerciseUnit'
+import { getDurationPreload, durationSecondsFromMinutes } from '../../utils/sessionDuration'
 import { toSeconds, computePace, formatPace } from '../../utils/cardio'
 import { runAchievementCheck, ACHIEVEMENTS_META } from '../../utils/achievements'
 import { FuerzaIcon, CardioIcon, ClaseIcon } from '../icons/WorkoutIcons'
@@ -62,6 +63,11 @@ export default function WorkoutWizard({ initialType }) {
   const [fatigue, setFatigue]   = useState(savedDraft?.fatigue ?? 5)
   const [notes, setNotes]       = useState(savedDraft?.notes ?? '')
   const [date, setDate]         = useState(savedDraft?.date ?? todayStr())
+  // Duración real de la sesión de fuerza (minutos, como texto del input). Se precarga del cronómetro al
+  // llegar al paso de guardado, salvo que el usuario ya la haya tocado (durationTouched).
+  const [durationMin, setDurationMin]         = useState(savedDraft?.durationMin ?? '')
+  const [durationTouched, setDurationTouched] = useState(savedDraft?.durationTouched ?? false)
+  const [durationReason, setDurationReason]   = useState('')
   const [saving, setSaving]     = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saved, setSaved]       = useState(null)
@@ -82,8 +88,18 @@ export default function WorkoutWizard({ initialType }) {
       setStartTime(null)
       return
     }
-    setDraft({ step, type, detail, fatigue, notes, date })
-  }, [step, type, detail, fatigue, notes, date]) // eslint-disable-line react-hooks/exhaustive-deps
+    setDraft({ step, type, detail, fatigue, notes, date, durationMin, durationTouched })
+  }, [step, type, detail, fatigue, notes, date, durationMin, durationTouched]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Al entrar al paso de guardado de una sesión de fuerza: precarga "Duración (min)" con el cronómetro
+  // (redondeado). No se precarga con menos de 5 min o más de 4 h, sin cronómetro o si la fecha no es hoy.
+  // Si el usuario ya tocó el campo (aunque lo haya vaciado), no se vuelve a pisar.
+  useEffect(() => {
+    if (step !== 2 || type !== 'fuerza' || durationTouched) return
+    const { value, reason } = getDurationPreload({ startTs: startTime, date, today: todayStr() })
+    setDurationMin(value)
+    setDurationReason(reason)
+  }, [step, type, date, startTime]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startTimer = () => {
     if (startTime) return
@@ -134,6 +150,9 @@ export default function WorkoutWizard({ initialType }) {
         // y el % solo documentan que los pesos de la precarga se redujeron a propósito.
         ...(detail.regreso && detail.exercises?.length ? { regreso: true, regresoPct: detail.regreso.pct ?? null } : {}),
         exercises: stripSuggestedFlags(detail.exercises),
+        // Duración real de la sesión: lo que quedó en el campo "Duración (min)" (precargado del cronómetro,
+        // editable). Vacío / inválido → null (= sin dato, nunca 0). Solo fuerza: cardio y clase tienen la suya.
+        durationSeconds: durationSecondsFromMinutes(durationMin),
         cinta: detail.cintas ? {
           tipo:        detail.cintaTipo || null,
           min:         detail.cintaMin        ? Number(detail.cintaMin)        : null,
@@ -315,6 +334,35 @@ export default function WorkoutWizard({ initialType }) {
                   </span>
                 </div>
               </div>
+
+              {type === 'fuerza' && (
+                <div>
+                  <label htmlFor="duracion-sesion" className="text-app-muted text-sm block mb-2">Duración (min)</label>
+                  <input
+                    id="duracion-sesion"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="1440"
+                    step="1"
+                    value={durationMin}
+                    onChange={e => { setDurationMin(e.target.value); setDurationTouched(true) }}
+                    placeholder="Opcional"
+                    className="w-full bg-app-surface border border-white/10 rounded-xl px-4 py-3 text-app-text text-sm text-center placeholder-app-muted/40 focus:outline-none focus:border-app-purple/50"
+                  />
+                  <p className="text-app-muted/70 text-xs mt-1.5">
+                    {durationTouched
+                      ? 'Si la dejás vacía, no se guarda la duración.'
+                      : durationReason === 'timer'
+                        ? `Tomada del cronómetro de la sesión (${durationMin} min). Podés corregirla o dejarla vacía.`
+                        : durationReason === 'too-short'
+                          ? 'El cronómetro marcó menos de 5 min, así que no se precargó. Cargala si querés o dejala vacía.'
+                          : durationReason === 'too-long'
+                            ? 'El cronómetro marcó más de 4 h, así que no se precargó. Cargala si querés o dejala vacía.'
+                            : 'Opcional. Si la dejás vacía, no se guarda la duración.'}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="text-app-muted text-sm block mb-2">¿Cómo te sentiste hoy? (opcional)</label>

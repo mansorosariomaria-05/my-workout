@@ -544,6 +544,7 @@ Reescrito en noviembre 2026: ver **sección 22** (IDs fijos con `setDoc`, guarda
     sets: [{ reps: 12, weight: 20 }],
     fatigue: null,               // fatigue por ejercicio individual, si se usó ExerciseCard
   }],
+  durationSeconds: 3120 | null,  // duración real de la sesión (segundos, múltiplo de 60); null = sin dato. Desde noviembre 2026 (sección 25); los workouts viejos no lo tienen
   cinta: null | {
     tipo: string | null,         // ej. 'incline'
     min: number | null,
@@ -1971,6 +1972,52 @@ Los workouts guardados antes de este cambio no tienen `unit`: se resuelven por c
 ### Verificación
 
 Con las funciones reales (arnés fuera del repo): `getExerciseUnit` (catálogo, `alt-…`, registro viejo sin `unit`, ejercicio propio), `getProgressionAdvice` (`'secs'` sin peso, con peso, con ≥60 seg en 2 sesiones, peso distinto, sin historial; y `'reps'` idéntico), `detectImprovements`, `formatSetText` y un render de `FuerzaFlow` (columna "Seg" solo en los 4 ejercicios, sin ▶ ni Reps/Segs, opciones "+5 seg" / "+ peso: … × 30 seg"): 68 casos OK. En el navegador se revisó el render estático de `FuerzaFlow` con el CSS real de la app (no la app con sesión iniciada).
+
+---
+
+## 25. DURACIÓN REAL DE LA SESIÓN DE FUERZA (`durationSeconds`, noviembre 2026)
+
+Hasta ahora una sesión de fuerza no guardaba cuánto duró: el cronómetro de la sesión (`workout_start_ts` en `localStorage`) se mostraba en el encabezado y se borraba al guardar. Ahora se guarda en el workout. Archivos: `src/utils/sessionDuration.js` (nuevo) y `src/components/registro/WorkoutWizard.jsx`.
+
+### El campo
+
+- **`durationSeconds`** (número de segundos o `null`) en los workouts de **fuerza**. La clave **siempre** se escribe: `null` si no hay dato.
+- **Cardio** ya tenía su `durationSeconds` (fuente de verdad de su tiempo, lo carga el formulario de cardio) y **no cambió**; **clase** sigue con `duracion` (minutos) y **no tiene** `durationSeconds`. El campo nuevo solo se pide y se guarda para fuerza.
+- Se guarda en múltiplos de 60 (viene del campo en minutos).
+
+### Qué ve el usuario (paso de guardado, solo en fuerza)
+
+Un campo **"Duración (min)"** (número entero, opcional) arriba de la nota, **precargado con el cronómetro de la sesión redondeado a minutos** (`Math.round(segundos / 60)`) y editable. Debajo, un texto que explica de dónde salió el valor o por qué no se precargó. Si el campo queda **vacío** (o con un valor inválido), se guarda `durationSeconds: null`.
+
+### Reglas de precarga (`getDurationPreload`)
+
+| Condición | Resultado |
+|---|---|
+| Cronómetro entre **5:00 min y 4:00:00 h** (ambos límites incluidos) | Se precarga (minutos redondeados, de 5 a 240) |
+| Cronómetro **< 5 min** | No se precarga; el campo queda vacío (se puede cargar a mano) |
+| Cronómetro **> 4 h** | No se precarga; el campo queda vacío |
+| Sin cronómetro, o con un inicio en el futuro | No se precarga |
+| El workout tiene **fecha distinta de hoy** (se está cargando una sesión pasada) | No se precarga: el cronómetro es el de la sesión de hoy |
+
+- La precarga se calcula **al entrar** al paso de guardado (y si se vuelve atrás y se entra otra vez, mientras el campo no se haya tocado). Si el usuario ya lo editó —aunque lo haya vaciado— **no se vuelve a pisar**. El valor y la marca de "tocado" (`durationMin`, `durationTouched`) viajan en el borrador del entrenamiento en curso, así que sobreviven a una recarga.
+- El cronómetro arranca al agregar el primer ejercicio o al tocar "Continuar" en el detalle (`startTimer`); la clave `workout_start_ts` se sigue borrando al guardar o cancelar, como antes.
+- Lo que se guarda es **lo que quedó escrito en el campo**, no un segundo cálculo al apretar "Guardar" (lo que ve el usuario es lo que se guarda).
+
+### Conversión y validación (`durationSecondsFromMinutes`)
+
+Minutos → segundos con `Math.round(min × 60)`. Devuelve `null` si el valor está vacío, no es numérico, es **≤ 0** o supera **1440 min (24 h)**. Nunca devuelve 0.
+
+### Lectura: ausente o null = "sin dato", nunca 0
+
+`getSessionDurationSeconds(workout)` devuelve un número **> 0** o `null` (ausente, `null`, `''`, 0 o no numérico). Cualquier lectura de `durationSeconds` (futuros indicadores de "horas de entrenamiento", por ejemplo) debe pasar por esa función o respetar la misma regla: **un workout sin duración no suma 0 minutos**, se excluye y se informa la cobertura ("N de M sesiones con duración"). El lector existente de cardio (`getEffectiveDurationSeconds`, `utils/cardio.js`) ya devuelve `null` para ausente o `null` (verificado) y no se tocó; las pantallas que lo usan están acotadas a `type === 'cardio'`, así que un `durationSeconds` en una sesión de fuerza no cambia nada de lo que se muestra hoy.
+
+### Sin migración
+
+Los workouts anteriores a este cambio **no tienen** `durationSeconds` y **no se migró nada**: quedan "sin dato" para siempre (no hay forma de reconstruirlo). Los workouts de fuerza nuevos pueden tener `null` si el usuario no lo cargó o el cronómetro estaba fuera de rango.
+
+### Verificación
+
+Con el wizard real (jsdom, contextos y subformularios simulados, reloj simulado) y las funciones reales: cronómetro normal (52:20 → precarga 52 → se guarda 3120), duración editada (45 → 2700), campo vacío (`null`, la clave existe), cronómetro de 3 min y de 5 h (campo vacío y `null`, con el texto que explica por qué), valor fuera de rango cargado a mano (50 → 3000), fecha pasada (sin precarga), límites exactos (4:59 / 5:00 / 4:00:00 / 4:00:01), y cardio y clase sin cambios (sin campo nuevo; cardio conserva su `durationSeconds` del formulario y clase su `duracion`): 26 comprobaciones, todas bien.
 
 ---
 

@@ -142,6 +142,7 @@ users/{uid}/
   muscleGroups: ['Glúteos', 'Isquios'],
   regreso: true,        // opcional: sesión armada desde la "Rutina de regreso" (pesos reducidos a propósito)
   regresoPct: 15,       // opcional: % de reducción aplicado (solo informativo)
+  durationSeconds: 3120, // duración real de la sesión en segundos (múltiplo de 60) o null = sin dato. Se precarga del cronómetro y es editable; los workouts viejos no lo tienen (sin migración). Ver LOGICA_TECNICA.md sección 25
   exercises: [
     {
       exerciseId: 'glut_01',
@@ -260,11 +261,11 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 **3 pasos:**
 1. **Tipo** (`step=0`) → elige Fuerza / Cardio / Clase
 2. **Detalle** (`step=1`) → FuerzaFlow / CardioFlow / ClaseFlow
-3. **Sensación** (`step=2`) → slider fatigue 1-10 + nota libre → guardar
+3. **Sensación** (`step=2`) → slider fatigue 1-10 + (solo fuerza) campo "Duración (min)" precargado del cronómetro + nota libre → guardar
 
 **Entrenamiento en curso persistente:** `WorkoutDraftContext` guarda el estado en `localStorage` (`workout_in_progress_{uid}`, con `startedAt`/`startedDate`/`updatedAt`) y lo respalda en Firestore (`users/{uid}/data/workoutInProgress`, debounced ~5s + flush al pasar a segundo plano). Sobrevive al cierre completo de la app (incluido iOS matando la PWA en segundo plano). Al reabrir, `Inicio.jsx` ofrece un modal "¿Continuás donde lo dejaste?" si hay contenido real y menos de 7 días; si tiene 7+ días se borra solo. Ver sección 19 de `LOGICA_TECNICA.md`.
 
-**Timer de sesión:** se guarda `workout_start_ts` en localStorage cuando arranca el step 1. Se muestra en el header durante la sesión.
+**Timer de sesión:** se guarda `workout_start_ts` en localStorage cuando arranca el step 1. Se muestra en el header durante la sesión y, en fuerza, precarga el campo "Duración (min)" del paso de guardado (redondeado; no se precarga si marcó menos de 5 min o más de 4 h, ni si la fecha no es hoy). Se guarda como `durationSeconds` (`null` si el campo queda vacío). Se borra al guardar o cancelar.
 
 **Al guardar:** llama a `workoutsHook.saveWorkout(workout)` → `setDoc` con ID fijo (tope de 8 s; si no hay red o no confirma, queda como borrador local con el mismo ID y se sube solo después) → `load(true)` → muestra `WorkoutSummary`. Ver `LOGICA_TECNICA.md` sección 22.
 

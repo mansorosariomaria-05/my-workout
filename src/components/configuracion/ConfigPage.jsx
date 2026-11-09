@@ -37,7 +37,7 @@ function Toggle({ label, value, onChange }) {
 
 export default function ConfigPage() {
   const { user, profile, settings, updateProfile, updateSettings } = useAuthContext()
-  const { workouts } = useWorkouts(user?.uid)
+  const { workouts, forceReload } = useWorkouts()
   const { clearDraft: clearWorkoutInProgress } = useWorkoutDraft()
   const navigate = useNavigate()
 
@@ -91,6 +91,7 @@ export default function ConfigPage() {
             await saveWorkout(user.uid, workoutData, workoutData.date ?? null)
           }
         }
+        if (Array.isArray(data.workouts)) await forceReload()
         showMsg('Datos importados correctamente')
       } catch {
         showMsg('Error al importar')

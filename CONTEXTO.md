@@ -74,9 +74,10 @@ src/
   context/
     AuthContext.jsx            # user, profile, settings, updateProfile, updateSettings
     WorkoutDraftContext.jsx    # Draft en localStorage para continuar sesión interrumpida
+    WorkoutsContext.jsx        # Estado ÚNICO y compartido del historial COMPLETO de workouts: una sola carga, sync de borradores y listeners
 
   hooks/
-    useWorkouts.js             # Carga/guarda workouts con caché en localStorage
+    useWorkouts.js             # Lee el estado compartido de workouts (WorkoutsContext) y expone los cálculos derivados
     useDeload.js               # Semana de descarga
     useExercises.js            # Combina exercises.js + ejercicios custom del usuario
     useOnlineStatus.js         # Estado online/offline del navegador
@@ -101,6 +102,7 @@ src/
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Modo regreso: detecta si un ejercicio volvió de un parate sin llegar aún a su nivel previo
     returnRoutine.js           # Rutina de regreso: full body sugerido tras 15+ días sin fuerza, con pesos reducidos (solo si el usuario la elige)
+    workoutCache.js            # Caché local del historial completo (nunca lanza; recorta si no entra en localStorage)
     draftQueue.js              # Cola offline de workouts (IDs fijos, candado de sync, aviso si localStorage falla)
     workoutSave.js             # Guardado con fallback a borrador (8 s), lista de workouts y lectura segura con contador
     withTimeout.js             # Tope de tiempo para promesas (la original no se cancela)
@@ -433,7 +435,7 @@ Usado en logros, mensajes y saludos para adaptar terminaciones.
 
 | Key | Contenido |
 |---|---|
-| `workouts_cache_{uid}` | Array de workouts (evita spinner en recarga) |
+| `workouts_cache_{uid}` | Historial completo de workouts (evita spinner en recarga; se recorta a 300/100 si no entra en la cuota) |
 | `workout_in_progress_{uid}` | Entrenamiento en curso (WorkoutDraftContext) — con respaldo en Firestore, ver sección 19 de LOGICA_TECNICA.md |
 | `workout_draft_{uid}` | Cola offline de workouts ya completados sin confirmar en Firestore (draftQueue.js; `_draftId` = ID definitivo; se sube al abrir, al volver la red y al volver a primer plano) — no confundir con el anterior |
 | `workout_start_ts` | Timestamp de inicio de sesión (timer) |

@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import PreArmadasTab from './PreArmadasTab'
 import BibliotecaTab from './BibliotecaTab'
@@ -12,8 +11,7 @@ const TABS = [
 ]
 
 export default function RutinasPage() {
-  const { user } = useAuthContext()
-  const { workouts } = useWorkouts(user?.uid)
+  const { workouts } = useWorkouts()
   const [tab, setTab] = useState('prearmadas')
 
   return (

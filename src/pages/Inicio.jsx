@@ -661,7 +661,7 @@ function StatsCards({ diasSemana, semanasRacha, streakStats }) {
 export default function Inicio() {
   const { user, settings, profile, updateProfile } = useAuthContext()
   const navigate = useNavigate()
-  const { workouts, loading, reload, getCurrentStreak } = useWorkouts(user?.uid)
+  const { workouts, loading, reload, getCurrentStreak } = useWorkouts()
   const { resolveDraft, clearDraft: clearWorkoutInProgress } = useWorkoutDraft()
   const [showWeeklySummary, setShowWeeklySummary] = useState(false)
   const [weeklySummaryStats, setWeeklySummaryStats] = useState(null)

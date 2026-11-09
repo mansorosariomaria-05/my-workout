@@ -368,8 +368,8 @@ function UltimasSesiones({ workouts }) {
 // ─── ProgresoPage ─────────────────────────────────────────────────────────────
 
 export default function ProgresoPage() {
-  const { user, profile } = useAuthContext()
-  const { workouts, loading, getCurrentStreak } = useWorkouts(user?.uid)
+  const { profile } = useAuthContext()
+  const { workouts, loading, getCurrentStreak } = useWorkouts()
   const [showAllExercises, setShowAllExercises] = useState(false)
   const [showHistorial, setShowHistorial]        = useState(false)
 

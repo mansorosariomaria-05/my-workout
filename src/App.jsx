@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuthContext } from './context/AuthContext'
 import { WorkoutDraftProvider } from './context/WorkoutDraftContext'
+import { WorkoutsProvider } from './context/WorkoutsContext'
 import AuthScreen from './components/auth/AuthScreen'
 import Onboarding from './components/onboarding/Onboarding'
 import Layout from './components/layout/Layout'
@@ -79,6 +80,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <WorkoutsProvider>
         <WorkoutDraftProvider>
           {!splashDone && <SplashScreen onDone={() => setSplashDone(true)} />}
           {splashDone && <AppRoutes />}
@@ -91,6 +93,7 @@ export default function App() {
             </div>
           )}
         </WorkoutDraftProvider>
+        </WorkoutsProvider>
       </AuthProvider>
     </BrowserRouter>
   )

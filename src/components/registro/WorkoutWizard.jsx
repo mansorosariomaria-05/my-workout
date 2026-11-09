@@ -48,7 +48,7 @@ const STEPS = ['tipo', 'detalle', 'sensacion']
 
 export default function WorkoutWizard({ initialType }) {
   const { user, profile, settings } = useAuthContext()
-  const workoutsHook = useWorkouts(user?.uid)
+  const workoutsHook = useWorkouts()
   const deloadHook   = useDeload(settings, workoutsHook.workouts)
   const { draft: savedDraft, setDraft, clearDraft } = useWorkoutDraft()
   const navigate = useNavigate()

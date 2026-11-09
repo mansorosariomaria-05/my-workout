@@ -52,14 +52,17 @@ export const saveWorkout = async (uid, workout, dateStr = null, opts = {}) => {
   }
 }
 
-// Lectura de los workouts más recientes. Un error de lectura SE PROPAGA (antes devolvía [], lo que no se
+// Lectura de workouts (por defecto TODOS). Un error de lectura SE PROPAGA (antes devolvía [], lo que no se
 // distinguía de "no hay workouts" y vaciaba la pantalla y el caché local). fromCache indica que el
 // resultado vino del caché de Firestore (sin confirmar con el servidor).
-export const getWorkoutsSnapshot = async (uid, limitN = 50) => {
+// limitN: tope de documentos; null/undefined = TODOS los workouts del usuario (lo que usa el historial
+// principal, ver WorkoutsContext). Pasar un número solo tiene sentido para vistas que de verdad quieran
+// "los N más recientes".
+export const getWorkoutsSnapshot = async (uid, limitN = null) => {
   const q = query(
     collection(db, 'users', uid, 'workouts'),
     orderBy('date', 'desc'),
-    limit(limitN)
+    ...(limitN ? [limit(limitN)] : [])
   )
   const snap = await getDocs(q)
   return {
@@ -68,7 +71,7 @@ export const getWorkoutsSnapshot = async (uid, limitN = 50) => {
   }
 }
 
-export const getWorkouts = async (uid, limitN = 50) => (await getWorkoutsSnapshot(uid, limitN)).workouts
+export const getWorkouts = async (uid, limitN = null) => (await getWorkoutsSnapshot(uid, limitN)).workouts
 
 // ─── Achievements ─────────────────────────────────────────────────────────────
 export const getAchievements = async (uid) => {

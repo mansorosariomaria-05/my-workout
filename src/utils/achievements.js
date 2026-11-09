@@ -3,6 +3,7 @@ import { dateToLocal } from './dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { computeStreak, REAL_WORKOUT_TYPES } from './streak'
+import { computeRecords } from './progressStats'
 
 // ─── Achievement metadata (no React/icon refs) ────────────────────────────────
 export const ACHIEVEMENTS_META = [
@@ -90,21 +91,10 @@ function computeMaxStreak(workouts, minDays) {
   return max
 }
 
+// Fuente única de récords (utils/progressStats.js, computeRecords): métrica principal por ejercicio (kg, seg o reps).
+// prCount = cantidad de ejercicios DISTINTOS con al menos un récord.
 function computePRData(workouts) {
-  const sorted = [...workouts]
-    .filter(w => w.type === 'fuerza' && w.exercises?.length)
-    .sort((a, b) => a.date.localeCompare(b.date))
-  const best = {}, prSet = new Set()
-  for (const w of sorted) {
-    for (const e of (w.exercises ?? [])) {
-      if (!e.exerciseId || !e.sets?.length) continue
-      const maxW = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
-      if (!maxW) continue
-      if (best[e.exerciseId] != null && maxW > best[e.exerciseId]) prSet.add(e.exerciseId)
-      best[e.exerciseId] = Math.max(best[e.exerciseId] ?? 0, maxW)
-    }
-  }
-  return { prCount: prSet.size }
+  return { prCount: computeRecords(workouts).distinctExercises }
 }
 
 function computeWeightProgression(workouts) {

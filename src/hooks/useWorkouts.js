@@ -1,7 +1,7 @@
-import { useContext } from 'react'
+import { useContext, useMemo } from 'react'
 import { parseISO } from 'date-fns'
 import { WorkoutsContext } from '../context/WorkoutsContext'
-import { dateToLocal } from '../utils/dates'
+import { dateToLocal, getTodayLocal } from '../utils/dates'
 import { computeStreak } from '../utils/streak'
 
 // Lee el historial COMPLETO de workouts del estado compartido (WorkoutsProvider, src/context/
@@ -100,7 +100,11 @@ export function useWorkouts() {
   }
 
   // Returns { current, record } — ver src/utils/streak.js para la regla completa.
-  const getCurrentStreak = () => computeStreak(workouts)
+  // Racha estricta (utils/streak.js): la misma función para Inicio, Progreso y los logros. Se memoiza por
+  // workouts y por día, así no se recalcula en cada render.
+  const today = getTodayLocal()
+  const streak = useMemo(() => computeStreak(workouts, today), [workouts, today])
+  const getCurrentStreak = () => streak
 
   return {
     workouts, loading, loadError, saveWorkout,

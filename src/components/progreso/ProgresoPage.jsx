@@ -12,6 +12,8 @@ const REAL_TYPES = new Set(REAL_WORKOUT_TYPES)
 import ExerciseProgress from './ExerciseProgress'
 import WorkoutHistorial from './WorkoutHistorial'
 import { detectPRs } from '../../utils/prUtils'
+import { computeRecords } from '../../utils/progressStats'
+import { getExerciseUnit } from '../../utils/exerciseUnit'
 import { WorkoutIcon } from '../icons/WorkoutIcons'
 
 const GREEN    = '#22c55e'
@@ -54,18 +56,12 @@ function computeAll(workouts) {
 
   const fuerza    = [...workouts].filter(w => w.type === 'fuerza').sort((a, b) => a.date.localeCompare(b.date))
   const exFirst   = {}, exLast = {}, exName = {}, exSessions = {}
-  const bestSoFar = {}
-  let totalPRs = 0
 
   fuerza.forEach(w => {
     w.exercises?.forEach(e => {
       if (!e.exerciseId || !e.sets?.length) return
       const maxW = Math.max(0, ...e.sets.map(s => Number(s.weight) || 0))
       if (maxW <= 0) return
-      if (maxW > (bestSoFar[e.exerciseId] ?? 0)) {
-        if (bestSoFar[e.exerciseId] != null) totalPRs++
-        bestSoFar[e.exerciseId] = maxW
-      }
       if (exFirst[e.exerciseId] == null) exFirst[e.exerciseId] = maxW
       exLast[e.exerciseId]     = maxW
       exName[e.exerciseId]     = e.name || e.exerciseId
@@ -96,7 +92,7 @@ function computeAll(workouts) {
     if (d > maxDelta) { maxDelta = d; maxDeltaEx = exName[id] }
   })
   const mejorMarcaVal = maxDelta > 0 ? `+${maxDelta}kg` : '—'
-  const mejorMarcaSub = maxDelta > 0 ? `en ${maxDeltaEx.split(' ').slice(0, 2).join(' ')}` : ''
+  const mejorMarcaSub = maxDelta > 0 ? `en ${maxDeltaEx}` : ''
 
   const allFatigues = workouts.filter(w => REAL_TYPES.has(w.type) && w.fatigue != null).map(w => w.fatigue)
   const avgFatigaHistorica = allFatigues.length >= 3
@@ -114,7 +110,7 @@ function computeAll(workouts) {
   const thisDays   = new Set(thisWeekW.map(w => w.date)).size
 
   return {
-    total, months, uniqueDays, totalPRs,
+    total, months, uniqueDays,
     mayorProgresoVal, mayorProgresoName,
     masEntrenadoVal, masEntrenadoName,
     mejorMarcaVal, mejorMarcaSub,
@@ -156,7 +152,7 @@ function computeTopExercises(workouts) {
       else if (rUp) { type = 'reps';   deltaR = maxReps - prev.maxReps }
 
       if (type) {
-        events.push({ name: e.name || e.exerciseId, date: w.date, weight: maxW, reps: maxReps, type, deltaW, deltaR })
+        events.push({ name: e.name || e.exerciseId, date: w.date, weight: maxW, reps: maxReps, unit: getExerciseUnit(e), type, deltaW, deltaR })
         if (wUp || dUp) state[e.exerciseId] = { maxW, maxReps }
         else state[e.exerciseId].maxReps = maxReps
       }
@@ -219,7 +215,7 @@ function VictoriaCard({ icon, value, sub, color, label }) {
       style={{ backgroundColor: '#1e1830' }}>
       {icon ? <span className="text-2xl">{icon}</span> : null}
       <span className="font-bold text-lg leading-none" style={{ color }}>{value}</span>
-      {sub ? <span className="leading-tight px-1" style={{ color: '#6B7280', fontSize: 9 }}>{sub}</span> : null}
+      {sub ? <span className="leading-tight px-1 break-words" style={{ color: '#6B7280', fontSize: 9 }}>{sub}</span> : null}
       <span className="uppercase tracking-wider leading-tight mt-0.5" style={{ color: '#4a4560', fontSize: 8 }}>{label}</span>
     </div>
   )
@@ -376,6 +372,7 @@ export default function ProgresoPage() {
   const data        = useMemo(() => computeAll(workouts),            [workouts])
   const topEx       = useMemo(() => computeTopExercises(workouts),   [workouts])
   const { record }  = useMemo(() => getCurrentStreak(),              [workouts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const totalPRs    = useMemo(() => computeRecords(workouts).total,   [workouts]) // fuente única de récords (progressStats)
 
   if (loading) return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center">
@@ -384,7 +381,7 @@ export default function ProgresoPage() {
   )
 
   const {
-    total, months, uniqueDays, totalPRs,
+    total, months, uniqueDays,
     mayorProgresoVal, mayorProgresoName,
     masEntrenadoVal, masEntrenadoName,
     mejorMarcaVal, mejorMarcaSub,
@@ -479,16 +476,17 @@ export default function ProgresoPage() {
                 Todavía no hay progresos registrados. ¡Seguí entrenando!
               </p>
             ) : topEx.map((ex, i) => {
+              const unitLabel = ex.unit === 'secs' ? 'seg' : 'reps'   // los segundos no se rotulan "reps"
               const delta = ex.type === 'double'
-                ? `+${ex.deltaW}kg · +${ex.deltaR} reps`
+                ? `+${ex.deltaW}kg · +${ex.deltaR} ${unitLabel}`
                 : ex.type === 'weight'
                 ? `+${ex.deltaW}kg`
-                : `+${ex.deltaR} reps`
+                : `+${ex.deltaR} ${unitLabel}`
               return (
                 <div key={i}
                   className={`flex items-center gap-2 px-4 py-3${i < topEx.length - 1 ? ' border-b border-white/[0.06]' : ''}`}>
                   <p className="text-sm font-medium text-app-text flex-1 min-w-0 truncate">{ex.name}</p>
-                  <p className="text-sm flex-shrink-0" style={{ color: '#94A3B8' }}>{ex.weight}kg × {ex.reps}</p>
+                  <p className="text-sm flex-shrink-0" style={{ color: '#94A3B8' }}>{ex.weight}kg × {ex.reps}{ex.unit === 'secs' ? ' seg' : ''}</p>
                   <p className="text-xs font-semibold flex-shrink-0" style={{ color: GREEN }}>({delta})</p>
                   <p className="text-xs flex-shrink-0" style={{ color: '#6B7280' }}>{daysAgo(ex.date)}</p>
                 </div>

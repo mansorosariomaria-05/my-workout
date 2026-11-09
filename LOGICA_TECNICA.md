@@ -4,106 +4,51 @@ Documentación técnica permanente para que cualquier instancia de Claude pueda 
 
 ---
 
-## 1. SISTEMA DE RACHA (`computeStreak()`)
+## 1. SISTEMA DE RACHA (`computeStreak()`) — RACHA ESTRICTA desde noviembre 2026
 
 > **Historial**: hasta septiembre 2026 este sistema tenía 4 estados (`active`/`frozen`/`paused`/`broken`) acoplados a las pausas registradas (sección 2). Se reemplazó por completo por una regla única sin estados — ver "Por qué se eliminaron los estados" más abajo. Las pausas **ya no participan** del cálculo de racha.
 
 ### Ubicación
 
-`src/utils/streak.js` — función pura `computeStreak(workouts)`, sin dependencias de React ni de Firestore directamente (recibe el array de workouts ya cargado).
-Consumida por `getCurrentStreak()` en [useWorkouts.js](src/hooks/useWorkouts.js:154), que es ahora un wrapper de una línea: `const getCurrentStreak = () => computeStreak(workouts)`.
+`src/utils/streak.js` — función pura `computeStreak(workouts, today = getTodayLocal())`, sin dependencias de React ni de Firestore directamente (recibe el array de workouts ya cargado). Consumida por `getCurrentStreak()` de [useWorkouts.js](src/hooks/useWorkouts.js), que devuelve el resultado **memoizado** (`useMemo` por `workouts` y por día): Inicio, Progreso y los logros usan **la misma función**. El módulo `progressStats.js` la reexporta.
+
+> **Cambio de noviembre 2026 — racha estricta.** Hasta entonces las semanas de 1-2 días eran *neutras* (ni sumaban ni cortaban) y la racha solo se reiniciaba tras 4 semanas vacías, así que "N sem." podía incluir semanas separadas. Ahora la racha cuenta semanas **realmente consecutivas**. Las rachas de los usuarios pueden bajar respecto de lo que veían antes (el récord también se recalcula con la regla nueva).
 
 ### La regla
 
-- **Semana** = lunes a domingo, usando `weekKey`/`getWeekStartLocal` de [dates.js](src/utils/dates.js) — fechas siempre como strings `YYYY-MM-DD`, nunca `Date`/UTC (ver sección 5).
-- **Solo cuentan días de entrenamiento real**: `type` en `REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']` — constante única exportada desde `streak.js` y reusada en `Logros.jsx` y `achievements.js` (ver "Consumidores" abajo). `'pausa'` y `'descanso'` quedan afuera del cálculo por completo.
-- **Semana con ≥3 días únicos de entrenamiento real** → suma **+1** a la racha (`current`).
-- **Semana con 1-2 días, o con 0 días** → no suma **ni corta** — es neutra.
-- **La racha vuelve a 0 solo si hay 4 semanas calendario COMPLETAS seguidas con 0 días de entrenamiento real.** La semana en curso (la de hoy) **nunca** cuenta como una de esas 4, aunque todavía no tenga ningún entrenamiento — porque todavía puede sumar días antes del domingo.
-- **La semana en curso suma +1 en cuanto alcanza 3 días** — no hace falta esperar a que termine (a diferencia del sistema viejo, que solo evaluaba semanas ya cerradas).
-- **`record`** = la racha más alta (`current`) alcanzada en cualquier punto de todo el historial, con esta misma regla.
+- **Semana** = lunes a domingo (`weeks.js`, aritmética sobre strings `YYYY-MM-DD`, sin `Date`/UTC; ver sección 5).
+- **Solo cuentan días de entrenamiento real**: `type` en `REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']` (constante única exportada desde `streak.js`). Los workouts con fecha posterior a hoy no cuentan.
+- **Semana con ≥ 3 días distintos** (`STREAK_MIN_DAYS`) → suma **+1** a la racha.
+- **Semana ya cerrada con menos de 3 días** (incluidas las de 0) → **corta** la racha (`current` vuelve a 0).
+- **La semana en curso suma +1 en cuanto llega a 3 días**; si todavía no los tiene, **no suma pero tampoco corta**.
+- **`record`** = la racha más larga de todo el historial con esta misma regla; ante un empate, la más reciente.
 
-### Código completo
+### Qué devuelve
 
 ```js
-// src/utils/streak.js
-import { parseISO } from 'date-fns'
-import { weekKey, getWeekStartLocal, dateToLocal } from './dates.js'
-
-export const REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
-
-const nextMonday = (mondayStr) => {
-  const d = parseISO(mondayStr + 'T12:00:00')
-  d.setDate(d.getDate() + 7)
-  return dateToLocal(d)
-}
-
-export function computeStreak(workouts) {
-  const realW = (workouts ?? []).filter(w => w.date && REAL_WORKOUT_TYPES.includes(w.type))
-  if (!realW.length) return { current: 0, record: 0 }
-
-  // weekMap: 'YYYY-MM-DD (lunes)' -> Set de fechas entrenadas esa semana
-  const weekMap = {}
-  realW.forEach(w => {
-    const mon = weekKey(parseISO(w.date + 'T12:00:00'))
-    if (!weekMap[mon]) weekMap[mon] = new Set()
-    weekMap[mon].add(w.date)
-  })
-
-  const thisWeekMonday = getWeekStartLocal()
-  const earliestMonday = Object.keys(weekMap).sort()[0]
-
-  let current = 0
-  let record = 0
-  let consecutiveEmpty = 0
-  let mon = earliestMonday
-
-  // Camina cronológicamente desde la semana más antigua con datos hasta la semana actual, inclusive.
-  while (mon <= thisWeekMonday) {
-    const days = weekMap[mon]?.size ?? 0
-    const isCurrentWeek = mon === thisWeekMonday
-
-    if (days >= 3) {
-      current += 1
-      consecutiveEmpty = 0
-      record = Math.max(record, current)
-    } else if (days >= 1) {
-      consecutiveEmpty = 0   // semana floja (1-2 días): no suma, pero tampoco cuenta para el reset de 4
-    } else if (!isCurrentWeek) {
-      consecutiveEmpty += 1
-      if (consecutiveEmpty >= 4) {
-        current = 0
-        consecutiveEmpty = 0
-      }
-    }
-    // isCurrentWeek && days === 0: la semana en curso nunca cuenta como vacía — no se toca nada.
-
-    mon = nextMonday(mon)
-  }
-
-  return { current, record }
+{
+  current, record,                       // semanas de la racha actual y del récord
+  currentStart, currentEnd,              // lunes de la primera semana y domingo de la última semana de la racha actual (null si es 0)
+  recordStart, recordEnd,                // lo mismo para el récord
+  last12: [{ weekStart, weekEnd, days, met, isCurrent }, ...]   // las últimas 12 semanas (la última es la actual)
 }
 ```
 
-### Por qué camina hacia ADELANTE (no hacia atrás como el sistema viejo)
-
-El sistema anterior caminaba desde hoy hacia atrás, semana por semana, y cortaba apenas encontraba 2 semanas vacías seguidas — porque cada estado (`frozen`/`paused`/`broken`) dependía solo de la semana más reciente relevante. La regla nueva necesita **acumular** un contador (`current`) que crece con cada semana calificada y se resetea solo tras 4 vacías seguidas — eso requiere procesar las semanas en orden cronológico (de la más vieja a la más nueva) para que el contador refleje correctamente rachas que sobrevivieron a semanas flojas o a huecos cortos (<4 semanas) en el medio del historial.
-
-### Casos de ejemplo (los mismos que verifica la implementación)
+### Casos de ejemplo (verificados en `progressStats.test.js`)
 
 | Escenario | Resultado |
 |---|---|
 | 5 semanas seguidas con 3+ días | `current: 5` |
-| 3 semanas de 3 días, 1 semana de 2 días, 2 semanas de 3 días | `current: 5` — la semana floja de 2 días no suma ni corta |
-| 4 semanas de 3 días, 3 semanas vacías, 1 semana de 3 días | `current: 5` — 3 semanas vacías no alcanzan las 4 que exige el reset |
-| 4 semanas de 3 días, **4 semanas completas vacías**, 1 semana de 3 días | `current: 1`, `record: 4` — el reset sí ocurre a la 4ª semana vacía; la racha nueva arranca de cero pero el récord histórico se conserva |
-| Semana en curso con 3 días (miércoles, por ejemplo) | Ya suma — no espera al domingo |
-| Semana en curso con 0 días (todavía) y la anterior con 3 | No corta la racha — la semana en curso nunca cuenta como vacía |
-| Documentos `type: 'pausa'` o `type: 'descanso'` en cualquier fecha | No afectan el resultado — quedan fuera de `REAL_WORKOUT_TYPES` desde el primer filtro |
+| 4 semanas de 3 días, 1 semana de **2 días**, 3 semanas de 3 días | `current: 3`, `record: 4` — la semana de 2 días corta |
+| Una semana cerrada con **0 días** en el medio | Corta |
+| 5 semanas de 3 días y la semana en curso con 1 día | `current: 5` — la semana en curso no suma pero no corta |
+| Lo mismo, y la semana en curso llega a 3 días | `current: 6` — suma sin esperar al domingo |
+| Semana anterior con 2 días, semana en curso todavía vacía | `current: 0` |
+| Documentos `type: 'pausa'` o `'descanso'` | No afectan: quedan fuera de `REAL_WORKOUT_TYPES` |
 
 ### Consumidores del resultado
 
-- [useWorkouts.js](src/hooks/useWorkouts.js:154): `getCurrentStreak()` (wrapper de `computeStreak(workouts)`).
+- [useWorkouts.js](src/hooks/useWorkouts.js): `getCurrentStreak()` (devuelve `computeStreak(workouts, hoy)` memoizado).
 - [Inicio.jsx](src/pages/Inicio.jsx): `const { current: semanasRacha } = getCurrentStreak()` para el frente de la tarjeta (`🔥 {semanasRacha}`), y `computeStreakStats(workouts, getTodayLocal())` por separado para el dorso (ver subsección siguiente) — ambos pasados a `<StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} streakStats={streakStats} />`.
 - [ProgresoPage.jsx](src/components/progreso/ProgresoPage.jsx): llama a la **misma** `getCurrentStreak()` del hook (`const { record } = useMemo(() => getCurrentStreak(), [workouts])`) para `CaminoCard`/`VictoriaCard` — **ya no tiene su propio cálculo de `record` duplicado** dentro de `computeAll()` (fue eliminado; antes eran dos implementaciones independientes que podían mostrar números distintos entre Inicio y Progreso — ver sección 9). Ambas pantallas muestran siempre 🔥, sin distinción de color/ícono por estado.
 - [Logros.jsx](src/components/inicio/Logros.jsx): la medalla `w_racha_viva` ya no recibe `streakState` como prop — `Logros`/`computeWeeklyMedals` perdieron ese parámetro por completo. Ver sección 4 para el nuevo criterio de `w_racha_viva`.
@@ -2018,6 +1963,113 @@ Los workouts anteriores a este cambio **no tienen** `durationSeconds` y **no se 
 ### Verificación
 
 Con el wizard real (jsdom, contextos y subformularios simulados, reloj simulado) y las funciones reales: cronómetro normal (52:20 → precarga 52 → se guarda 3120), duración editada (45 → 2700), campo vacío (`null`, la clave existe), cronómetro de 3 min y de 5 h (campo vacío y `null`, con el texto que explica por qué), valor fuera de rango cargado a mano (50 → 3000), fecha pasada (sin precarga), límites exactos (4:59 / 5:00 / 4:00:00 / 4:00:01), y cardio y clase sin cambios (sin campo nuevo; cardio conserva su `durationSeconds` del formulario y clase su `duracion`): 26 comprobaciones, todas bien.
+
+---
+
+## 26. MÓDULO DE CÁLCULOS DE PROGRESO (`src/utils/progressStats.js`, noviembre 2026)
+
+Módulo único, de **funciones puras** (sin React ni Firestore), que reúne los cálculos de la sección Progreso. Recibe `workouts`, el catálogo de ejercicios (`data/exercises.js` por defecto) y el perfil. Pruebas automáticas en `src/utils/progressStats.test.js` (vitest, `npm test`, 66 casos con historiales inventados). Archivos relacionados: `src/utils/weeks.js` (aritmética de fechas y semanas), `src/utils/streak.js` (racha estricta), `src/utils/sessionDuration.js` (duración de fuerza, sección 25).
+
+> **Estado de integración.** El módulo ya es la fuente única de: la **racha** (Inicio, Progreso, logros), los **récords** (tarjeta "PRs históricos" de Progreso y el logro "Superaste 3 PRs") y el **estado de cansancio** (sugerencia de descarga). Los demás indicadores (período, volumen, duración, cardio, mayor progreso, más trabajado, totales, dato clave) **están calculados y probados pero todavía no se muestran**: el rediseño de la pantalla es el próximo paso. Las tarjetas actuales de `ProgresoPage` ("mayor progreso", "más trabajado", "mejor marca", fatiga) siguen con su cálculo anterior (ver sección 21 de este archivo y `AUDITORIA_PROGRESO.md`).
+
+### Convenciones
+
+- Solo cuentan los workouts `REAL_WORKOUT_TYPES` (`fuerza`, `cardio`, `clase`, `tabata`) con `date`. `pausa` y `descanso` nunca. Los workouts con fecha posterior a "hoy" se ignoran.
+- Semanas de **lunes a domingo**; fechas como `YYYY-MM-DD` (`weeks.js`, sin zona horaria).
+- **Sin dato nunca es 0**: ausente, `null`, `''` y duración 0 se excluyen de los promedios.
+- Todas las funciones aceptan `today` (por defecto `getTodayLocal()`) para poder probarlas.
+- Objetivo semanal = `getWeeklyGoal(profile)` = `profile.diasSemana`, o **3** si no existe.
+
+### Períodos (`resolvePeriod`)
+
+| Período | Ventana actual | Período anterior |
+|---|---|---|
+| `'4w'` / `'12w'` | Las N semanas (4 o 12) que terminan en la semana en curso: desde el **lunes de hace N−1 semanas** hasta **hoy** (la última semana es parcial) | Empieza **N semanas antes** del inicio actual y dura **lo mismo en días** (así la comparación es pareja aunque la semana en curso esté a medias). Ej.: hoy jueves, 4w → actual de 25 días y anterior de 25 días |
+| `'all'` | Desde el lunes de la semana del primer entrenamiento hasta hoy | **No hay** (todo es `null`) |
+
+**Variación %** = `Math.round((actual − anterior) / anterior × 100)`; `null` si falta alguno o el anterior es 0 (`pctChange`). Cada indicador devuelve `{ value, previous, changePct, delta, series }`, donde `series` tiene una entrada por semana del período (`{ weekStart, weekEnd, partial, value }`) y `delta` = `actual − anterior` (para el cansancio, la diferencia en puntos).
+
+### Indicadores por período (`computeProgressStats({ workouts, catalog, profile, period, today })`)
+
+| Indicador | Fórmula exacta |
+|---|---|
+| **entrenamientos** (`trainings`) | Cantidad de workouts reales con fecha en la ventana (dos el mismo día cuentan 2) |
+| **días activos** (`activeDays`) | Cantidad de **fechas distintas** de esos workouts |
+| **volumen de fuerza** (`volume`) | Σ `peso × reps` de cada serie de cada ejercicio con `getExerciseUnit(e) === 'reps'` y `Number(peso) > 0`. Excluye los ejercicios en segundos (con o sin peso) y las series sin peso; acepta el peso como texto |
+| **semanas cumplidas** (`weeksMet`) | Cantidad de semanas de la ventana con `días activos ≥ goal`. **La semana en curso (parcial) cuenta solo si ya se cumplió**; las cerradas siempre se evalúan. Devuelve además `goal` y `weeksEvaluated` (= semanas cerradas + la en curso si cumplió) |
+| **duración promedio por sesión** (`duration`) | Minutos por sesión: **fuerza** = `getSessionDurationSeconds` (`durationSeconds > 0`); **cardio** = `getEffectiveDurationSeconds` > 0 (`durationSeconds` nuevo o `tiempo` viejo); **clase** = `duracion` > 0. Promedio **global** y **por tipo** (`byType`), `sessionsWithData` y `sessionsTotal`. **Con menos de 3 sesiones con dato** (global, y cada tipo por separado) el valor es `null` ("sin datos suficientes"). La serie semanal promedia lo que haya (sin mínimo) |
+| **cardio** (`cardio`) | Minutos promedio por sesión de cardio **solo con sesiones que tienen tiempo**; `withData` / `withoutData` / `sessions`. `null` si ninguna tiene tiempo |
+| **cansancio** (`fatigue`) | Promedio de `fatigue` (1-10) de los workouts reales de la ventana con valor numérico (se ignoran `null` y `''`); redondeado a 1 decimal; `count`; promedio por semana en `series` (`null` si la semana no tiene registros). Incluye `status` = `getFatigueStatus` (ver abajo) |
+
+### Cansancio unificado (`getFatigueStatus(workouts, today)`) — fuente única
+
+- **Ventana:** las **2 últimas semanas completas** (lunes a domingo, sin la semana en curso).
+- **Estado:** `'alto'` si el promedio **redondeado a 1 decimal** (el que se muestra) es **≥ 7** y hay **al menos 3 registros**; `'sin-datos'` si hay menos de 3 registros; `'normal'` en el resto. Devuelve `{ status, high, avg, count, start, end, threshold: 7, minRecords: 3 }`.
+- **La usan:** el dato clave R1, la sugerencia de descarga de **Configuración** (`ConfigPage.jsx`, ya no usa "últimos 40 registros con `?? 5` y ≥ 7") y `useDeload.shouldSuggestDeload` (que sigue sin llamadores).
+
+**Deuda pendiente — otros lugares que calculan o clasifican el cansancio con reglas propias** (no se tocaron; conviene unificarlos con `getFatigueStatus` o con una constante común de umbrales):
+
+| Lugar | Regla que usa |
+|---|---|
+| `ProgresoPage.jsx` — `computeAll` (`avgFatigaHistorica`) y el color/subtítulo de la tarjeta de fatiga | Promedio de **todo el historial** con fatiga (mínimo 3 registros); umbrales ≤ 5 / ≤ 7 / > 7 ("al límite") |
+| `ProgresoPage.jsx` — `UltimasSesiones` | Etiqueta por sesión: ≤ 3 "liviana", ≤ 6 "moderada", > 6 "alta" |
+| `Logros.jsx` (medalla semanal, ~línea 139) | Promedio de la fatiga de la semana en curso |
+| `Inicio.jsx` (resumen semanal, ~línea 155) | Promedio de la fatiga de la semana pasada |
+| `achievements.js` — `checkEnergiaAlza` | Promedio semanal; baja de ≥ 2 puntos entre semanas consecutivas |
+| `useWorkouts.js` — `getLastFatigueForExercise` | `fatigue ?? 5` de las últimas 2 sesiones del ejercicio |
+| `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `WorkoutHistorial.jsx` | Colores/niveles por sesión: ≤ 4 bajo, 5-7 intermedio, ≥ 8 alto (`WorkoutSummary` usa `fatigue ?? 5`) |
+
+### Racha estricta (`computeStreak(workouts, today)` en `utils/streak.js`) — reemplaza a la anterior
+
+Ver la sección 1. En una línea: **semanas consecutivas con 3 o más días distintos de entrenamiento real; una semana ya cerrada con menos de 3 la corta; la semana en curso suma si ya tiene 3 días y, si todavía no, ni suma ni corta.** Devuelve `current`, `record`, `currentStart`/`currentEnd` y `recordStart`/`recordEnd` (lunes de la primera semana y domingo de la última de cada racha; ante un empate de récord gana la más reciente) y `last12` (las últimas 12 semanas con sus días, la última es la actual). `getCurrentStreak()` de `useWorkouts` la devuelve **memoizada** (`useMemo` por `workouts` y por día).
+
+### Agrupación de ejercicios (`groupExercises`)
+
+Los ejercicios se agrupan por **id del catálogo**; si el id no existe en el catálogo, por **nombre normalizado** (minúsculas, sin tildes, espacios colapsados) y, si ese nombre coincide con un ejercicio del catálogo, con el id de ese ejercicio. Así las alternativas `alt-…` (id único por uso) **no fragmentan** el historial. Los ejercicios propios (ids `custom_…`) se agrupan por nombre. Una "sesión" de un ejercicio = un workout (si aparece dos veces en el mismo workout se fusiona, con el máximo). Orden: fecha ascendente; ante empate de fecha se asume la lista en orden descendente (como la entrega el proveedor).
+
+### Récords (`computeRecords`) — fuente única
+
+- **Métrica principal por ejercicio:** **kg** si el ejercicio alguna vez tuvo peso > 0 (valor de la sesión = peso máximo de la sesión); si no, **segundos** si su unit es `'secs'` (valor = máximo de segundos de una serie); si no, **repeticiones** (máximo de reps de una serie).
+- **Récord** = una sesión cuyo valor **supera estrictamente** el mejor valor previo de ese ejercicio. **La primera sesión con valor > 0 es la base y no cuenta** (las sesiones sin peso anteriores a la primera con carga se ignoran para la métrica de kg).
+- **Devuelve:** `events` (cronológicos: `exerciseKey`, `exerciseId`, `name`, `date`, `previous`, `value`, `unit` = 'kg' | 'seg' | 'reps'), `total`, `last`, `mostRecords` (ejercicio con más récords; empate: el más reciente), `distinctExercises` y `byExercise`.
+- **La usan:** la tarjeta "PRs históricos" de `ProgresoPage` (`total`) y el logro **"Superaste 3 PRs"** (`achievements.js`, `computePRData` → `distinctExercises`; la misma función alimenta `primerAumento` y `diezPRs`). *Efecto:* al contar también segundos y repeticiones, el total puede ser mayor que antes (que solo miraba kg).
+
+### Mayor progreso (`computeMayorProgreso`)
+
+Primera marca contra la **MEJOR** marca (misma métrica principal que los récords), solo ejercicios con **al menos 3 sesiones con dato**. `pct = Math.round((mejor − primera) / primera × 100)`. Devuelve `ranking` (por %; empate: más sesiones, luego nombre) y `top` (el primero con % > 0, o `null`); cada fila: ejercicio, valor y fecha inicial, valor y fecha del mejor (la primera vez que se alcanzó), unidad, %, sesiones.
+
+### Más trabajado (`computeMasTrabajado`)
+
+Sesiones de **todos** los ejercicios (también sin peso y en segundos): cuenta los workouts con al menos una serie con repeticiones/segundos > 0 o peso > 0. Cada fila: `sessions`, `firstDate`, `lastDate`, `totalSets` (series con reps/segundos > 0). Ranking: sesiones, luego series, luego nombre.
+
+### Entrenamientos totales (`computeTotals`)
+
+Todo el historial real hasta hoy: `total`, `uniqueDays`, `byType` (fuerza, cardio, clase, tabata), `firstDate` y `monthMostDays` (mes `YYYY-MM` con más días distintos; empate: el más reciente).
+
+### Dato clave (`computeKeyInsight` / `keyInsight`)
+
+Evalúa 5 reglas y devuelve **la frase de la de mayor prioridad que se cumpla, o `null`** (el resultado también trae `keyInsightRule` y `keyInsights`, todas las que se cumplen). P = período elegido, A = anterior.
+
+| Prioridad | Regla | Condición exacta | Frase |
+|---|---|---|---|
+| 1 | **R1 · cansancio alto** | `getFatigueStatus(...).status === 'alto'` | "Tu cansancio promedio de las últimas 2 semanas fue {x}/10. Podés considerar una semana de descarga." |
+| 2 | **R2 · récord de peso** | Hay un evento de `computeRecords` con unidad **kg** y fecha dentro de P; se elige el de fecha más reciente (empate: mayor mejora relativa) | "Récord nuevo en {ejercicio}: {valor} kg (+{delta} kg sobre tu marca anterior de {previo} kg)." |
+| 3 | **R3 · mejor tiempo** | Ejercicio en `'secs'` cuyo máximo de segundos por serie dentro de P supera el máximo de todas las sesiones **anteriores a P**, comparando series con el **mismo peso** (o ambas sin peso), con la marca previa > 0. No aplica en `'all'` | "Aguantaste {n} seg en {ejercicio}{ con {peso} kg}, tu mejor marca (antes {m} seg)." |
+| 4 | **R4 · variación de volumen** | P ≠ 'all'; ≥ 2 sesiones de fuerza con volumen > 0 en P **y** ≥ 2 en A; volumen(A) > 0; `abs(Δ%) ≥ 10` | "Tu volumen de fuerza {subió/bajó} un {abs(Δ%)} % frente a las {N} semanas anteriores{ (incluye semana de descarga)}." (con Δ% > 200: "más de un 200 %"; sufijo si alguna sesión de P tiene `deload: true`, o "(incluye una sesión de regreso)" si tiene `regreso: true`) |
+| 5 | **R5 · constancia** | `weeksEvaluated ≥ 4` y `weeksMet ≥ 1` (la semana en curso entra solo si ya cumplió, así que en '4w' solo dispara cuando la semana en curso ya se cumplió) | "¡Cumpliste tu objetivo de {d} días las {n} semanas!" (si k = n) o "Cumpliste tu objetivo de {d} días en {k} de {n} semanas." |
+
+Los números usan coma decimal (es-AR) y hasta 2 decimales. Mismos datos ⇒ misma frase (sin azar).
+
+### Cambios en pantallas existentes (solo estos)
+
+- **Inicio:** la racha viene de la función estricta (memoizada); el anillo semanal se llena con **`profile.diasSemana`** (`getWeeklyGoal`, respaldo 3) en lugar del tope fijo de 4: el color depende de la proporción días/objetivo y los mensajes "Semana óptima" / "ideal" se dan al llegar al objetivo / pasarlo. `computeStreakStats` también se memoiza.
+- **Logro "Superaste 3 PRs"** (y `primerAumento`, `diezPRs`): leen `computeRecords`.
+- **Progreso (pantalla actual):** el nombre en "+N kg en …" se muestra **completo** (antes se recortaba a 2 palabras); los rótulos "reps" pasan a "seg" en los ejercicios en segundos (`ProgresoPage`: eventos de "Principales progresiones"; `ExerciseProgress`: "Última serie", que además deja de mostrar "· 0kg"; `GeneradorTab` y el generador de `FuerzaFlow`: el esquema de una rutina generada dice "3×30 seg" en vez de "3×12"). "PRs históricos" usa `computeRecords`.
+- **Descarga** (`ConfigPage`, `useDeload`): usan `getFatigueStatus`.
+
+### Pruebas (`npm test`)
+
+`vitest run` con `vitest.config.js` (entorno Node, sin plugins de la app). Cubren: períodos y comparación (4w, 12w, all, variación con anterior 0), semana en curso (incompleta y cumplida), racha cortada, racha con semana en curso incompleta, récords en kg / segundos / reps y con primera sesión, mayor progreso con menos de 3 sesiones, alternativas `alt-…`, workouts sin `durationSeconds`, clase con duración, cardio sin tiempo, cansancio con pocos registros, y las 5 reglas del dato clave (y su prioridad).
 
 ---
 

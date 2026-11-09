@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MUSCLE_GROUPS } from '../../data/exercises'
+import { getExerciseUnit } from '../../utils/exerciseUnit'
 import { generateRoutine } from '../../utils/routineGenerator'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkoutDraft } from '../../context/WorkoutDraftContext'
@@ -46,7 +47,7 @@ export default function GeneradorTab({ workouts }) {
       name: `Generada: ${selectedMuscles.slice(0, 2).join(' + ')}`,
       exercises: ordered.map(e => ({
         id: e.id, exerciseId: e.id, name: e.name, level: e.level,
-        muscle: e.muscle, sets: 3, repsScheme: '12', alt: e.alt,
+        muscle: e.muscle, sets: 3, repsScheme: getExerciseUnit(e) === 'secs' ? '30 seg' : '12', alt: e.alt,
       })),
       muscles: selectedMuscles,
       tipo: 'Fuerza',

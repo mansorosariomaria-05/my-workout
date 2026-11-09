@@ -703,7 +703,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       name: `Generada: ${genMuscles.slice(0, 2).join(' + ')}`,
       exercises: ordered.map(e => ({
         id: e.id, exerciseId: e.id, name: e.name, level: e.level,
-        muscle: e.muscle, sets: 3, repsScheme: '12',
+        muscle: e.muscle, sets: 3, repsScheme: getExerciseUnit(e) === 'secs' ? '30 seg' : '12',
       })),
       muscles: genMuscles,
     })

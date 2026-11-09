@@ -98,7 +98,10 @@ src/
     routineGenerator.js        # generateRoutine(): selección y orden por patrón de movimiento
     dailySuggestion.js         # computeDailySuggestion(): sugerencia diaria (pura, sin fetch)
     cardio.js                  # Tiempo/ritmo de cardio: toSeconds, formatDuration, computePace, etc.
-    streak.js                  # Racha semanal (computeStreak) + REAL_WORKOUT_TYPES
+    streak.js                  # Racha ESTRICTA (computeStreak: semanas consecutivas con 3+ días, con fechas y últimas 12 semanas) + REAL_WORKOUT_TYPES + computeStreakStats
+    weeks.js                   # Aritmética pura de fechas YYYY-MM-DD y semanas lunes-domingo (addDays, mondayOf, ...)
+    progressStats.js           # MÓDULO ÚNICO de cálculos de Progreso (períodos 4w/12w/all, indicadores, récords, mayor progreso, más trabajado, totales, cansancio, dato clave). Puro; con pruebas en progressStats.test.js
+    sessionDuration.js         # Duración real de la sesión de fuerza: precarga del cronómetro, conversión y lectura segura
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Modo regreso: detecta si un ejercicio volvió de un parate sin llegar aún a su nivel previo
     returnRoutine.js           # Rutina de regreso: full body sugerido tras 15+ días sin fuerza, con pesos reducidos (solo si el usuario la elige)
@@ -385,7 +388,7 @@ Ver `LOGICA_TECNICA.md` sección 17 para el algoritmo completo.
 
 ## Sistema de logros (Logros.jsx)
 
-30 logros agrupados en: Consistencia, Fuerza, Cardio, Balance, Especiales.
+35 logros permanentes (`ACHIEVEMENTS_META`) agrupados en: Consistencia, Fuerza, Cardio, Balance, Especiales; además hay 4 medallas semanales de un pool de 12.
 
 Se computan **en el cliente** al cargar la home, comparando el array `workouts` con los logros ya desbloqueados en Firestore. Solo se graba si el logro no estaba desbloqueado.
 
@@ -393,9 +396,13 @@ Guardado en Firestore: `users/{uid}/data/achievements → { [key]: { unlocked: t
 
 Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con grid 3 columnas, flip card frente/reverso).
 
-**Racha semanal** (`utils/streak.js` → `computeStreak`): sin estados — no hay racha "congelada" ni "en pausa". Cada semana con 3+ días de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`) suma 1 a la racha; las semanas con 1-2 días no suman ni cortan; la racha vuelve a 0 solo si se completan 4 semanas calendario seguidas sin ningún entrenamiento real. Ver `LOGICA_TECNICA.md` sección 1 para el detalle y la justificación.
+**Racha estricta** (`utils/streak.js` → `computeStreak`, desde noviembre 2026): sin estados — no hay racha "congelada" ni "en pausa". Cuenta **semanas consecutivas** (lunes a domingo) con **3 o más días distintos** de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`); una semana ya cerrada con menos de 3 días **corta** la racha. La semana en curso suma si ya tiene 3 días y, si todavía no, no suma pero no corta. Devuelve racha actual y récord con fecha de inicio y fin, y las últimas 12 semanas con sus días. Inicio, Progreso y los logros usan la misma función (`getCurrentStreak()` de `useWorkouts`, memoizada). Ver `LOGICA_TECNICA.md` secciones 1 y 26.
 
-**Tarjeta de racha con dorso** (Inicio, `StatsCards`): la tarjeta de racha se da vuelta al tocarla (`FlipCard.jsx`, genérico y reutilizable, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`), con altura compacta fija (misma que la card de días de al lado). Frente: solo `🔥 {racha actual}`, número del mismo tamaño que el de la card de días. Dorso (`computeStreakStats`, `streak.js`): grilla 2×2 con la cantidad de semanas de 0, 1-2, 3-4 y 5+ días de entrenamiento real, sobre las últimas 12 semanas completas (o menos si el usuario tiene menos historial). La card de días muestra "Esta semana" arriba a la izquierda.
+**Módulo de cálculos de Progreso** (`utils/progressStats.js`, `LOGICA_TECNICA.md` sección 26): fuente única de la racha, de los **récords** (métrica principal por ejercicio: kg, seg o reps; los usan "PRs históricos" y el logro "Superaste 3 PRs") y del **estado de cansancio** (`getFatigueStatus`: promedio de las últimas 2 semanas completas ≥ 7 con ≥ 3 registros; lo usa la sugerencia de descarga). Los ejercicios se agrupan por id del catálogo o por nombre normalizado (las alternativas `alt-…` no fragmentan el historial). Las pruebas automáticas (`npm test`, vitest) cubren el módulo.
+
+**Objetivo semanal:** `profile.diasSemana` (2 a 6, valor inicial 4 en el onboarding, respaldo 3). El anillo de Inicio se llena con ese objetivo.
+
+**Tarjeta de racha con dorso** (Inicio, `StatsCards`): la tarjeta de racha se da vuelta al tocarla (`FlipCard.jsx`, genérico y reutilizable, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`), con altura compacta fija (misma que la card de días de al lado). Frente: solo `🔥 {racha actual}`, número del mismo tamaño que el de la card de días. Dorso (`computeStreakStats`, `streak.js`; su `record` sale de la racha estricta): grilla 2×2 con la cantidad de semanas de 0, 1-2, 3-4 y 5+ días de entrenamiento real, sobre las últimas 12 semanas completas (o menos si el usuario tiene menos historial). La card de días muestra "Esta semana" arriba a la izquierda.
 
 ---
 

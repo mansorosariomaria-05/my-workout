@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isToday, isYesterday, differenceInDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -8,6 +8,7 @@ import { useWorkouts } from '../hooks/useWorkouts'
 import { useWorkoutDraft } from '../context/WorkoutDraftContext'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES, computeStreakStats } from '../utils/streak'
+import { getWeeklyGoal } from '../utils/progressStats'
 import { getInactivityInfo } from '../utils/inactivity'
 import { computeDailySuggestion } from '../utils/dailySuggestion'
 import { getNeverList } from '../services/db'
@@ -578,23 +579,25 @@ function RachaBack({ stats }) {
   )
 }
 
-function StatsCards({ diasSemana, semanasRacha, streakStats }) {
-  const clampedDays = Math.min(diasSemana, 4)
-  const maxDays = 4
+function StatsCards({ diasSemana, goal, semanasRacha, streakStats }) {
+  // El anillo se llena con el objetivo semanal del perfil (profile.diasSemana), no con un tope fijo.
+  const maxDays = Math.max(1, goal)
+  const clampedDays = Math.min(diasSemana, maxDays)
   const radius = 30
   const circ = 2 * Math.PI * radius
   const progress = clampedDays / maxDays
   const dash = circ - progress * circ
 
+  const ratio = diasSemana / maxDays
   const ringColor = diasSemana === 0 ? 'rgba(255,255,255,0.1)'
-    : diasSemana === 1 ? '#E05252'
-    : diasSemana === 2 ? '#D49A3A'
-    : diasSemana === 3 ? '#4A9EDB'
-    : diasSemana === 4 ? '#40916C'
+    : ratio < 0.5 ? '#E05252'
+    : ratio < 0.75 ? '#D49A3A'
+    : ratio < 1 ? '#4A9EDB'
+    : ratio === 1 ? '#40916C'
     : '#F5C842'
 
-  const dayMessage = diasSemana >= 5 ? '¡Esta semana fue ideal! ⭐'
-    : diasSemana === 4 ? '¡Semana óptima! ✅'
+  const dayMessage = diasSemana > maxDays ? '¡Esta semana fue ideal! ⭐'
+    : diasSemana === maxDays ? '¡Semana óptima! ✅'
     : null
 
   return (
@@ -673,8 +676,9 @@ export default function Inicio() {
   const [resumeChecked, setResumeChecked] = useState(false)
 
   const diasSemana = getThisWeekCount(workouts)
-  const { current: semanasRacha } = getCurrentStreak()
-  const streakStats = computeStreakStats(workouts, getTodayLocal())
+  const { current: semanasRacha } = getCurrentStreak() // racha estricta, memoizada en useWorkouts
+  const streakStats = useMemo(() => computeStreakStats(workouts, getTodayLocal()), [workouts])
+  const weeklyGoal = getWeeklyGoal(profile)
   const inactivityInfo = computeInactivityInfo(workouts, profile)
 
   const saveInactividad = (motivo) => {
@@ -805,7 +809,7 @@ export default function Inicio() {
       )}
 
       <div className="flex-1 flex flex-col mt-2 pb-2 overflow-x-hidden">
-        <div className="mb-2"><StatsCards diasSemana={diasSemana} semanasRacha={semanasRacha} streakStats={streakStats} /></div>
+        <div className="mb-2"><StatsCards diasSemana={diasSemana} goal={weeklyGoal} semanasRacha={semanasRacha} streakStats={streakStats} /></div>
         {showSatBanner && (
           <div className="mb-2 mx-4">
             <div className="flex items-center gap-3 rounded-xl px-4 py-3"

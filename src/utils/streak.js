@@ -1,61 +1,66 @@
 import { parseISO } from 'date-fns'
-import { weekKey, getWeekStartLocal, dateToLocal } from './dates.js'
+import { weekKey, dateToLocal, getTodayLocal } from './dates.js'
+import { addDays, mondayOf, sundayOf } from './weeks.js'
 
 // Únicos tipos de workout que cuentan como "entrenamiento real" para racha, logros y estadísticas.
 export const REAL_WORKOUT_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
 
-const nextMonday = (mondayStr) => {
-  const d = parseISO(mondayStr + 'T12:00:00')
-  d.setDate(d.getDate() + 7)
-  return dateToLocal(d)
-}
+// Cantidad mínima de días distintos de entrenamiento real para que una semana cuente en la racha.
+export const STREAK_MIN_DAYS = 3
 
-// Racha por semanas: cada semana (lunes a domingo) con 3+ días únicos de entrenamiento real suma +1.
-// Semanas con 1-2 días no suman ni cortan. La racha vuelve a 0 solo tras 4 semanas calendario
-// COMPLETAS seguidas con 0 días — la semana en curso nunca cuenta como una de esas 4 (aunque
-// tenga 0 días hasta el momento). record = la racha más alta alcanzada en todo el historial.
-export function computeStreak(workouts) {
-  const realW = (workouts ?? []).filter(w => w.date && REAL_WORKOUT_TYPES.includes(w.type))
-  if (!realW.length) return { current: 0, record: 0 }
-
-  const weekMap = {}
+// RACHA ESTRICTA (fuente única: la usan Inicio, Progreso, los logros y progressStats).
+//   · Cuenta semanas CONSECUTIVAS (lunes a domingo) con `STREAK_MIN_DAYS` (3) o más días distintos de entrenamiento real.
+//   · Una semana ya cerrada con menos de 3 días (incluidas las de 0) CORTA la racha.
+//   · La semana en curso suma si ya tiene 3 días; si todavía no, no suma pero tampoco corta.
+//   · Los workouts con fecha posterior a `today` no cuentan.
+// Devuelve:
+//   current / record        cantidad de semanas de la racha actual y de la mejor racha del historial
+//   currentStart/currentEnd lunes de la primera semana y domingo de la última semana de la racha actual (null si es 0)
+//   recordStart/recordEnd   lo mismo para el récord (ante un empate gana la racha más reciente)
+//   last12                  las últimas 12 semanas (la más vieja primero, la última es la actual) con sus días
+export function computeStreak(workouts, today = getTodayLocal()) {
+  const realW = (workouts ?? []).filter(w => w && w.date && w.date <= today && REAL_WORKOUT_TYPES.includes(w.type))
+  const weekMap = new Map()
   realW.forEach(w => {
-    const mon = weekKey(parseISO(w.date + 'T12:00:00'))
-    if (!weekMap[mon]) weekMap[mon] = new Set()
-    weekMap[mon].add(w.date)
+    const mon = mondayOf(w.date)
+    if (!weekMap.has(mon)) weekMap.set(mon, new Set())
+    weekMap.get(mon).add(w.date)
   })
 
-  const thisWeekMonday = getWeekStartLocal()
-  const earliestMonday = Object.keys(weekMap).sort()[0]
+  const thisMonday = mondayOf(today)
+  const last12 = Array.from({ length: 12 }, (_, i) => {
+    const weekStart = addDays(thisMonday, -7 * (11 - i))
+    const days = weekMap.get(weekStart)?.size ?? 0
+    return { weekStart, weekEnd: sundayOf(weekStart), days, met: days >= STREAK_MIN_DAYS, isCurrent: weekStart === thisMonday }
+  })
+  const empty = { current: 0, record: 0, currentStart: null, currentEnd: null, recordStart: null, recordEnd: null, last12 }
+  if (!realW.length) return empty
 
-  let current = 0
-  let record = 0
-  let consecutiveEmpty = 0
-  let mon = earliestMonday
+  let mon = mondayOf(realW.reduce((min, w) => (w.date < min ? w.date : min), realW[0].date))
+  let run = 0, runStart = null, runEnd = null
+  let record = 0, recordStart = null, recordEnd = null
 
-  while (mon <= thisWeekMonday) {
-    const days = weekMap[mon]?.size ?? 0
-    const isCurrentWeek = mon === thisWeekMonday
-
-    if (days >= 3) {
-      current += 1
-      consecutiveEmpty = 0
-      record = Math.max(record, current)
-    } else if (days >= 1) {
-      consecutiveEmpty = 0
+  while (mon <= thisMonday) {
+    const days = weekMap.get(mon)?.size ?? 0
+    const isCurrentWeek = mon === thisMonday
+    if (days >= STREAK_MIN_DAYS) {
+      if (run === 0) runStart = mon
+      run += 1
+      runEnd = sundayOf(mon)
+      if (run >= record) { record = run; recordStart = runStart; recordEnd = runEnd }
     } else if (!isCurrentWeek) {
-      consecutiveEmpty += 1
-      if (consecutiveEmpty >= 4) {
-        current = 0
-        consecutiveEmpty = 0
-      }
+      run = 0; runStart = null; runEnd = null
     }
-    // isCurrentWeek && days === 0: la semana en curso nunca cuenta como vacía — no se toca nada.
-
-    mon = nextMonday(mon)
+    // semana en curso con menos de 3 días: no suma y no corta
+    mon = addDays(mon, 7)
   }
 
-  return { current, record }
+  return {
+    current: run, record,
+    currentStart: run > 0 ? runStart : null, currentEnd: run > 0 ? runEnd : null,
+    recordStart: record > 0 ? recordStart : null, recordEnd: record > 0 ? recordEnd : null,
+    last12,
+  }
 }
 
 const addDaysStr = (dateStr, n) => {

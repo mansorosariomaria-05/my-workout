@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { getExerciseUnit } from '../../utils/exerciseUnit'
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
@@ -78,7 +79,7 @@ export default function ExerciseProgress({ workouts }) {
     if (!sets.length) return null
     const maxW   = Math.max(0, ...sets.map(s => Number(s.weight) || 0))
     const topSet = sets.find(s => Number(s.weight) === maxW) ?? sets[sets.length - 1]
-    return { count: sets.length, reps: topSet?.reps ?? 0, weight: maxW }
+    return { count: sets.length, reps: topSet?.reps ?? 0, weight: maxW, unit: getExerciseUnit(ex) }
   }, [selected, workouts])
 
   return (
@@ -142,7 +143,7 @@ export default function ExerciseProgress({ workouts }) {
             <div>
               <p className="text-app-muted text-[10px]">Última serie</p>
               <p className="text-app-text font-bold text-sm">
-                {lastSession ? `${lastSession.count}×${lastSession.reps} · ${lastSession.weight}kg` : '—'}
+                {lastSession ? `${lastSession.count}×${lastSession.reps}${lastSession.unit === 'secs' ? ' seg' : ''}${lastSession.weight > 0 ? ` · ${lastSession.weight}kg` : ''}` : '—'}
               </p>
             </div>
             <div>

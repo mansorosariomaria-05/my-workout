@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { getFatigueStatus } from '../../utils/progressStats'
 import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
@@ -103,10 +104,11 @@ export default function ConfigPage() {
     reader.readAsText(file)
   }
 
-  const avgFatigue = workouts.length
-    ? workouts.slice(0, 40).reduce((a, w) => a + (w.fatigue ?? 5), 0) / Math.min(workouts.length, 40)
-    : 0
-  const suggestDeload = avgFatigue >= 7 && workouts.length >= 8
+  // Fuente única del estado de cansancio (utils/progressStats.js): promedio de las últimas 2 semanas completas
+  // ≥ 7, con al menos 3 registros.
+  const fatigueStatus = useMemo(() => getFatigueStatus(workouts), [workouts])
+  const avgFatigue = fatigueStatus.avg ?? 0
+  const suggestDeload = fatigueStatus.high
 
   return (
     <div className="min-h-screen bg-app-bg">
@@ -253,7 +255,7 @@ export default function ConfigPage() {
         <Section title="Semana de descarga">
           {suggestDeload && !settings?.deloadActive && (
             <div className="bg-app-amber/10 border border-app-amber/30 rounded-xl px-3 py-2.5 mb-3">
-              <p className="text-app-amber text-xs font-medium">Tu cansancio promedio es {avgFatigue.toFixed(1)}/10</p>
+              <p className="text-app-amber text-xs font-medium">Tu cansancio promedio de las últimas 2 semanas es {avgFatigue.toFixed(1)}/10</p>
               <p className="text-app-muted text-xs mt-0.5">Se recomienda activar una semana de descarga</p>
             </div>
           )}

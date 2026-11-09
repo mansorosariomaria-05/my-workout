@@ -28,12 +28,23 @@ export const saveSettings = async (uid, settings) => {
 }
 
 // ─── Workouts ─────────────────────────────────────────────────────────────────
-export const saveWorkout = async (uid, workout, dateStr = null) => {
+// ID definitivo de un workout nuevo: se genera en el cliente (no necesita red), así el workout lo tiene
+// desde que se crea y todo reintento de subida sobrescribe el mismo documento en vez de duplicarlo.
+export const newWorkoutId = (uid) => doc(collection(db, 'users', uid, 'workouts')).id
+
+// opts.id: ID fijo → setDoc (idempotente). Sin id → addDoc (solo la importación de datos de ConfigPage).
+// opts.createdAtMs: createdAt determinístico para que los reintentos escriban exactamente lo mismo.
+export const saveWorkout = async (uid, workout, dateStr = null, opts = {}) => {
+  const { id = null, createdAtMs = null } = opts
+  const createdAt = dateStr
+    ? Timestamp.fromDate(parseLocalDate(dateStr))
+    : (createdAtMs ? Timestamp.fromMillis(createdAtMs) : serverTimestamp())
   try {
-    const ref = await addDoc(collection(db, 'users', uid, 'workouts'), {
-      ...workout,
-      createdAt: dateStr ? Timestamp.fromDate(parseLocalDate(dateStr)) : serverTimestamp(),
-    })
+    if (id) {
+      await setDoc(doc(db, 'users', uid, 'workouts', id), { ...workout, createdAt })
+      return id
+    }
+    const ref = await addDoc(collection(db, 'users', uid, 'workouts'), { ...workout, createdAt })
     return ref.id
   } catch (error) {
     console.error('Error guardando entrenamiento:', error.code, error.message, error)
@@ -41,20 +52,23 @@ export const saveWorkout = async (uid, workout, dateStr = null) => {
   }
 }
 
-export const getWorkouts = async (uid, limitN = 50) => {
+// Lectura de los workouts más recientes. Un error de lectura SE PROPAGA (antes devolvía [], lo que no se
+// distinguía de "no hay workouts" y vaciaba la pantalla y el caché local). fromCache indica que el
+// resultado vino del caché de Firestore (sin confirmar con el servidor).
+export const getWorkoutsSnapshot = async (uid, limitN = 50) => {
   const q = query(
     collection(db, 'users', uid, 'workouts'),
     orderBy('date', 'desc'),
     limit(limitN)
   )
-  try {
-    const snap = await getDocs(q)
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-  } catch (err) {
-    console.warn('getWorkouts sin red, devolviendo vacío:', err)
-    return []
+  const snap = await getDocs(q)
+  return {
+    workouts: snap.docs.map(d => ({ id: d.id, ...d.data() })),
+    fromCache: snap.metadata.fromCache,
   }
 }
+
+export const getWorkouts = async (uid, limitN = 50) => (await getWorkoutsSnapshot(uid, limitN)).workouts
 
 // ─── Achievements ─────────────────────────────────────────────────────────────
 export const getAchievements = async (uid) => {

@@ -514,113 +514,13 @@ if (!profile?.onboardingDone) return <Onboarding />
 // → rutas normales
 ```
 
-### Sistema de borrador local — `src/utils/draftQueue.js`
+### Guardado, borradores offline y sincronización
 
-Cuando el usuario guarda un workout sin conexión:
+Reescrito en noviembre 2026: ver **sección 22** (IDs fijos con `setDoc`, guardado con tope de 8 s que cae a borrador, sincronización al abrir/al volver la conexión con candado, lectura que conserva el caché ante errores y contador de lecturas). Lo que sigue sigue vigente:
 
-```js
-const DRAFT_KEY_PREFIX = 'workout_draft_'
-
-// Guardar draft en localStorage
-export function saveDraft(uid, workout) {
-  const drafts = getDrafts(uid)
-  const draftWithMeta = {
-    ...workout,
-    _draftId: crypto.randomUUID(),
-    _pendingSync: true,           // flag: no está guardado en Firestore todavía
-    _draftCreatedAt: Date.now(),
-  }
-  drafts.push(draftWithMeta)
-  localStorage.setItem(DRAFT_KEY_PREFIX + uid, JSON.stringify(drafts))
-  return draftWithMeta
-}
-
-// Leer todos los drafts pendientes de un usuario
-export function getDrafts(uid) {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY_PREFIX + uid)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-// Eliminar un draft específico (por _draftId) tras sincronizarlo
-export function removeDraft(uid, draftId) {
-  const drafts = getDrafts(uid).filter(d => d._draftId !== draftId)
-  localStorage.setItem(DRAFT_KEY_PREFIX + uid, JSON.stringify(drafts))
-}
-
-// Sincronizar todos los drafts pendientes con Firestore
-export async function syncDrafts(uid, saveWorkoutFn) {
-  const drafts = getDrafts(uid)
-  if (!drafts.length) return { synced: 0, failed: 0 }
-  let synced = 0, failed = 0
-  for (const draft of drafts) {
-    try {
-      const { _draftId, _pendingSync, _draftCreatedAt, ...workoutData } = draft
-      await saveWorkoutFn(workoutData)   // se despoja la metadata del draft antes de guardar
-      removeDraft(uid, _draftId)
-      synced++
-    } catch { failed++ }
-  }
-  return { synced, failed }
-}
-```
-
-*(Firmas y comportamiento verificados contra el código real de `draftQueue.js`; los nombres de campo `_draftId`, `_pendingSync`, `_draftCreatedAt` son exactos.)*
-
-### Activación automática de la sincronización al volver la conexión
-
-```js
-// src/hooks/useWorkouts.js
-useEffect(() => {
-  if (!uid) return
-  const handleOnline = async () => {
-    const { synced } = await syncDrafts(uid, (w) => dbSaveWorkout(uid, w))
-    if (synced > 0) await load(true)  // recarga silenciosa para reflejar los datos ya sincronizados
-  }
-  window.addEventListener('online', handleOnline)
-  return () => window.removeEventListener('online', handleOnline)
-}, [uid, load])
-```
-
-El listener de `window.online` está registrado dentro del propio hook `useWorkouts` — cada instancia del hook (hay instancias separadas en `Inicio.jsx` y en `WorkoutWizard.jsx`) registra su propio listener.
-
-### Indicador visual de workout pendiente de sync
-
-```jsx
-import { CloudUpload } from 'lucide-react'
-// Se muestra cuando workout._pendingSync === true
-{workout._pendingSync && <CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />}
-```
-
-12px, color `#94A3B8`. Aparece en las vistas que listan workouts históricos (`WorkoutHistorial.jsx`, `Inicio.jsx`, `ProgresoPage.jsx`) junto a cualquier entrada que todavía sea un draft local no confirmado en Firestore.
-
-### Optimistic update en `saveWorkout` (fix de race condition)
-
-```js
-// src/hooks/useWorkouts.js
-const saveWorkout = async (workout) => {
-  try {
-    const id = await dbSaveWorkout(uid, workout)
-    // Root cause fix: escribir al cache y al estado local inmediatamente después de que
-    // el write a Firestore confirma. Antes se esperaba (await) un load(true) acá — pero si
-    // el usuario navegaba de vuelta a Inicio antes de que ese re-fetch a Firestore terminara,
-    // Inicio montaba con un cache desactualizado que no incluía este workout, causando que
-    // getCurrentStreak() devolviera un valor desactualizado. El optimistic update garantiza
-    // que el cache esté siempre al día en el momento de la navegación.
-    const fresh = { ...workout, id }
-    writeCache(uid, [fresh, ...(readCache(uid) ?? [])])
-    setWorkouts(prev => [fresh, ...prev])
-    load(true) // sync en background desde Firestore (no se espera/await)
-    return id
-  } catch (err) {
-    // Sin red → guardar como borrador local
-    const draft = saveDraft(uid, workout)
-    setWorkouts(prev => [draft, ...prev])
-    return draft._draftId
-  }
-}
-```
+- **Cola local** (`src/utils/draftQueue.js`, `localStorage` `workout_draft_{uid}`): workouts ya completados que todavía no se confirmaron en Firestore. Campos de metadata: `_draftId` (= el ID definitivo del workout en Firestore), `_pendingSync: true`, `_draftCreatedAt`.
+- **Indicador visual** de workout pendiente de sync: `<CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />` cuando `workout._pendingSync === true` (12px, `#94A3B8`), en las vistas que listan workouts (`WorkoutHistorial.jsx`, `Inicio.jsx`, `ProgresoPage.jsx`).
+- Al terminar de guardar con la cola, `WorkoutSummary` muestra "Guardado en tu dispositivo. Se va a subir solo cuando haya conexión." en vez de "Guardado correctamente".
 
 ---
 
@@ -1007,8 +907,8 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: las dos funciones parecen similares a simple vista pero comparan contra bases distintas — ver sección 4 antes de modificar cualquiera de las dos.
 
 ### `src/utils/draftQueue.js`
-**Qué hace**: sistema de borrador local para guardado offline. `saveDraft`, `getDrafts`, `removeDraft`, `syncDrafts`. Usa `localStorage` con prefijo `workout_draft_{uid}`.
-**Por qué es crítico**: los workouts con `_pendingSync: true` en el array de `workouts` **no están en Firestore todavía**. Cualquier operación que asuma que todos los workouts tienen un ID válido de Firestore puede fallar silenciosamente con drafts sin sincronizar.
+**Qué hace**: cola local de workouts sin confirmar en Firestore. `saveDraft` (lanza `draft-storage-failed` si `localStorage` falla), `getDrafts`, `removeDraft`, `draftToWorkout`, `syncDrafts` (con candado por usuario y tope por subida). Usa `localStorage` con prefijo `workout_draft_{uid}`. Complementan: `workoutSave.js` (guardado con fallback, lista, lectura segura) y `withTimeout.js`. Ver sección 22.
+**Por qué es crítico**: los workouts con `_pendingSync: true` en el array de `workouts` **no están confirmados en Firestore todavía** (aunque desde noviembre 2026 ya tienen su ID definitivo en `id`/`_draftId`, el mismo que tendrán en Firestore).
 
 ### `src/utils/dates.js`
 **Qué hace**: helpers de fechas timezone-safe — `getTodayLocal`, `getWeekStartLocal`, `dateToLocal`, `parseLocalDate`, `toDateStr`, `weekKey`, `getMonthDays`, `isToday`. Ver sección 5 para el razonamiento completo.
@@ -1016,7 +916,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 
 ### `src/services/db.js`
 **Qué hace**: todas las operaciones de lectura/escritura a Firestore — `getWorkouts`, `saveWorkout`, `getCustomExercises`, `saveCustomExercise`, `getUserProfile`, `getSettings`, `getFavorites`/`toggleFavorite`, `getNeverList`/`toggleNever`, `getCustomRoutines` y CRUD relacionado, `saveTabataRecord`/`getTabataRecordCount`, etc.
-**Por qué es crítico**: `getWorkouts` limita a los últimos 100 documentos (`limitN = 50` default en la firma, pero se llama con `100` desde `useWorkouts.js`). Agregar campos nuevos a los documentos puede requerir índices compuestos nuevos en Firestore si se combinan con `where`/`orderBy` adicionales.
+**Por qué es crítico**: `getWorkouts`/`getWorkoutsSnapshot` limitan a los últimos 100 documentos (y **propagan** los errores de lectura desde noviembre 2026) (`limitN = 50` default en la firma, pero se llama con `100` desde `useWorkouts.js`). Agregar campos nuevos a los documentos puede requerir índices compuestos nuevos en Firestore si se combinan con `where`/`orderBy` adicionales.
 
 ### `src/utils/achievements.js`
 **Qué hace**: `ACHIEVEMENTS_META` (35 logros con `key`, `label`, `desc`), `runAchievementCheck` (función async que evalúa y desbloquea logros nuevos), helpers de cálculo de criterios.
@@ -1780,7 +1680,7 @@ No hizo falta tocar `WorkoutWizard.jsx` para esto: su estado `date` ya se inicia
 ### Limpieza — cuándo se borra el draft (local + nube)
 
 `clearDraft()` (contexto) borra ambos lados siempre. Se llama en:
-- `WorkoutWizard.jsx` → `handleSave`, tras un `saveWorkout` exitoso — incluye el camino de guardado offline, porque `useWorkouts.saveWorkout` no relanza el error: si Firestore falla, cae a la cola offline (`draftQueue.saveDraft`) y devuelve un id igual, así que el bloque `try` que llama a `clearDraft()` cubre los dos casos sin cambios adicionales.
+- `WorkoutWizard.jsx` → `handleSave`, tras un `saveWorkout` exitoso — incluye el camino de guardado offline: `useWorkouts.saveWorkout` devuelve `{ id, pending }` y solo lanza si ni el borrador local se pudo guardar (`draft-storage-failed`); en los demás casos (subido o borrador) el bloque `try` que llama a `clearDraft()` cubre los dos.
 - `WorkoutWizard.jsx` → confirmar "Sí, cancelar" en el diálogo de cancelación.
 - `WorkoutWizard.jsx` → `step === 0` (vuelta a la pantalla de elegir tipo, ya limpiaba el draft antes).
 - `ConfigPage.jsx` → `handleLogout`, antes de `logout()` (para que `uid` todavía sea válido al disparar el `deleteDoc`).
@@ -1867,13 +1767,13 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **1. Todo se calcula sobre los 100 workouts más recientes.** `useWorkouts.js:32` → `getWorkouts(uid, 100)` (`db.js`, `limit(limitN)`). Dependen de esa ventana: `computeStreak` (`current` y `record`), `computeStreakStats`, la precarga (`getLastWeightsForExercise`, `getLearnedWeights`, `getPRForExercise`), `getReturnState` (modo regreso), `computeInactivityInfo`, la rutina de regreso y los logros. Escenario: usuaria con 4 sesiones por semana y 8 meses de historia (~130 workouts): `computeStreak` arranca en la semana del workout #100 (≈ 25 semanas atrás), así que `current` y `record` nunca superan ~25 aunque la racha real sea de 34 semanas, y esa primera semana puede quedar cortada a la mitad (menos días → no suma). Un ejercicio que hace cada 3 meses puede quedar fuera de los 100: se precarga con series vacías, no hay `preGapLevel` (el modo regreso no se activa), el PR se subestima y puede aparecer un falso "¡Nuevo récord! 🏆", y los pesos aprendidos se pierden. Los logros "Medio año"/"Aniversario" miran el entrenamiento más viejo *de esos 100*. Empeora con el tiempo: cualquier usuaria activa lo alcanza en ~6 meses.
 
-**2. Los borradores offline (`_pendingSync`) solo se sincronizan ante un evento `online`.** `useWorkouts.js:78-86` es el único llamador de `syncDrafts` (`draftQueue.js:30`). Escenario: se guarda un entrenamiento sin red (queda en `localStorage`, `workout_draft_{uid}`), se cierra la app, y al día siguiente se abre ya con conexión: no ocurre ningún evento `online`, así que el entrenamiento queda sin subir indefinidamente (visible solo en este dispositivo, se pierde si se limpia el almacenamiento, no cuenta en otros dispositivos) hasta que la conexión se corte y vuelva. Relacionados: (a) `syncDrafts` no es idempotente ni tiene candado — dos corridas simultáneas (dos eventos `online` seguidos) suben el mismo borrador dos veces antes de que `removeDraft` lo saque; (b) entre el `addDoc` exitoso y `removeDraft` un `load()` puede devolver el workout subido *y* el borrador pendiente (duplicado transitorio en listas y logros); (c) `saveDraft` (`draftQueue.js:12`) hace `localStorage.setItem` sin `try/catch` — con el almacenamiento lleno o bloqueado lanza dentro del `catch` de `saveWorkout` y el entrenamiento se pierde.
+**2. ✅ RESUELTO (noviembre 2026, sección 22) — Los borradores offline (`_pendingSync`) solo se sincronizaban ante un evento `online`.** *(Descripción original:)* `useWorkouts.js:78-86` es el único llamador de `syncDrafts` (`draftQueue.js:30`). Escenario: se guarda un entrenamiento sin red (queda en `localStorage`, `workout_draft_{uid}`), se cierra la app, y al día siguiente se abre ya con conexión: no ocurre ningún evento `online`, así que el entrenamiento queda sin subir indefinidamente (visible solo en este dispositivo, se pierde si se limpia el almacenamiento, no cuenta en otros dispositivos) hasta que la conexión se corte y vuelva. Relacionados: (a) `syncDrafts` no es idempotente ni tiene candado — dos corridas simultáneas (dos eventos `online` seguidos) suben el mismo borrador dos veces antes de que `removeDraft` lo saque; (b) entre el `addDoc` exitoso y `removeDraft` un `load()` puede devolver el workout subido *y* el borrador pendiente (duplicado transitorio en listas y logros); (c) `saveDraft` (`draftQueue.js:12`) hace `localStorage.setItem` sin `try/catch` — con el almacenamiento lleno o bloqueado lanza dentro del `catch` de `saveWorkout` y el entrenamiento se pierde.
 
-**3. `getWorkouts` traga los errores y devuelve `[]`, lo que pisa el caché local.** `db.js` (`getWorkouts`, `catch` que devuelve `[]`) + `useWorkouts.js:32-35`: `load()` recibe `[]`, hace `writeCache(uid, [])` y `setWorkouts([])`. El `catch` de `load()` que lee `readCache` (`useWorkouts.js:36-41`) nunca se ejecuta. Escenario: un error transitorio (token vencido, `permission-denied`, red intermitente) deja a la usuaria con historial vacío esa sesión — racha 0, calendario vacío, precarga con series vacías, sugerencia diaria "primer entrenamiento" — y borra el caché que habría servido de respaldo hasta el próximo `load()` exitoso.
+**3. ✅ RESUELTO (noviembre 2026, sección 22) — `getWorkouts` tragaba los errores y devolvía `[]`, lo que pisaba el caché local.** *(Descripción original:)* `db.js` (`getWorkouts`, `catch` que devuelve `[]`) + `useWorkouts.js:32-35`: `load()` recibe `[]`, hace `writeCache(uid, [])` y `setWorkouts([])`. El `catch` de `load()` que lee `readCache` (`useWorkouts.js:36-41`) nunca se ejecuta. Escenario: un error transitorio (token vencido, `permission-denied`, red intermitente) deja a la usuaria con historial vacío esa sesión — racha 0, calendario vacío, precarga con series vacías, sugerencia diaria "primer entrenamiento" — y borra el caché que habría servido de respaldo hasta el próximo `load()` exitoso.
 
 ### Gravedad media
 
-**4. Guardar un entrenamiento sin conexión podría quedar colgado (sin verificar en dispositivo).** `db.js:34` (`saveWorkout` → `await addDoc`) con `persistentLocalCache` (`firebase.js`): en Firestore la promesa de una escritura se resuelve cuando el servidor la confirma; sin red no se rechaza, queda pendiente. `WorkoutWizard.jsx` (`handleSave`) y `useWorkouts.saveWorkout` esperan esa promesa, y el respaldo `saveDraft` solo corre en el `catch`. Escenario: terminar la sesión en el gimnasio sin señal → "Guardando…" sin fin; si la usuaria sale y vuelve a cargar, el `addDoc` encolado por Firestore y un segundo intento manual generan un duplicado. Hay que probarlo en modo avión antes de dar por válido el sistema de borradores.
+**4. ✅ RESUELTO (noviembre 2026, sección 22; verificado por simulación, no en un dispositivo) — Guardar un entrenamiento sin conexión podía quedar colgado.** *(Descripción original:)* `db.js:34` (`saveWorkout` → `await addDoc`) con `persistentLocalCache` (`firebase.js`): en Firestore la promesa de una escritura se resuelve cuando el servidor la confirma; sin red no se rechaza, queda pendiente. `WorkoutWizard.jsx` (`handleSave`) y `useWorkouts.saveWorkout` esperan esa promesa, y el respaldo `saveDraft` solo corre en el `catch`. Escenario: terminar la sesión en el gimnasio sin señal → "Guardando…" sin fin; si la usuaria sale y vuelve a cargar, el `addDoc` encolado por Firestore y un segundo intento manual generan un duplicado. Hay que probarlo en modo avión antes de dar por válido el sistema de borradores.
 
 **5. `profile.equipamiento` no se usa en ningún lado.** `Onboarding.jsx:42` y `ConfigPage.jsx:12` guardan `'Gym completo' | 'Solo mancuernas y bandas' | 'Sin equipamiento'`; `routineGenerator.js:29` (`equipFilter`) solo entiende `'Gym completo' | 'Solo básico'` y los selectores (`GeneradorTab.jsx:12,20`, `FuerzaFlow.jsx:504`) arrancan siempre en 'Gym completo' sin mirar el perfil. `dailySuggestion.js:158` y `returnRoutine.js:123` fijan `'Gym completo'`. Escenario: usuaria con "Sin equipamiento" recibe como sugerencia del día o como rutina de regreso Peso Muerto con barra, Prensa, Remo con barra. El subtítulo del onboarding ("Filtramos ejercicios según esto", `Onboarding.jsx:36`) es falso hoy. Falta un mapeo perfil → filtro.
 
@@ -1883,7 +1783,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **8. `AuthContext` puede quedar cargando para siempre si falla la lectura del perfil.** `AuthContext.jsx:21-37`: el callback de `onAuthChange` es `async`, hace `clearTimeout(timeout)` al entrar y luego `await Promise.all([getUserProfile, getSettings])` sin `try/catch`. Si `getDoc` rechaza (primer inicio de sesión en un dispositivo sin red y sin caché del documento), `setLoading(false)` no se ejecuta y el timeout de 15 s ya fue cancelado → pantalla de carga permanente más un rechazo de promesa sin capturar.
 
-**9. `useWorkouts.load` puede pisar datos nuevos con una respuesta vieja.** `useWorkouts.js:28-45,68`: varios `load()` concurrentes (el de `saveWorkout`, el de `visibilitychange` y el intervalo de `Inicio.jsx:725-731`, el `online`) sin token de orden. Si una carga empezó antes de que `addDoc` confirmara y termina después de la actualización optimista de `saveWorkout`, `setWorkouts(data)` y `writeCache` reemplazan el estado sin el workout recién guardado hasta la próxima recarga (racha, calendario y precarga lo "pierden" un rato).
+**9. ✅ RESUELTO (noviembre 2026, sección 22) — `useWorkouts.load` podía pisar datos nuevos con una respuesta vieja.** *(Descripción original:)* `useWorkouts.js:28-45,68`: varios `load()` concurrentes (el de `saveWorkout`, el de `visibilitychange` y el intervalo de `Inicio.jsx:725-731`, el `online`) sin token de orden. Si una carga empezó antes de que `addDoc` confirmara y termina después de la actualización optimista de `saveWorkout`, `setWorkouts(data)` y `writeCache` reemplazan el estado sin el workout recién guardado hasta la próxima recarga (racha, calendario y precarga lo "pierden" un rato).
 
 **10. El logro "Tabata master" es inalcanzable.** `achievements.js:408-413` cuenta `getTabataRecordCount` (colección `tabataRecords`), pero `saveTabataRecord` (`db.js`) no tiene ningún llamador, y ninguna pantalla guarda workouts de `type: 'tabata'` (el Tabata es un temporizador; `'tabata'` solo existe en `REAL_WORKOUT_TYPES` y en lecturas). Las sesiones nuevas de Tabata no cuentan para racha, logros ni historial.
 
@@ -1912,6 +1812,51 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 ### Limpieza de noviembre 2026 (sin cambios de comportamiento)
 
 Eliminado tras verificar con búsqueda en todo el proyecto que no tenían referencias: componentes `FatigueChart.jsx`, `MonthCalendar.jsx`, `WeekChart.jsx` y `LastWorkoutModal` (en `Inicio.jsx`); hook `useAuth.js`; funciones `getExerciseById`, `getExercisesByMuscle`, `getExercisesByLevel` (`exercises.js`), `getWorkoutsByDateRange`, `getWorkoutsForExercise`, `getIntention`, `saveIntention`, `getIntentionHistory` (`db.js`), `getLocalTimezone`, `weekEnd`, `formatDate`, `daysUntilValencia`, `isAfterValencia`, `getWeekDays`, `getLast12Weeks`, `VALENCIA_DATE` (`dates.js`); y imports/variables sin uso. Los datos de Firestore (incluida la colección `intentions` y los documentos `pausa`/`descanso`) y el campo `profile.pausa` no se tocaron. Se quitó el texto "vuelta suave" de comentarios y del modal de inactividad. Historial: hasta septiembre 2026 el modo regreso se llamaba "vuelta suave / reentrada" y reducía peso y series en la precarga (sección 15).
+
+---
+
+## 22. GUARDADO, SINCRONIZACIÓN Y LECTURA FIABLES DE WORKOUTS (noviembre 2026)
+
+Objetivo: que ningún entrenamiento se pierda, se duplique ni desaparezca de la pantalla. Resuelve los hallazgos #2, #3, #4 y #9 de la sección 21. Archivos: `src/services/db.js`, `src/utils/draftQueue.js`, `src/utils/workoutSave.js` (lógica sin React, probada con scripts), `src/utils/withTimeout.js`, `src/hooks/useWorkouts.js`, `WorkoutWizard.jsx`, `WorkoutSummary.jsx`.
+
+### 1. IDs fijos + `setDoc` (base de todo)
+
+- `newWorkoutId(uid)` (`db.js`) = `doc(collection(db, 'users', uid, 'workouts')).id`: se genera en el cliente, sin red, antes del primer intento de subida. El workout tiene su ID definitivo desde que se crea.
+- `saveWorkout(uid, workout, dateStr, { id, createdAtMs })`: con `id` hace `setDoc(doc(..., id), { ...workout, createdAt })`; reintentar —o que una escritura anterior termine llegando tarde— **sobrescribe el mismo documento** y no crea otro. `createdAt` es `Timestamp.fromMillis(createdAtMs)` (el mismo valor en todos los intentos; así también se conserva la hora real de un borrador subido después y mejora el hallazgo #15). Sin `id` sigue usando `addDoc` (solo la importación de datos en `ConfigPage.jsx`).
+- Requisito de las reglas de Firestore (que no están en el repo): el usuario debe poder `create` **y** `update` en `users/{uid}/workouts/*` (un reintento sobre un documento ya creado cuenta como update).
+- El borrador local usa `_draftId` = ese mismo ID; en las listas el workout pendiente tiene `id` = ID definitivo.
+
+### 2. Guardar sin quedar colgado (`saveWorkoutWithFallback`)
+
+1. Genera el ID y `createdAtMs`.
+2. Con conexión (`navigator.onLine`): intenta `setDoc` con tope de **8 s** (`SAVE_TIMEOUT_MS`, `withTimeout`). Si confirma → `{ pending: false }`.
+3. Si no hay conexión, la escritura falla o no se confirma en 8 s → `saveDraft` con el **mismo ID** (`_pendingSync: true`) y `{ pending: true }`. La escritura original no se cancela: si Firestore la termina enviando después, el reintento del borrador cae sobre el mismo documento.
+4. `WorkoutWizard` cierra el flujo normal en ambos casos (limpia el borrador en curso, muestra `WorkoutSummary`); con `pending` el resumen dice "Guardado en tu dispositivo. Se va a subir solo cuando haya conexión.". Si había conexión pero no se confirmó, `useWorkouts` reintenta a los 20 s.
+5. **Si ni el borrador local se puede guardar** (`localStorage` lleno o bloqueado): `saveDraft` lanza `draft-storage-failed` → `saveWorkout` lo propaga → el wizard **no cierra** y muestra un aviso ("No se pudo guardar el entrenamiento en este dispositivo… tus datos siguen acá"), con el botón "Reintentar"; el borrador en curso (`workout_in_progress_{uid}`) sigue intacto.
+
+### 3. Sincronización de borradores (#2)
+
+`syncPendingDrafts` → `syncDrafts` (`draftQueue.js`) sube cada borrador con `setDoc` y su `_draftId`, y lo saca de la cola solo si se confirmó. Se ejecuta **al abrir** (al montar `useWorkouts`, después de la primera lectura, si hay conexión), al evento `online`, al volver la app a primer plano (`visibilitychange`), tras cada guardado exitoso y 20 s después de un guardado no confirmado. Sin cambios de fondo: `navigator.onLine === true` no garantiza red real; si la subida falla o vence (15 s por borrador) el borrador queda en la cola y se reintenta en el próximo disparo.
+
+**Candado**: `syncDrafts` guarda una promesa por usuario (`inFlight`); si ya hay una sincronización corriendo, el segundo llamador recibe **la misma promesa** (no empieza otra) y el candado se libera siempre (`finally`). Aunque dos pestañas corrieran a la vez, el `setDoc` con el mismo ID es idempotente.
+
+### 4. Lectura (#3) y carreras (#9)
+
+- `getWorkoutsSnapshot(uid, n)` devuelve `{ workouts, fromCache }` y **propaga** los errores (`getWorkouts` es un wrapper que también los propaga). Ya no hay un `catch` que devuelva `[]`.
+- `loadWorkoutsSafely` (`workoutSave.js`, usado por `useWorkouts.load`): ante un error de lectura, un tope de 15 s vencido, o un resultado vacío que viene solo del caché de Firestore (`fromCache && !server.length`) cuando ya hay historial local, **no toca ni el caché de `localStorage` ni el estado**: devuelve `{ ok: false }`, el hook marca `loadError` y conserva lo que mostraba. Un vacío confirmado por el servidor (`fromCache: false`) sí es "no hay workouts".
+- **Contador de lecturas** (`loadSeq`): cada `load()` incrementa el contador; al terminar, si ya empezó otra lectura más nueva, la respuesta se descarta (`{ stale: true }`) y no pisa nada. El spinner (`loading`) lo baja siempre la última lectura iniciada.
+- **Un workout recién guardado o en borrador nunca desaparece**: `composeWorkoutList(uid, servidor, recent)` arma la lista con (a) los borradores pendientes (los que el servidor ya devolvió se descartan por ID), (b) `recent`: los workouts subidos en esta sesión (guardados o sincronizados), que se anteponen mientras la lectura del servidor no los incluya —cubre una lectura lenta que empezó antes del guardado—, y (c) lo del servidor, deduplicando por ID. Orden por fecha descendente (estable). `reconcileWithServer` quita de `recent` lo que el servidor ya devolvió y purga borradores cuya escritura original terminó llegando tarde.
+- El caché local guarda servidor + recientes (sin borradores, que ya viven en `workout_draft_{uid}`). El estado inicial del hook incluye los borradores pendientes.
+
+### 5. Verificación
+
+Simulación en Node (Firestore falso con `setDoc` idempotente, `localStorage` falso): guardar sin red → reconectar → una sola vez (y con dos sincronizaciones simultáneas, una sola subida); escritura que no confirma en el tope y llega tarde + reintento del borrador → un documento; abrir con conexión y borradores pendientes → se suben todos; un borrador que falla queda en la cola y libera el candado; error de lectura / lectura vacía desde caché / lectura colgada → el historial y el caché no se vacían; lectura lenta que empieza antes del guardado → el workout nuevo sigue visible; respuesta vieja descartada; `localStorage` lleno → `draft-storage-failed`. 25 de 25 casos. **No se probó en un dispositivo real en modo avión**: conviene hacerlo una vez (guardar un entrenamiento sin señal, cerrar la app, abrirla con conexión).
+
+### 6. Límites conocidos
+
+- Tras 8 s sin confirmación sobre una red lenta (pero real), la usuaria ve "se va a subir cuando haya conexión" aunque Firestore termine subiéndolo en segundos; es correcto y no duplica, solo es un mensaje conservador.
+- Un borrador con `permission-denied` permanente se reintenta en cada apertura sin éxito (queda en la cola).
+- La ventana de 100 workouts (hallazgo #1) y el resto de la sección 21 no cambiaron.
 
 ---
 

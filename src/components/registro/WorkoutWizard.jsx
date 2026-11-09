@@ -64,6 +64,7 @@ export default function WorkoutWizard({ initialType }) {
   const [saving, setSaving]     = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [saved, setSaved]       = useState(null)
+  const [savedPending, setSavedPending] = useState(false)
   const [newAchievements, setNewAchievements] = useState([])
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [startTime, setStartTime] = useState(() => {
@@ -162,7 +163,8 @@ export default function WorkoutWizard({ initialType }) {
       } : {}),
     })
     try {
-      await workoutsHook.saveWorkout(workout)
+      const result = await workoutsHook.saveWorkout(workout)
+      setSavedPending(!!result?.pending)
       clearDraft()
       localStorage.removeItem(SESSION_TIMER_KEY)
       setSaved(workout)
@@ -170,13 +172,17 @@ export default function WorkoutWizard({ initialType }) {
         .then(keys => setNewAchievements(ACHIEVEMENTS_META.filter(a => keys.includes(a.key))))
         .catch(() => {})
     } catch (error) {
-      setSaveError('No se pudo guardar. Revisá tu conexión e intentá de nuevo.')
+      setSaveError(
+        error?.code === 'draft-storage-failed'
+          ? 'No se pudo guardar el entrenamiento en este dispositivo (sin conexión y sin espacio de almacenamiento). Liberá espacio o conectate a internet e intentá de nuevo; tus datos siguen acá.'
+          : 'No se pudo guardar. Revisá tu conexión e intentá de nuevo.'
+      )
     } finally {
       setSaving(false)
     }
   }
 
-  if (saved) return <WorkoutSummary workout={saved} onDone={() => setSaved(null)} workouts={workoutsHook.workouts} newAchievements={newAchievements} />
+  if (saved) return <WorkoutSummary workout={saved} pendingSync={savedPending} onDone={() => setSaved(null)} workouts={workoutsHook.workouts} newAchievements={newAchievements} />
 
   return (
     <div className="min-h-screen bg-app-bg flex flex-col">

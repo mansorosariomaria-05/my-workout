@@ -101,6 +101,9 @@ src/
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Modo regreso: detecta si un ejercicio volvió de un parate sin llegar aún a su nivel previo
     returnRoutine.js           # Rutina de regreso: full body sugerido tras 15+ días sin fuerza, con pesos reducidos (solo si el usuario la elige)
+    draftQueue.js              # Cola offline de workouts (IDs fijos, candado de sync, aviso si localStorage falla)
+    workoutSave.js             # Guardado con fallback a borrador (8 s), lista de workouts y lectura segura con contador
+    withTimeout.js             # Tope de tiempo para promesas (la original no se cancela)
     dates.js                   # Helpers de fechas locales
     genero.js                  # textoGenero() para acordar género en textos
 ```
@@ -116,7 +119,7 @@ users/{uid}/
   data/achievements   → { [key]: { unlocked, at, detail } }
   data/favorites      → { ids: [exerciseId, ...] }
   data/never          → { ids: [exerciseId, ...] }
-  workouts/{id}       → documentos de entrenamiento (addDoc, orderBy date desc)
+  workouts/{id}       → documentos de entrenamiento (ID generado en el cliente + setDoc; orderBy date desc)
   customRoutines/{id} → rutinas creadas por el usuario
   customExercises/{id}→ ejercicios creados por el usuario
   intentions/{weekKey}→ LEGACY: intención semanal (clave: 'YYYY-MM-DD' del lunes). Sin UI ni código que la lea o escriba desde noviembre 2026; los documentos existentes no se tocaron
@@ -260,7 +263,7 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 
 **Timer de sesión:** se guarda `workout_start_ts` en localStorage cuando arranca el step 1. Se muestra en el header durante la sesión.
 
-**Al guardar:** llama a `workoutsHook.saveWorkout(workout)` → `addDoc` en Firestore → `load(true)` (recarga silenciosa del hook) → muestra `WorkoutSummary`.
+**Al guardar:** llama a `workoutsHook.saveWorkout(workout)` → `setDoc` con ID fijo (tope de 8 s; si no hay red o no confirma, queda como borrador local con el mismo ID y se sube solo después) → `load(true)` → muestra `WorkoutSummary`. Ver `LOGICA_TECNICA.md` sección 22.
 
 **Navegación con estado:** desde Inicio o PreArmadasTab se puede navegar a `/registro` con `location.state = { type, routineId }`, lo que precarga el tipo y carga la rutina directamente.
 
@@ -432,7 +435,7 @@ Usado en logros, mensajes y saludos para adaptar terminaciones.
 |---|---|
 | `workouts_cache_{uid}` | Array de workouts (evita spinner en recarga) |
 | `workout_in_progress_{uid}` | Entrenamiento en curso (WorkoutDraftContext) — con respaldo en Firestore, ver sección 19 de LOGICA_TECNICA.md |
-| `workout_draft_{uid}` | Cola offline de workouts ya completados sin sincronizar (draftQueue.js) — no confundir con el anterior |
+| `workout_draft_{uid}` | Cola offline de workouts ya completados sin confirmar en Firestore (draftQueue.js; `_draftId` = ID definitivo; se sube al abrir, al volver la red y al volver a primer plano) — no confundir con el anterior |
 | `workout_start_ts` | Timestamp de inicio de sesión (timer) |
 | `post_frase_YYYY-MM-DD` | Frase post-entrenamiento del día (se fija por día) |
 | `weekly_summary_{weekKey}` | Estado del modal de resumen semanal |

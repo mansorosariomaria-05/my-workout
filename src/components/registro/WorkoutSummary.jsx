@@ -69,7 +69,7 @@ function getDayAchievement(workout, workouts) {
 }
 
 
-export default function WorkoutSummary({ workout, onDone, workouts = [], newAchievements = [] }) {
+export default function WorkoutSummary({ workout, onDone, workouts = [], newAchievements = [], pendingSync = false }) {
   // All hooks must be called unconditionally
   const [visible, setVisible]         = useState(true)
   const [secondsLeft, setSecondsLeft] = useState(5)
@@ -122,7 +122,13 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
       <div className="text-center px-6 py-6 w-full max-w-sm animate-scaleIn">
         <div className="text-5xl mb-3">🎉</div>
         <h2 className="text-app-text text-xl font-bold mb-0.5">¡Entrenamiento completado!</h2>
-        <p className="text-app-muted text-xs mb-4">Guardado correctamente</p>
+        {pendingSync ? (
+          <p className="text-app-amber text-xs mb-4 leading-snug">
+            Guardado en tu dispositivo. Se va a subir solo cuando haya conexión.
+          </p>
+        ) : (
+          <p className="text-app-muted text-xs mb-4">Guardado correctamente</p>
+        )}
 
         <div className="bg-app-surface rounded-2xl p-4 mb-3 text-left space-y-2">
           {workout.type === 'fuerza' && (

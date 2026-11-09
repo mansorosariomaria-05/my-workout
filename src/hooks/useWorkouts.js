@@ -1,11 +1,15 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { parseISO } from 'date-fns'
-import { getWorkouts, saveWorkout as dbSaveWorkout } from '../services/db'
+import { getWorkoutsSnapshot, saveWorkout as dbSaveWorkout, newWorkoutId } from '../services/db'
 import { dateToLocal } from '../utils/dates'
-import { getDrafts, saveDraft, syncDrafts } from '../utils/draftQueue'
+import { getDrafts } from '../utils/draftQueue'
 import { computeStreak } from '../utils/streak'
+import {
+  saveWorkoutWithFallback, composeWorkoutList, loadWorkoutsSafely, syncPendingDrafts,
+} from '../utils/workoutSave'
 
 const CACHE_KEY = (uid) => `workouts_cache_${uid}`
+const LOAD_TIMEOUT_MS = 15000
 
 function readCache(uid) {
   try {
@@ -20,70 +24,109 @@ function writeCache(uid, data) {
   } catch {}
 }
 
+// Guardado, carga y sincronización fiables: ver LOGICA_TECNICA.md sección 22.
 export function useWorkouts(uid) {
   const cached = uid ? readCache(uid) : null
-  const [workouts, setWorkouts] = useState(cached ?? [])
+  const [workouts, setWorkouts] = useState(() => (uid ? composeWorkoutList(uid, cached ?? []) : []))
   const [loading, setLoading]   = useState(!cached)
+  const [loadError, setLoadError] = useState(false)
+
+  // Contador de lecturas: solo la última lectura iniciada puede actualizar el estado (una respuesta
+  // vieja y lenta nunca pisa a una más nueva).
+  const loadSeq = useRef(0)
+  // Workouts subidos en esta sesión (guardados o sincronizados) que la lectura del servidor todavía
+  // puede no incluir: se mantienen visibles hasta que el servidor los devuelve.
+  const recentRef = useRef(new Map())
 
   const load = useCallback(async (silent = false) => {
-    if (!uid) return
+    if (!uid) return false
+    const seq = ++loadSeq.current
     if (!silent) setLoading(true)
     try {
-      const data = await getWorkouts(uid, 100)
-      writeCache(uid, data)
-      const pending = getDrafts(uid)
-      setWorkouts(pending.length ? [...pending, ...data] : data)
-    } catch (err) {
-      console.warn('Error cargando workouts, usando cache local:', err)
-      const cached = readCache(uid)
-      const pending = getDrafts(uid)
-      if (cached) setWorkouts(pending.length ? [...pending, ...cached] : cached)
-      else if (pending.length) setWorkouts(pending)
+      const res = await loadWorkoutsSafely({
+        uid,
+        fetchSnapshot: () => getWorkoutsSnapshot(uid, 100),
+        readCache: () => readCache(uid),
+        writeCache: (data) => writeCache(uid, data),
+        recent: recentRef.current,
+        isStale: () => seq !== loadSeq.current, // respuesta vieja: se ignora
+        timeoutMs: LOAD_TIMEOUT_MS,
+      })
+      if (res.stale) return false
+      if (res.ok) {
+        setWorkouts(res.list)
+        setLoadError(false)
+        return true
+      }
+      // Error de lectura: NO se toca el caché local ni el estado actual (antes se pisaban con []).
+      console.warn('No se pudo leer el historial, se conserva el estado y el caché local:', res.error)
+      setLoadError(true)
+      setWorkouts(prev => (prev.length ? prev : composeWorkoutList(uid, readCache(uid) ?? [], recentRef.current)))
+      return false
     } finally {
-      if (!silent) setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [uid])
 
+  const writeWorkout = useCallback((w, meta) => dbSaveWorkout(uid, w, null, meta), [uid])
+
+  // Sube los borradores pendientes (candado compartido en draftQueue.syncDrafts: nunca corren dos a la vez).
+  const syncPending = useCallback(async () => {
+    if (!uid || !getDrafts(uid).length) return 0
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return 0
+    const { synced } = await syncPendingDrafts(uid, writeWorkout, (w) => { recentRef.current.set(w.id, w) })
+    if (synced > 0) {
+      setWorkouts(prev => composeWorkoutList(uid, prev.filter(w => !w._pendingSync), recentRef.current))
+      await load(true)
+    }
+    return synced
+  }, [uid, writeWorkout, load])
+
+  // Al abrir: lee y, si hay conexión, sube lo que haya quedado pendiente de sesiones anteriores
+  // (antes solo se sincronizaba ante un evento 'online').
   useEffect(() => {
     if (!uid) return
-    if (cached) {
-      load(true)
-    } else {
-      load(false)
-    }
+    ;(async () => {
+      await load(!!cached)
+      await syncPending()
+    })()
   }, [uid]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const saveWorkout = async (workout) => {
-    try {
-      const id = await dbSaveWorkout(uid, workout)
-      // Root cause fix: write to cache and local state immediately after the Firestore
-      // write confirms. Previously we awaited load(true) here, but if the user navigated
-      // back to Inicio before that Firestore re-fetch completed, Inicio mounted with a
-      // stale cache that didn't include this workout — causing getCurrentStreak() to
-      // return an outdated value. Optimistic update ensures the cache is always current
-      // on navigation.
-      const fresh = { ...workout, id }
-      writeCache(uid, [fresh, ...(readCache(uid) ?? [])])
-      setWorkouts(prev => [fresh, ...prev])
-      load(true) // background sync from Firestore (not awaited)
-      return id
-    } catch (err) {
-      console.warn('Sin red al guardar, guardando como borrador local:', err)
-      const draft = saveDraft(uid, workout)
-      setWorkouts(prev => [draft, ...prev])
-      return draft._draftId
-    }
-  }
 
   useEffect(() => {
     if (!uid) return
     const handleOnline = async () => {
-      const { synced } = await syncDrafts(uid, (w) => dbSaveWorkout(uid, w))
-      if (synced > 0) await load(true)
+      const synced = await syncPending()
+      if (!synced) await load(true) // también repara una lectura que había fallado sin red
     }
+    const handleVisible = () => { if (document.visibilityState === 'visible') syncPending() }
     window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [uid, load])
+    document.addEventListener('visibilitychange', handleVisible)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      document.removeEventListener('visibilitychange', handleVisible)
+    }
+  }, [uid, load, syncPending])
+
+  // Devuelve { id, pending }. pending: true = quedó como borrador local (sin conexión o sin confirmación
+  // en ~8 s) y se sube solo cuando haya red. Lanza (code 'draft-storage-failed') únicamente si ni el
+  // borrador local se pudo guardar.
+  const saveWorkout = async (workout) => {
+    const result = await saveWorkoutWithFallback({ uid, workout, newId: newWorkoutId, write: writeWorkout })
+    if (!result.pending) {
+      recentRef.current.set(result.id, result.workout)
+      writeCache(uid, [result.workout, ...(readCache(uid) ?? []).filter(w => w.id !== result.id)])
+    }
+    // Visible de inmediato en ambos casos (subido o borrador).
+    setWorkouts(prev => composeWorkoutList(uid, prev.filter(w => !w._pendingSync), recentRef.current))
+    if (!result.pending) {
+      load(true) // sincroniza con Firestore en segundo plano (sin await)
+      syncPending() // aprovecha la conexión para subir otros borradores
+    } else if (typeof navigator !== 'undefined' && navigator.onLine) {
+      // Había conexión pero no se confirmó a tiempo: reintenta en un rato (mismo ID, no duplica).
+      setTimeout(() => { syncPending() }, 20000)
+    }
+    return { id: result.id, pending: result.pending }
+  }
 
   const getLastWeightsForExercise = (exerciseId) => {
     // No asumir orden: los drafts offline pendientes de sync pueden anteponerse sin garantía de fecha.
@@ -174,7 +217,7 @@ export function useWorkouts(uid) {
   const getCurrentStreak = () => computeStreak(workouts)
 
   return {
-    workouts, loading, saveWorkout,
+    workouts, loading, loadError, saveWorkout,
     getLastWeightsForExercise, getExerciseSessions, getPRForExercise, getLearnedWeights,
     getLastFatigueForExercise, getTrainedMusclesRecovery,
     getWeekWorkouts, getCurrentStreak, reload: load,

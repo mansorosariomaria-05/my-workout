@@ -374,3 +374,192 @@ Esfuerzo estimado: **S** (horas), **M** (un día), **L** (varios días).
 - **Ejecución del código real** (script fuera del repo): se extrajeron `computeAll` y `computeTopExercises` tal cual del archivo fuente y se corrieron, junto con `computeStreak` y `detectPRs`, con historiales **sintéticos**. Casos: A) 10 → 20 → 15 kg da +50 % (última, no mejor); B) una plancha sin peso de 40 a 60 seg → "—" en todas las métricas, 0 PRs; C) un ejercicio en segundos con peso decide por el peso; D) nombres largos de ejercicio → texto recortado a 2 palabras; E) un ejercicio que sube 4 veces suma 3 PRs; F) 6 sesiones de plancha sin peso pierden contra 3 sesiones con peso; G) 4 registros → `total` 3 y `uniqueDays` 2, y los meses de calendario; H) un promedio apenas mayor que el umbral se redondea a un decimal y se ve igual que el umbral, pero cae del lado rojo; I) semanas de 3, 1, 3, 2, 3, 1 y 3 días → racha 4; J) las 3 "principales progresiones" son 3 eventos del mismo ejercicio.
 - **Contraste (WCAG):** `#4a4560` sobre `#1e1830` = 1,88:1; sobre `#1a1625` = 1,95:1; `#6B7280` sobre `#1a1625` = 3,66:1; `#64748B` sobre `#0D0D12` = 4,07:1; `#9B7FD4` sobre `#1a1625` = 5,38:1.
 - **Limitación:** no se probó la pantalla con una sesión real iniciada ni con datos reales; los porcentajes y ejemplos son sintéticos.
+
+---
+
+## 6. Datos disponibles para dashboard por período
+
+Fecha: 09-11-2026 · Código analizado: `master` en `3ae00ca` · **Sin modificar código de la app.** Objetivo: saber qué datos reales existen para un rediseño de Progreso por período (**4 semanas / 12 semanas / todo**). Solo hay campos, fórmulas y ejemplos genéricos: ningún dato personal.
+
+> **Método.** Se leyó cómo se arma y se guarda cada tipo de workout (`WorkoutWizard.jsx`, `FuerzaFlow.jsx`, `CardioFlow.jsx`, `ClaseFlow.jsx`, `db.js`, `workoutSave.js`), dónde se define el objetivo semanal, y se midió el bundle con esbuild. Las fórmulas de 6.3 y las reglas de 6.5 se **ejecutaron con las funciones reales de la app** (`getExerciseUnit`, `getEffectiveDurationSeconds`, `REAL_WORKOUT_TYPES`, `weekKey`) sobre historiales sintéticos: 10 comprobaciones, todas bien.
+
+### Resumen de lo que hay y lo que falta
+
+| Dato | Estado |
+|---|---|
+| Entrenamientos, días activos, series, volumen (kg × reps sin `'secs'`) | ✅ Se calculan con datos reales |
+| Cansancio (escala 1 a 10) por semana | ✅ Se calcula (con la salvedad del valor por defecto 5) |
+| Minutos de cardio por sesión | ✅ Parcial: solo las sesiones donde se cargó el tiempo (es opcional) |
+| Cumplimiento del objetivo semanal | ✅ Con una meta única y actual (`profile.diasSemana`), sin historial de cambios |
+| **Horas de entrenamiento** | ❌ **No se guarda la duración de fuerza** (ni hora de inicio y fin); solo hay duración en cardio (opcional) y clase (por defecto 60) |
+| **Objetivo mensual** | ❌ No existe; solo se puede derivar del semanal |
+| **Calorías / frecuencia cardíaca** | ❌ No existen en ningún tipo de workout |
+| Intensidad de la clase | ❌ No se guarda |
+| Tabata | ❌ No hay datos: la app no guarda sesiones de Tabata |
+
+---
+
+### 6.1 Campos que se guardan en Firestore, por tipo de workout
+
+Colección `users/{uid}/workouts/{id}`. El `id` lo genera el cliente (`newWorkoutId`) y se escribe con `setDoc` (`db.js:40-52`). **No hay validación de formulario**: el botón "Continuar" del paso de detalle no exige nada (`WorkoutWizard.jsx:273`). En la práctica solo `type`, `date` y `fatigue` siempre tienen valor; todo lo demás puede quedar vacío. En las tablas, **"siempre"** significa "el código siempre escribe el campo" (aunque sea vacío o `null`) y **"opcional"** significa "puede faltar o ser `null`".
+
+#### Campos comunes (los escribe el wizard en todos los tipos)
+
+| Campo | Tipo | Obligatorio | Detalle |
+|---|---|---|---|
+| `type` | string | siempre | `'fuerza'`, `'cardio'` o `'clase'` (los únicos que ofrece el wizard) |
+| `date` | `'YYYY-MM-DD'` | siempre | Fecha local; por defecto hoy, editable (se puede registrar un día pasado) |
+| `fatigue` | entero 1 a 10 | siempre | Slider de 1 a 10 que **arranca en 5** (`WorkoutWizard.jsx:62,296-301`); no se puede dejar vacío, así que un 5 puede ser "no lo toqué" |
+| `notes` | string | siempre | `''` si no se escribe |
+| `deload` | boolean | siempre | `true` si la semana de descarga estaba activa al guardar |
+| `muscleGroups` | string[] | siempre | Grupos musculares de los ejercicios (solo fuerza); `[]` en los demás tipos |
+| `createdAt` | Timestamp | siempre | Lo agrega `db.js`. Es **el momento en que se guardó** (con la cola offline, el momento en que se armó el borrador), **no** la hora del entrenamiento ni de su inicio, y no cambia si se eligió otra fecha en `date`. Hoy solo lo usan los logros de horario (`achievements.js:179-184`) |
+
+#### Fuerza
+
+| Campo | Obligatorio | Detalle |
+|---|---|---|
+| `exercises[]` | siempre (puede ir vacío) | No se exige ningún ejercicio |
+| `exercises[].exerciseId`, `name`, `muscle` | siempre | Para ejercicios propios, `exerciseId` es `custom_…`; para alternativas fuera del catálogo, `alt-…` (único por uso) |
+| `exercises[].originalMuscle` | siempre | Músculo del ejercicio antes de un "Cambiar" |
+| `exercises[].originalExerciseId` | opcional | Solo si se usó la alternativa |
+| `exercises[].unit` | siempre (desde noviembre 2026) | `'reps'` o `'secs'`; los workouts viejos no lo tienen (se resuelve por catálogo) |
+| `exercises[].restSecs` | opcional | Solo si se cambió el descanso de ese ejercicio |
+| `exercises[].sets[]` → `{ reps, weight }` | siempre (≥ 1 serie al armar) | `reps` es número o `''`; **`weight` puede ser número, `0`, `''` o texto**; en `'secs'` los segundos van en `reps` |
+| `cinta` | siempre (`null` si no se usó) | `{ tipo, min, kmh, inclinacion }`, cada uno número o `null`: es el único dato de "cardio" dentro de una sesión de fuerza |
+| `regreso`, `regresoPct` | opcional | Solo si la sesión salió de la "Rutina de regreso" |
+
+*Nota de documentación:* `LOGICA_TECNICA.md` (sección 7) lista un `fatigue` por ejercicio; el código actual **no lo guarda**.
+
+#### Cardio
+
+| Campo | Obligatorio | Detalle |
+|---|---|---|
+| `activity` | siempre | `'Running'`, `'Caminata'`, `'Rollers'`, `'Trekking'`, `'Bici'`, `'Tenis'` o texto libre ("otra"); `''` si no se elige |
+| `durationSeconds` | siempre (`null` si es 0) | **Fuente de verdad del tiempo**: horas + minutos + segundos que se cargan |
+| `tiempo` | siempre (`null` si es 0) | Minutos redondeados, derivados de `durationSeconds` (los workouts viejos solo tienen este campo) |
+| `distancia` | siempre | km o `null` |
+| `paceSecondsPerKm`, `ritmo` | siempre (`null` si falta tiempo o distancia, o si pasa de 60 min/km) | Ritmo derivado; `ritmo` es `'m:ss'` sin "/km". **La velocidad en km/h de la bici no se guarda**: se calcula al mostrarla (`computeSpeedKmh`) |
+
+**Qué pide el formulario:** actividad, tiempo (h / min / s) y distancia (km). El "Ritmo promedio" o la "Velocidad promedio" es de solo lectura, calculado. **Nada es obligatorio.** No hay calorías ni frecuencia cardíaca.
+
+#### Clase
+
+| Campo | Obligatorio | Detalle |
+|---|---|---|
+| `clase` | siempre | `'Strong'`, `'HIIT'`, `'Funcional'`, `'Hyrox'`, `'Crossfit'` o texto libre; `''` si no se elige |
+| `duracion` | siempre | Minutos. **El campo se muestra con 60 por defecto y, si queda vacío o en 0, se guarda 60** (`WorkoutWizard.jsx:164`): no se puede distinguir un 60 real de uno no tocado |
+
+**No se guarda intensidad.** (El único uso de la "alta intensidad" es un aviso durante la semana de descarga, calculado por nombre de clase: HIIT, Hyrox y Crossfit; no se persiste.)
+
+#### Tabata
+
+**No existen datos de Tabata.** La app no crea workouts de tipo `'tabata'` (el wizard no lo ofrece). Existe `saveTabataRecord` (`db.js:186-192`, colección aparte `users/{uid}/tabataRecords` con `tabataId`, `tabataName`, `date`, `createdAt`), pero **no tiene ningún llamador**. La sección Tabata es solo de referencia y no tiene temporizador. `LOGICA_TECNICA.md` (sección 7) lo documenta como un tipo de workout, y eso no coincide con el código. Aunque `'tabata'` figura en `REAL_WORKOUT_TYPES`, en la práctica aporta 0.
+
+#### Pausa y descanso (legacy)
+
+| Tipo | Campos | Estado |
+|---|---|---|
+| `pausa` | `pausaMotivo` (`'enfermedad'` / `'lesion'` / `'descanso'`), `pausaInicio`, `pausaFin`, `date` (= `pausaInicio`), `notes`, `createdAt` | **Ya no se puede crear.** Pueden existir documentos viejos. Se ignoran en racha, estadísticas y calendarios |
+| `descanso` | `date`, `createdAt` | Igual: legado, se ignoran (`REAL_WORKOUT_TYPES` solo incluye fuerza, cardio, clase y tabata) |
+
+#### Respuestas puntuales
+
+- **¿Se guarda la duración de la sesión o la hora de inicio y fin?** **No.** El cronómetro de la sesión (`workout_start_ts`) vive en `localStorage`, se muestra mientras se entrena (`SessionTimer`) y **se borra al guardar** (`WorkoutWizard.jsx:171`); nunca llega a Firestore. Las únicas duraciones guardadas son: cardio (`durationSeconds` / `tiempo`, opcional), clase (`duracion`, por defecto 60) y los minutos de `cinta` dentro de una sesión de fuerza. **Fuerza no tiene duración.** `createdAt` es la hora de guardado, no un fin de sesión confiable.
+- **Cardio:** minutos ✅, distancia ✅, ritmo ✅ (derivado y guardado), calorías ❌, frecuencia cardíaca ❌.
+- **Clase:** duración ✅ (con el 60 por defecto), tipo ✅, intensidad ❌.
+- **Calorías o frecuencia cardíaca en cualquier tipo:** **ninguno**. Se buscó en todo `src/` (calorías, kcal, bpm, frecuencia cardíaca, intensidad numérica, RPE) y no hay ningún campo ni entrada de datos.
+
+---
+
+### 6.2 Objetivos: semanal, mensual y por qué la racha usa 3 días
+
+- **Dónde se define el objetivo semanal:** `profile.diasSemana` (perfil del usuario).
+  - **Alta:** en el onboarding, pregunta "¿Cuántos días por semana?", con opciones **2, 3, 4, 5 y 6**; el valor inicial es **4** (`Onboarding.jsx:31,40,49`).
+  - **¿Es configurable?** **Sí:** Configuración → perfil → "Días disponibles" (2 a 6, `ConfigPage.jsx:188-192`).
+  - Solo se guarda **el valor actual**: no hay historial de metas, de modo que las semanas pasadas se evaluarían contra la meta de hoy.
+- **Dónde se usa el objetivo:** Progreso ("X de Y días · …", con 3 si el campo faltara, `ProgresoPage.jsx:394,412`), la medalla semanal "Semana completa" y "Hamburguesa merecida" (se oculta si la meta es menor que 4, `Logros.jsx:94,102,180`), el logro "Semana perfecta" (`achievements.js:457-465`) y la sugerencia diaria ("Ya cumpliste tus N días", `dailySuggestion.js:74-76`).
+- **"X de N días" en Inicio:** el texto literal "X de Y días" **no está en Inicio**; está en el bloque "Esta semana" de **Progreso** (con Y = `diasSemana`). La tarjeta de Inicio muestra el **anillo** con la cantidad de días de la semana y la palabra "días", sin "de N". Además **el anillo no usa la meta del perfil**: `StatsCards` recibe `diasSemana`, que en realidad es **la cantidad de días entrenados esta semana** (`getThisWeekCount`), y el tope es **fijo en 4** (`maxDays = 4`, `Math.min(días, 4)`; `Inicio.jsx:581-587`). Los mensajes "Semana óptima ✅" (4) e "ideal ⭐" (5 o más) también son fijos. Un usuario con meta 2 o 6 ve el mismo anillo con escala 4.
+- **Objetivo mensual:** **no existe** (no hay ningún campo ni cálculo mensual en el código).
+- **Por qué la racha usa 3 días y el objetivo semanal 4:** son **tres constantes independientes**, y no hay motivo documentado que las relacione:
+  1. **Racha:** el umbral de **3 días** está fijo en `computeStreak` (`utils/streak.js:40`) y en `computeStreakStats` (buckets); no mira el perfil. `LOGICA_TECNICA.md` (sección 1) lo describe como regla, sin justificar el número.
+  2. **Objetivo del perfil:** el valor inicial del onboarding es **4**; el respaldo cuando el campo falta es **3** (Progreso, logros, sugerencia diaria).
+  3. **Anillo de Inicio:** **4** fijo.
+  - Consecuencia: una persona con meta 4 puede mantener la racha con semanas de 3 días, y una con meta 5 o 6 ve la misma racha y el mismo anillo. Recomendación para el dashboard: usar `profile.diasSemana` como **única fuente** del cumplimiento y rotular la racha como "semanas con 3+ días" (o hacer el umbral de la racha configurable).
+
+---
+
+### 6.3 Indicadores: qué se puede calcular, con qué fórmula y qué falta
+
+**Definiciones comunes** (usadas en todas las fórmulas):
+
+- **Workout real:** `type` en `fuerza`, `cardio`, `clase`, `tabata` (`REAL_WORKOUT_TYPES`), con `date`. Excluye `pausa` y `descanso`.
+- **Períodos:** para sumas y conteos, ventanas móviles de **28 días** (4 semanas) y **84 días** (12 semanas) que terminan hoy (incluido); **"todo"** va desde el primer workout real. Para cumplimiento y series semanales, **semanas calendario completas** (lunes a domingo, `weekKey`), sin la semana en curso (mostrarla aparte como "en curso").
+- **Período anterior:** la ventana de la **misma cantidad de días inmediatamente anterior**. **"Todo" no tiene comparación.** Solo se muestra la comparación si el período anterior está **completo** (su inicio no es anterior al primer workout) y si su valor es mayor que 0.
+- **Historial completo disponible:** desde la sección 22 de `LOGICA_TECNICA.md` se carga todo el historial, de modo que 12 semanas y "todo" no se truncan. Los borradores sin sincronizar también están en la lista.
+
+| Indicador | ¿Se puede con datos reales? | Fórmula | Qué falta o qué ojo | Comparación contra el período anterior |
+|---|---|---|---|---|
+| **Entrenamientos por período** | ✅ Sí | `count(workouts reales con date en [inicio, fin])` | Dos workouts el mismo día cuentan 2. Tabata aporta 0 | Δ % = `(actual − anterior) / anterior × 100` |
+| **Días activos** | ✅ Sí | `cantidad de fechas distintas` entre los workouts reales del período | Misma base que "días únicos" de Progreso | Δ en días (o %) |
+| **Horas de entrenamiento** | ❌ **No de forma fiable** | Solo parcial: `Σ cardio.durationSeconds/3600 + Σ clase.duracion/60 (+ Σ fuerza.cinta.min/60)` | **Falta la duración de fuerza** (la mayor parte de las sesiones). Cardio solo si se cargó el tiempo; `clase.duracion` incluye valores por defecto (60) indistinguibles de los reales. Para hacerlo real hay que **guardar `durationSeconds` en cada sesión** (el cronómetro ya existe y hoy se descarta al guardar); los workouts viejos seguirían sin dato. Estimarlo por series × descanso no se recomienda | Solo sobre la parte medible y rotulada como "horas registradas" |
+| **Series totales** | ✅ Sí | `Σ sets con reps > 0` de los ejercicios de fuerza del período | Cuenta también las series de ejercicios en `'secs'` (son series). Sin marca de calentamiento. Series sin reps (vacías) se ignoran | Δ % |
+| **Volumen de fuerza** | ✅ Sí | `Σ (reps × weight)` por serie, solo en ejercicios con `getExerciseUnit(e) ≠ 'secs'`; `weight` se convierte con `Number(weight) \|\| 0` | Los ejercicios sin peso (peso corporal) suman **0**; el texto `"25"` se convierte bien; en `'secs'` se excluye aunque lleven peso. Es comparable **solo contra uno mismo**: el peso puede ser por mancuerna o total, y las unilaterales no distinguen lado. Se puede marcar los períodos con `deload` o `regreso` (pesos reducidos a propósito) | Δ % (si el anterior es 0, sin comparación) |
+| **Minutos de cardio por sesión** | ✅ Parcial | `Σ getEffectiveDurationSeconds(w)/60 / n`, con `n` = sesiones de cardio con tiempo > 0 | Las sesiones sin tiempo se excluyen: mostrar la cobertura ("N de M sesiones con tiempo"). Los workouts viejos usan `tiempo` (el helper ya lo cubre). Se puede abrir por `activity` | Δ en minutos |
+| **Cansancio promedio por semana** | ✅ Sí | Por semana calendario: `mean(fatigue)` de los workouts reales de esa semana con `fatigue != null`; semanas sin sesiones no tienen punto | **Escala: entero de 1 a 10** (slider 1-10, valor inicial 5; el wizard rotula bajo 1-4, intermedio 5-7, alto 8-10). Un 5 puede ser "no lo toqué"; se promedian todos los tipos. Ver la sección 3.2 sobre las escalas inconsistentes en la app: para el dashboard conviene usar la del wizard | Diferencia en puntos (no en %): `actual − anterior` |
+| **Cumplimiento del objetivo semanal** | ✅ Sí (meta única y actual) | Una semana cumple si `días activos de la semana ≥ profile.diasSemana`. Cumplimiento del período = `semanas que cumplen / semanas completas` | La meta es el **valor actual**; no hay historial de metas. Respaldo 3 si el campo falta. La semana en curso se muestra aparte | Diferencia en **puntos porcentuales** |
+| **Cumplimiento del objetivo mensual** | ❌ No existe el objetivo | Se puede **derivar**: `objetivo estimado = round(diasSemana × díasDelMes / 7)` (con meta 5 y 30 días: unos 21) y `cumplimiento = días activos del mes / objetivo estimado`, tope 100 % | Hay que rotularlo "objetivo estimado": el usuario no lo definió. Con períodos de 4 y 12 semanas conviene **no** usar mes calendario y reutilizar el semanal | Puntos porcentuales, solo con objetivo estimado |
+| **Comparación contra el período anterior** | ✅ Sí, para todos los de arriba salvo "horas" | Ver cada fila. Regla general: `Δ% = (actual − anterior)/anterior` si `anterior > 0`; para cumplimiento y cansancio se usa diferencia absoluta | "Todo" no compara. Sin período anterior completo, mostrar "—" y no un % engañoso | — |
+
+**Comprobaciones hechas** (datos sintéticos, funciones reales): 9 workouts reales en la ventana con 2 en la anterior (pausa y descanso no cuentan); 9 días activos; 16 series; volumen que excluye `'secs'` con y sin peso, suma 0 para el peso corporal y convierte un peso en texto; cardio con una sesión sin tiempo (2 de 3 con dato, promedio de las dos) y otra con solo `tiempo` (registro viejo); cansancio por semana con dos puntos; cumplimiento semanal sobre 4 semanas completas; variación vs anterior (con `null` si el anterior es 0).
+
+---
+
+### 6.4 Biblioteca de gráficos y peso en el bundle
+
+- **Biblioteca:** **recharts** (`package.json`: `^2.12.7`, instalada `2.15.4`). Es la **única** dependencia de gráficos.
+- **Dónde se usa hoy:** **solo** en `ExerciseProgress.jsx` (`LineChart`, `Line`, `XAxis`, `YAxis`, `Tooltip`, `ResponsiveContainer`, `ReferenceLine`), dentro del panel colapsable "Ejercicios". Todo lo demás es SVG o CSS a mano: el anillo semanal de Inicio, el `WeekRow`, los calendarios y las barras.
+- **Peso (medido con esbuild, producción, minificado):**
+
+| Medición | Tamaño |
+|---|---|
+| recharts con los 7 imports actuales (React externo) | **382 kB** minificado / **106 kB** gzip |
+| recharts y sus dependencias dentro del bundle completo (recharts, lodash, react-smooth, d3-*, decimal.js-light…) | **≈ 387 kB**, **≈ 28 %** del JavaScript de la app |
+| Bundle completo de producción (Vite, `index-*.js`) | **1.433 kB** minificado / **382 kB** gzip, en **un único chunk** |
+| + `BarChart`, `Bar`, `CartesianGrid`, `Legend`, `Cell` | 390 kB / 108 kB gzip (**+8 kB**) |
+| + `AreaChart`, `Area`, `ComposedChart` | 413 kB / 112 kB gzip (**+31 kB** en total sobre hoy) |
+
+  Para ubicarlo: dentro del bundle, `@firebase/firestore` pesa ≈ 246 kB, el código de la app ≈ 362 kB y `react-dom` ≈ 128 kB (esbuild, estimación por paquete).
+- **Consecuencia:** como no hay *code splitting*, **todos los usuarios descargan recharts al abrir la app**, aunque solo se use al abrir "Ejercicios" en Progreso; además entra en el precache de la PWA. Un dashboard con barras y áreas **agrega poco peso** (+8 a +31 kB) porque comparte el núcleo con el `LineChart` actual. Opciones: (a) cargar el gráfico de forma diferida (`import()`) y bajar el peso inicial de la app en unos 380 kB; (b) para barras, barras de progreso y líneas simples (sparklines), usar SVG propio (unos pocos kB, sin dependencia nueva). Para la interacción (tooltips, zoom) recharts sigue siendo la opción razonable.
+
+---
+
+### 6.5 Reglas determinísticas para un "Dato clave"
+
+Todas generan una frase a partir de datos reales, sin azar ni texto libre. Notación: **P** = período elegido (28 o 84 días; con "todo" solo aplican las reglas que no comparan), **A** = período anterior de igual largo, **hoy** = fecha local. Los números se redondean con `Math.round`, con coma decimal (es-AR) y unidad. Se muestra **un solo** dato clave, el de mayor prioridad que dispare; si ninguno dispara, se oculta la tarjeta (o se muestra "Sumá entrenamientos para ver tu dato clave" cuando P tiene menos de 2 workouts).
+
+| Prioridad | Regla | Condición exacta de disparo | Frase (plantilla) |
+|---|---|---|---|
+| 1 | **R1 · Cansancio alto** | Las **2 últimas semanas completas** tienen en total **≥ 3 workouts con `fatigue`** y el promedio de esos workouts es **≥ 7** (el mismo umbral que usa la descarga en Configuración) | "Tu cansancio promedio de las últimas 2 semanas fue {x}/10. Podés considerar una semana de descarga." |
+| 2 | **R2 · Récord de peso** | Existe al menos un evento en P: una sesión de fuerza con `maxW > 0` para un ejercicio cuyo mejor peso previo (**cualquier sesión anterior**, incluidas las anteriores dentro de P) es **> 0** y **menor** que `maxW` (misma definición que `detectPRs`). Si hay varios, se elige el de **fecha más reciente** y, ante empate, el de mayor mejora relativa | "Récord nuevo en {ejercicio}: {maxW} kg (+{maxW − previo} kg sobre tu marca anterior de {previo} kg)." |
+| 3 | **R3 · Mejor tiempo** | Para un ejercicio con `getExerciseUnit = 'secs'`: el máximo de segundos por serie en P es **mayor** que el máximo de todas las sesiones anteriores a P, y el máximo anterior es **> 0** (se compara contra sesiones con el mismo peso, o ambas sin peso). Se elige el de fecha más reciente | "Aguantaste {n} seg en {ejercicio}, tu mejor marca (antes {m} seg)." |
+| 4 | **R4 · Variación de volumen** | P no es "todo"; hay **≥ 2** sesiones de fuerza con volumen > 0 en P y **≥ 2** en A; volumen(A) **> 0**; y `abs(Δ%) ≥ 10` con `Δ% = Math.round((vol(P) − vol(A)) / vol(A) × 100)`. Si alguna sesión de P tiene `deload: true` o `regreso: true`, se agrega el sufijo | "Tu volumen de fuerza {subió/bajó} un {abs(Δ%)} % frente a las {N} semanas anteriores{ (incluye semana de descarga)}." (si `Δ% > 200`, "más de un 200 %") |
+| 5 | **R5 · Constancia** | Hay **≥ 4 semanas completas** en P y **k ≥ 1**, con `k` = semanas completas con días activos **≥ `profile.diasSemana`** (respaldo 3) y `n` = semanas completas de P | Si `k = n`: "¡Cumpliste tu objetivo de {d} días las {n} semanas!"; si no: "Cumpliste tu objetivo de {d} días en {k} de {n} semanas." |
+
+**Reglas de uso y determinismo**
+- **Prioridad:** R1 > R2 > R3 > R4 > R5 (la alerta de cansancio va primero porque es la única que pide una acción). Mismos datos ⇒ misma frase.
+- **Comprobado con funciones reales** (datos sintéticos): R2 detecta el récord del período incluso con el peso cargado como texto; R3 detecta el mejor tiempo de un ejercicio en `'secs'` (la condición de "mismo peso" no se probó); R4 calcula la variación de volumen excluyendo `'secs'` y devuelve "no dispara" cuando el período anterior vale 0.
+- **Dependencias de calidad de datos:** R2 y R3 necesitan un `exerciseId` estable; las alternativas fuera del catálogo (ids `alt-…`, ver sección 5) no acumulan historial y nunca generarían un récord. R4 y R5 dependen de que `profile.diasSemana` exista. R1 hereda la limitación del 5 por defecto del slider.
+
+---
+
+### 6.6 Qué habría que agregar para un dashboard completo (sin hacerlo ahora)
+
+| Cambio mínimo | Qué habilita | Esfuerzo estimado |
+|---|---|---|
+| Guardar `durationSeconds` en cada workout (el cronómetro de sesión ya existe y hoy se descarta al guardar) | Horas de entrenamiento reales para fuerza | S |
+| Un objetivo mensual opcional en el perfil, o rotular el derivado como "estimado" | Cumplimiento mensual | S |
+| `exerciseId` estable para las alternativas fuera del catálogo | Récords y volumen por ejercicio sin fragmentar | M |
+| Marcar si la fatiga fue elegida (`fatigueSet`) o es el valor por defecto | Promedios de cansancio fiables | S |
+| Guardar el historial de `diasSemana` (o la meta vigente en cada semana) | Cumplimiento histórico sin reescribir el pasado | M |
+| Calorías y frecuencia cardíaca | Solo si se decide pedirlos al usuario o integrarlos con otro dispositivo: hoy no existen | L |

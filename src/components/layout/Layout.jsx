@@ -64,9 +64,13 @@ export default function Layout() {
           </div>
         )}
 
+        {/* En /registro, `main` usa overflow-clip en vez de overflow-y-auto: un contenedor con overflow auto se vuelve
+            el "scroll container" de sus hijos y rompería el encabezado fijo (position: sticky) con el reloj de la
+            sesión. --top-offset = alto de los avisos fijos de arriba (sin conexión / entrenamiento en curso), para que
+            el encabezado quede justo debajo de ellos. */}
         <main
-          className="pb-24 min-h-screen overflow-y-auto"
-          style={totalTopOffset > 0 ? { paddingTop: `${totalTopOffset}px` } : undefined}
+          className={`pb-24 min-h-screen ${location.pathname === '/registro' ? 'overflow-clip' : 'overflow-y-auto'}`}
+          style={{ ...(totalTopOffset > 0 ? { paddingTop: `${totalTopOffset}px` } : {}), '--top-offset': `${totalTopOffset}px` }}
         >
           <Outlet />
         </main>

@@ -208,6 +208,8 @@ export default function WorkoutWizard({ initialType }) {
 
   return (
     <div className="min-h-screen bg-app-bg flex flex-col">
+      {/* Encabezado fijo: fecha, reloj de la sesión y Cancelar quedan visibles al scrollear (sticky). */}
+      <div className="sticky z-30 bg-app-bg pb-1" style={{ top: 'var(--top-offset, 0px)' }}>
       <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <input
@@ -235,6 +237,7 @@ export default function WorkoutWizard({ initialType }) {
         {STEPS.map((s, i) => (
           <div key={s} className={`h-1 flex-1 rounded-full transition-all ${i <= step ? 'bg-app-purple' : 'bg-app-surface'}`} />
         ))}
+      </div>
       </div>
 
       <div className="flex-1 px-4 py-4 overflow-y-auto">

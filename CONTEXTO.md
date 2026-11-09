@@ -102,6 +102,7 @@ src/
     weeks.js                   # Aritmética pura de fechas YYYY-MM-DD y semanas lunes-domingo (addDays, mondayOf, ...)
     progressStats.js           # MÓDULO ÚNICO de cálculos de Progreso (períodos 4w/12w/all, indicadores, récords, mayor progreso, más trabajado, totales, cansancio, dato clave). Puro; con pruebas en progressStats.test.js
     sessionDuration.js         # Duración real de la sesión de fuerza: precarga del cronómetro, conversión y lectura segura
+    progressSet.js             # Serie de progreso (fila verde) del registro: opciones [+ peso | + reps], precarga por cantidad base (isExtra) y limpieza al guardar. Pura, con pruebas
     inactivity.js              # getInactivityInfo(profile) — aviso de inactividad
     reentry.js                 # Modo regreso: detecta si un ejercicio volvió de un parate sin llegar aún a su nivel previo
     returnRoutine.js           # Rutina de regreso: full body sugerido tras 15+ días sin fuerza, con pesos reducidos (solo si el usuario la elige)
@@ -153,7 +154,7 @@ users/{uid}/
       muscle: 'Glúteos',
       originalMuscle: 'Glúteos',     // para replace (filtro de músculo original)
       originalExerciseId: null,       // si se hizo swap a alt, apunta al ejercicio original
-      sets: [{ reps: 12, weight: 20 }, ...]
+      sets: [{ reps: 12, weight: 20 }, { reps: 12, weight: 22, isExtra: true }, ...]  // isExtra: serie de progreso / agregada con "+ Serie"
     }
   ],
   cinta: null | { tipo, min, kmh },  // cinta caminadora si aplica
@@ -348,7 +349,9 @@ Compara las dos últimas sesiones reales de cada ejercicio:
 
 ### Precarga y sugerencias opcionales (`FuerzaFlow.jsx`)
 
-**La precarga es siempre la última sesión real, tal cual** (mismas series/reps/pesos) — ninguna regla la modifica sola (ni deload, ni modo regreso). Cuando corresponde progresar, `ExerciseCard` muestra una tarjeta opcional "¡Podés superarte!" con hasta 2 botones — "+ peso: `{newWeight}` kg × `{reps}`" (Epley + clamp, como antes) y "+2 reps con `{peso}` kg" (no se ofrece si superaría 25 reps) — más "Hoy no". El usuario elige una opción o descarta; recién ahí (y solo en los campos que cambian) se marca el **brillo violeta** (`_suggested`, solo UI). El estado de "ya resuelto hoy" queda en `exData.suggestionDismissed`, persiste en el draft de `sessionStorage` y nunca se guarda en Firestore. Si no corresponde progresar, se muestra solo una línea informativa ("Objetivo: N reps..."), sin tocar valores. El botón de cada serie muestra una pequeña **cruz roja** cuando hay más de una serie cargada; `+ Serie` copia la **última** serie (no la primera).
+**La precarga es la última sesión real, tal cual** (mismas series/reps/pesos) — ninguna regla la modifica sola (ni deload, ni modo regreso) — **salvo la cantidad de series**: si la última sesión tuvo series extra (`isExtra`), se precarga solo la cantidad base (total − extras), descartando las series más livianas (desempate: menos reps, luego la más temprana) y conservando el orden (ej.: 18×12 / 20×12 / 24×14 / 25×12 extra → 20×12 / 24×14 / 25×12).
+
+**Serie de progreso (fila verde)** — reemplaza a la antigua tarjeta "¡Podés superarte!" (eliminada, igual que "Hoy no" y el brillo violeta): cuando `getProgressionAdvice()` indica que corresponde progresar (misma doble progresión, modo regreso y bono por salto), `ExerciseCard` agrega **una fila extra en verde al final de la tabla**, con un selector de dos pills **[+ peso | + reps]** calculadas desde la **última serie**: "+ peso" = `getNextWeight` + reps por Epley (acotadas entre `repsMin` y las reps de esa serie); "+ reps" = **mismo peso exacto** y reps + 2 (tope 25). Por defecto "+ peso" si la sugerencia es de peso, si no "+ reps"; peso corporal: solo "+ reps". **Regla no negociable: la app nunca sugiere un peso menor al de la última serie** (si "+ peso" no es estrictamente mayor, no se ofrece; si ninguna opción es válida, no hay fila). La fila es **pendiente** hasta que se toca el selector o se edita un campo (entonces pasa a ser una serie real, sigue en verde); si queda pendiente al guardar, se descarta. Las series existentes ya no se modifican. Al eliminarla (cruz roja) no vuelve en la sesión (`suggestionDismissed` en el draft). **"+ Serie"** ya no copia la última: agrega una fila con el mismo selector y cálculo, ya aceptada (aunque no corresponda progresar). Ambas filas extra llevan el flag **`isExtra: true`**, que **sí se guarda en Firestore** (los demás flags de UI no). Si no corresponde progresar, se muestra solo una línea informativa ("Objetivo: N reps..." y, en modo regreso, "🔁 Volviendo a tu nivel (X kg)"). El botón de cada serie muestra una pequeña **cruz roja** cuando hay más de una serie. Ver `LOGICA_TECNICA.md` sección 13 y `src/utils/progressSet.js`.
 
 ---
 

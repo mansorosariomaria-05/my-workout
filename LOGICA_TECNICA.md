@@ -454,7 +454,7 @@ Reescrito en noviembre 2026: ver **sección 22** (IDs fijos con `setDoc`, guarda
     muscle: 'Glúteos',
     originalMuscle: 'Glúteos',   // músculo del ejercicio original (antes de un swap)
     originalExerciseId: null,    // si se hizo swap al alternativo, apunta al ejercicio original
-    sets: [{ reps: 12, weight: 20 }],
+    sets: [{ reps: 12, weight: 20 }],   // + isExtra: true en la serie de progreso o la agregada con "+ Serie" (se guarda; sección 13)
     fatigue: null,               // fatigue por ejercicio individual, si se usó ExerciseCard
   }],
   durationSeconds: 3120 | null,  // duración real de la sesión (segundos, múltiplo de 60); null = sin dato. Desde noviembre 2026 (sección 25); los workouts viejos no lo tienen
@@ -962,7 +962,7 @@ Si el ejercicio es de peso corporal (`equipCategory === 'bodyweight'`, resuelto 
 
 ---
 
-## 13. SUGERENCIAS DE PROGRESIÓN — OPCIONALES (`src/components/registro/FuerzaFlow.jsx`)
+## 13. SERIE DE PROGRESIÓN Y SUGERENCIAS (`src/components/registro/FuerzaFlow.jsx`, `src/utils/progressSet.js`)
 
 > **Historial**: hasta septiembre 2026 la sugerencia se aplicaba **sola** al armar el ejercicio (`buildEntry` la precargaba directamente en las cajas). Se reemplazó por completo por un sistema **opt-in**: `buildEntry` ya nunca modifica valores (ver sección "Precarga = última sesión real" más abajo) — la sugerencia aparece como una tarjeta con opciones que el usuario elige a mano, o descarta. Motivo: el usuario decide qué progresión probar hoy (peso o reps — Plotkin et al. 2022, ambas vías son válidas para hipertrofia), en vez de que la app le reescriba las cajas antes de que llegue al gimnasio.
 
@@ -977,73 +977,49 @@ const buildEntry = (ex) => {
     return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle,
       sets: Array.from({ length: 3 }, () => ({ reps: defaultReps, weight: '' })) }
   }
-  const lastSets = history[0].sets
+  const lastSets = selectPreloadSets(history[0].sets)   // desde noviembre 2026: sin las series extra (isExtra), ver más abajo
   const setsArr  = lastSets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '' }))
   return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr }
 }
 ```
 
-Sin excepciones: mismas series, mismos reps, mismos pesos que la última sesión registrada de ese `exerciseId` — sin importar si la descarga está activa, si hay un parate reciente (modo regreso, sección 15) o cuál fue la fatiga de las últimas sesiones. `buildEntry` es el único punto de armado de un ejercicio con series precargadas, y **todos** los flujos que arman o rearman un ejercicio pasan por ahí (`addExercise`, `loadRoutine`, `useGeneratedRoutine`, `swapToAlt`, `replaceWithExercise`) — así que todos heredan esta regla sin lógica duplicada.
+Sin excepciones de valores (la única diferencia es la cantidad de series cuando la última sesión tuvo series extra, ver "Precarga: cantidad base de series"): mismas series, mismos reps, mismos pesos que la última sesión registrada de ese `exerciseId` — sin importar si la descarga está activa, si hay un parate reciente (modo regreso, sección 15) o cuál fue la fatiga de las últimas sesiones. `buildEntry` es el único punto de armado de un ejercicio con series precargadas, y **todos** los flujos que arman o rearman un ejercicio pasan por ahí (`addExercise`, `loadRoutine`, `useGeneratedRoutine`, `swapToAlt`, `replaceWithExercise`) — así que todos heredan esta regla sin lógica duplicada.
 
-### La tarjeta "¡Podés superarte!" — opciones, no automatismo
+### Serie de progreso (fila verde) — reemplaza a la tarjeta "¡Podés superarte!"
 
-`getProgressionAdvice()` (sección "Sistema de pesos") sigue calculando si corresponde progresar, con la misma regla de siempre (2 últimas sesiones al mismo peso máximo con reps ≥ `effectiveThreshold`, bono por salto de peso incluido — salvo en modo regreso, sección 15). Cuando `advice.suggest` es `true`, `ExerciseCard` arma hasta 2 opciones con dos funciones puras (no exportadas, viven junto a `ExerciseCard` en `FuerzaFlow.jsx`):
+> **Cambio (noviembre 2026).** Se eliminó la tarjeta con las opciones "+ peso", "+2 reps" y "Hoy no" (y con ella el brillo violeta `_suggested`, `buildWeightOption`/`buildRepsOption`/`applySuggestionOption`). Ahora, cuando corresponde progresar, **se agrega una fila extra en verde al final de la tabla de series**. Ya **no se modifican las series existentes**: la progresión es siempre una serie más. Lógica pura en `src/utils/progressSet.js` (con pruebas); interfaz en `ExerciseCard` (`FuerzaFlow.jsx`).
 
-```js
-// Opción "+ peso": misma matemática que la regla b de antes (Epley + clamp).
-function buildWeightOption(advice, lastSets) {
-  if (!advice?.suggest || advice.suggestType !== 'weight' || !lastSets?.length) return null
-  const pyramid = advice.pattern === 'pyramid'
-  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
-  const reps = {}
-  idxList.forEach(i => {
-    const prevWeight = Number(lastSets[i]?.weight) || 0
-    const prevReps   = Number(lastSets[i]?.reps) || 0
-    reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
-  })
-  return { type: 'weight', pyramid, value: advice.newWeight, reps, idxList }
-}
+**REGLA NO NEGOCIABLE: la app nunca sugiere un peso menor al de la última serie cargada.** Toda sugerencia es "**más peso con reps iguales o menores**" o "**mismo peso con más reps**".
 
-// Opción "+2 reps": mismo peso, +2 reps sobre lo que hizo la última vez. No se ofrece si algún
-// resultado pasa de 25 reps (REPS_CAP) — más allá de eso ya no es una progresión razonable de reps.
-function buildRepsOption(advice, lastSets) {
-  if (!advice?.suggest || !lastSets?.length) return null
-  const pyramid = advice.pattern === 'pyramid'
-  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
-  const reps = {}
-  for (const i of idxList) {
-    const next = (Number(lastSets[i]?.reps) || 0) + 2
-    if (next > REPS_CAP) return null
-    reps[i] = next
-  }
-  return { type: 'reps', pyramid, weight: lastSets[idxList[0]]?.weight ?? '', reps, idxList }
-}
-```
+**Cuándo aparece (automática).** Cuando `getProgressionAdvice()` indica que corresponde progresar (`advice.suggest`: la misma doble progresión de siempre, con el bono de reps por salto grande y la regla relajada del modo regreso), `ExerciseCard` agrega UNA fila al final con `{ isExtra: true, _pending: true, _opt }`. Se agrega una sola vez por ejercicio (no si ya hay alguna fila `isExtra` ni si `suggestionDismissed`). Si ninguna opción es válida, no se agrega la fila y se muestra "✓ Mantené el peso, vas bien.".
 
-- `weightOption` solo existe si `advice.suggestType === 'weight'` (nunca para peso corporal).
-- `repsOption` existe siempre que `advice.suggest` sea `true` — incluido peso corporal (`suggestType === 'reps'`), donde es la **única** opción ofrecida (sin opción de peso, porque no hay peso que subir).
-- Ambas aplican a la **última serie** en `pyramid`, o a **todas** en `fixed` — mismo criterio que la vieja regla b.
-- La tarjeta muestra los botones que existan: "+ peso: `{value}` kg × `{reps}`", "+2 reps con `{weight}` kg", y siempre "Hoy no". Si no corresponde progresar (`hasHistory && !suggest`) pero hay un umbral, se muestra solo una línea chica sin botones: `"Objetivo: {effectiveThreshold} reps en la última serie"` (pyramid) o `"...por serie"` (fixed) — informativo, no toca valores.
+**Las dos opciones** (`buildProgressOptions({ lastSet, level, equip, learnedWeights, unit, advice })`), calculadas **siempre a partir de la serie anterior de la tabla** (`sets[i − 1]`):
 
-### Aplicar una opción — mismo marcado `_suggested` de siempre
+| Opción | Peso | Reps |
+|---|---|---|
+| **+ peso** | `getNextWeight(peso de la serie anterior, learnedWeights, categoría de equipo)`. Modo regreso (`advice.useReturnRule`): `min(preGapLevel, max(siguiente, floorWeight(peso × 1,10)))` | Epley (`estimateRepsAtWeight`), acotadas entre `repsMin` (de `REP_RANGES[level]`) y las reps de esa serie: **nunca más reps que la serie anterior** |
+| **+ reps** | **Exactamente el mismo peso** (el valor tal cual, incluso `''` o 0) | reps de la serie anterior **+ 2**; no se ofrece si pasaría de `REPS_CAP` (25) |
 
-```js
-function applySuggestionOption(setsArr, option) {
-  return setsArr.map((s, i) => {
-    if (!option.idxList.includes(i)) return s
-    if (option.type === 'weight') {
-      return { ...s, weight: option.value, reps: option.reps[i], _suggested: { weight: true, reps: true } }
-    }
-    return { ...s, reps: option.reps[i], _suggested: { reps: true } }
-  })
-}
-```
+- **Guardas defensivas:** "+ peso" solo se ofrece si el peso calculado es **estrictamente mayor** que el de la serie anterior (con peso cargado > 0); "+ reps" copia el peso idéntico; si la serie anterior no tiene reps (> 0), no hay opciones. Los ejercicios de **peso corporal** (sin peso cargado) ofrecen **solo "+ reps", sin selector**. Un barrido de ~10.000 combinaciones (equipos, pesos con decimales como 17,5 y 22,5, reps, niveles, modo regreso, segundos) verifica que nunca se sugiere un peso menor.
+- **Opción por defecto:** "+ peso" si `advice.suggest` y `suggestType` es `'weight'` (o `'weight_secs'`); si no, "+ reps"; si la elegida no es válida, la otra.
+- **Ejercicios en segundos:** "+ seg" = mismo peso y +5 seg (`SECS_STEP`); "+ peso" = peso mayor con `min(30 seg, segundos de la serie)`. Los selectores dicen "+ seg".
+- **Mismo comportamiento en pirámide y fijas:** como solo se agrega una fila basada en la última serie, ya no importa el patrón.
 
-Al tocar "+ peso" o "+2 reps", `ExerciseCard` llama esto y hace `onChange({ ...exData, sets: applySuggestionOption(sets, option), suggestionDismissed: true })` — aplica el cambio (con el mismo brillo violeta `.input-suggested` de siempre, que se apaga al editar a mano, sección más abajo) **y** cierra la tarjeta. Tocar "Hoy no" hace lo mismo sin tocar `sets`, solo `suggestionDismissed: true`.
+**Selector.** La fila (y toda fila `isExtra`) muestra dos pills "+ peso" / "+ reps" (`aria-pressed`) cuando ambas opciones son válidas; tocar una aplica sus valores (también sobre una fila ya aceptada, recalculando desde la serie anterior).
+
+**Estados de la fila.**
+- **Pendiente** (`_pending: true`, solo UI): los valores se calculan **en vivo** a partir de la serie anterior (así nunca quedan por debajo de ella aunque el usuario edite las series anteriores); hasta que el usuario toca una opción o edita un campo. Una pendiente sin opciones válidas no se muestra.
+- **Aceptada:** al tocar el selector o editar un campo, `_pending` se quita y los valores se guardan en la serie, que **sigue marcada en verde** (`isExtra: true`).
+- **Al guardar, una pendiente sin tocar se descarta** (`cleanSetsForSave`).
+- **Eliminar:** la fila tiene la cruz roja como las demás; al eliminar **cualquier fila `isExtra`**, el ejercicio queda con `suggestionDismissed: true` (viaja en el borrador de `sessionStorage`, nunca se guarda en Firestore) y **la fila automática no vuelve a aparecer en esa sesión**.
+
+**Botón "+ Serie" (manual).** Ya no copia la última serie: agrega una fila `isExtra` **ya aceptada**, con el mismo selector y el mismo cálculo, basada en la **última serie existente** (incluida una fila verde ya aceptada), aunque no se cumpla la doble progresión (por defecto "+ reps", salvo que la sugerencia sea de peso). Tocarlo dos veces agrega dos filas encadenadas (la segunda parte de la primera). Si hay una fila de progreso **pendiente**, "+ Serie" la **acepta** (calcularía lo mismo) en vez de duplicarla. Sin ninguna opción válida (por ejemplo, serie anterior vacía), copia la última serie tal cual (nunca menos peso).
+
+**Flag persistente `isExtra`.** Se guarda en **Firestore**, dentro de cada serie del workout (`sets: [{ reps, weight, isExtra: true }]`), a diferencia de los flags de interfaz. Si el usuario edita los valores de la fila, el flag se mantiene. Lo usa la precarga (abajo).
 
 ### `suggestionDismissed` — por ejercicio, persiste en el draft, nunca se guarda
 
-Vive directo en la entrada del ejercicio (`exData.suggestionDismissed`, junto a `sets`/`exerciseId`/etc.) — como toda la sesión en curso (`data.exercises`) se persiste en el draft de `sessionStorage` (`WorkoutDraftContext`), este flag sobrevive a un recargo de página sin hacer falta ningún mecanismo nuevo. Se resetea solo: cada vez que se agrega un ejercicio a una sesión NUEVA, `buildEntry` arma una entrada fresca sin este campo. Antes de guardar, `stripSuggestedFlags()` en `WorkoutWizard.jsx` lo saca de cada ejercicio (además de `_suggested` de cada serie) — no tiene ningún sentido fuera de la sesión en curso, así que nunca llega a Firestore.
+Vive directo en la entrada del ejercicio (`exData.suggestionDismissed`, junto a `sets`/`exerciseId`/etc.). Ahora significa "**el usuario eliminó una fila extra: no volver a agregar la de progreso en esta sesión**". Se quita al guardar (`stripSuggestedFlags`).
 
 ### Rangos de reps por nivel y ajuste con Epley
 
@@ -1069,7 +1045,7 @@ export function estimateRepsAtWeight(prevWeight, prevReps, newWeight) {
 
 `repsThreshold` (el umbral que dispara la sugerencia de subir peso, sección "Sistema de pesos") **es exactamente `REP_RANGES[level].max`** — 10 para A/B, 15 para C/D. `repsMin` (`REP_RANGES[level].min` — 6 para A/B, 10 para C/D) es el piso al que nunca deben bajar las reps sugeridas, sin importar cuánto suba el peso.
 
-Para cada serie donde `buildWeightOption` (opción "+ peso" de la tarjeta de sugerencia) aplica `newWeight`, las reps sugeridas son:
+Para la fila de progreso, la opción "+ peso" (`buildProgressOptions`, `progressSet.js`) calcula las reps sugeridas así, a partir de la serie anterior:
 ```js
 clamp(estimateRepsAtWeight(pesoAnteriorDeEsaSerie, repsAnterioresDeEsaSerie, newWeight), repsMin, repsAnterioresDeEsaSerie)
 ```
@@ -1123,61 +1099,37 @@ const effectiveThreshold = repsThreshold + jumpBonus
 | fijo | A/B | 10kg | 3×12 | 12kg | +2 (salto 20%) | 12 | Sugiere subir a **12kg** (12 reps ≥ 12), con reps ajustadas por Epley + clamp |
 | fijo | A/B | 18kg | 3×10 | 20kg | +0 (salto 11%) | 10 | Sugiere subir a **20kg** (10 reps ≥ 10) — sin bono, igual que antes |
 
-### El campo `_suggested` y `suggestionDismissed` — solo UI, nunca persisten
+### Flags de las series — qué se guarda y qué no
 
-- **No se guardan en Firestore.** En [WorkoutWizard.jsx](src/components/registro/WorkoutWizard.jsx), `handleSave()` construye el workout final con `stripSuggestedFlags(detail.exercises)` antes de `sanitizeWorkout()`:
-  ```js
-  const stripSuggestedFlags = (exs) =>
-    (exs ?? []).map(({ suggestionDismissed, ...ex }) => ({
-      ...ex,
-      sets: (ex.sets ?? []).map(({ _suggested, ...rest }) => rest),
-    }))
-  ```
-  Saca `_suggested` de cada serie **y** `suggestionDismissed` de cada ejercicio — ninguno de los dos tiene sentido fuera de la sesión en curso. El objeto `workout` resultante es el que se pasa a `saveWorkout()`, así que tanto el documento de Firestore como el cache/estado local (`useWorkouts.js`) y `WorkoutSummary` quedan limpios. `detectPRs`, `detectImprovements`, `achievements.js` y los gráficos de `ProgresoPage.jsx` nunca ven ninguno de los dos campos, porque leen `workouts` (Firestore/cache), no el estado en vivo del wizard.
-- **Sobreviven al borrador de `sessionStorage`.** El draft del wizard (`WorkoutDraftContext`, clave `workoutDraft`) guarda `detail` tal cual — como el stripping solo ocurre sobre una copia al momento de guardar, el borrador conserva ambos campos intactos: el brillo y el estado "ya resuelto para hoy" de cada ejercicio persisten si el usuario recarga la pantalla a mitad de un registro.
-- **`_suggested` se quita al editar a mano.** `updateSet(i, field, val)` en `ExerciseCard` limpia la marca del campo editado:
-  ```js
-  if (next._suggested?.[field]) {
-    const { [field]: _cleared, ...restFlags } = next._suggested
-    if (Object.keys(restFlags).length) next._suggested = restFlags
-    else delete next._suggested
-  }
-  ```
-- **`addSet` copia la ÚLTIMA serie, no la primera, y nunca copia `_suggested`.** `{ reps: sets[sets.length - 1]?.reps ?? 10, weight: sets[sets.length - 1]?.weight ?? 0 }` — objeto literal nuevo, sin spread del set de origen. Antes copiaba `sets[0]` (la primera serie) — en un esquema piramidal eso significaba que agregar una serie copiaba el peso más *liviano* del ejercicio en vez del más reciente/pesado, lo cual no tenía sentido si la intención es "una serie más como la que acabo de hacer".
+- **Se guarda:** `isExtra` (serie de progreso o serie agregada con "+ Serie").
+- **Solo UI, nunca llegan a Firestore:** `_pending` (fila de progreso sin tocar), `_opt` (pill elegida: `'weight'` | `'reps'`), el legado `_suggested` (brillo violeta, ya no se genera) y `suggestionDismissed` (por ejercicio). `stripSuggestedFlags` (`WorkoutWizard.jsx`) aplica `cleanSetsForSave(sets)`: **descarta las series `_pending`** y quita `_pending`/`_opt`/`_suggested`; `isExtra` se conserva.
+- Los flags de UI sí se preservan en el borrador **en curso** (tienen sentido mientras se entrena).
+- **Estilo:** la fila `isExtra` usa borde y fondo verdes (`border-app-green-light/40 bg-app-green/10`, inputs con borde verde), distinto del viejo brillo violeta `.input-suggested` (`src/index.css`), que el registro ya no usa.
 
-### Estilo del brillo — `.input-suggested` (`src/index.css`)
+### Precarga: cantidad base de series (`selectPreloadSets`)
 
-```css
-@keyframes suggestGlow {
-  0%, 100% { box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 8px rgba(155, 127, 212, 0.6); }
-  50%      { box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 12px rgba(155, 127, 212, 0.85); }
-}
-.input-suggested {
-  border-color: #9B7FD4 !important;
-  color: #C9B8ED !important;
-  box-shadow: 0 0 0 1.5px #9B7FD4, 0 0 8px rgba(155, 127, 212, 0.6);
-  animation: suggestGlow 2.6s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .input-suggested { animation: none; }
-}
-```
+`buildEntry` sigue precargando la última sesión real, pero **sin las series extra**: si la última sesión tiene series con `isExtra`, la **cantidad base = total de series − series `isExtra`**. Se precarga solo esa cantidad, **descartando las series más livianas** (desempate: menos reps, luego la más temprana) y **conservando el orden original** de las que quedan. Las series precargadas **no llevan `isExtra`**.
 
-Usa el violeta de la paleta (`app-purple-light` / `#9B7FD4`). El "borde" de 1.5px es en realidad un `box-shadow: 0 0 0 1.5px` (técnica de anillo sin ancho de borde real) — así no reserva espacio ni desplaza el layout, a diferencia de cambiar el `border-width` del input. El pulso lento (`suggestGlow`, 2.6s) se desactiva completamente bajo `prefers-reduced-motion: reduce`. La clase se aplica condicionalmente en `ExerciseCard`: `s._suggested?.reps ? 'input-suggested' : ''` y `s._suggested?.weight ? 'input-suggested' : ''` en los inputs de reps y peso respectivamente.
+| Última sesión | Precarga |
+|---|---|
+| Pirámide: 18×12 / 20×12 / 24×14 / 25×12 (extra) | 20×12 / 24×14 / 25×12 |
+| Fijas: 20×10 / 20×10 / 20×10 / 22,5×8 (extra) | 20×10 / 20×10 / 22,5×8 |
+| Sesiones antiguas sin `isExtra` | Tal cual, como antes |
+
+(Si todas las series fueran extra, se precargan todas, sin el flag.) La doble progresión (`getProgressionAdvice`) sigue leyendo la sesión guardada completa, incluidas las series extra.
 
 ### Qué se muestra en cada caso
 
-`ExerciseCard` decide un único bloque de texto por prioridad (ver también el deload, que es una línea aparte e independiente — sección "Deload manual" más abajo):
+`ExerciseCard` ya no tiene una tarjeta de sugerencia. Líneas informativas (el deload es una línea aparte e independiente — ver "Deload manual" más abajo):
 
 | Condición | Contenido |
 |---|---|
 | `!progressionAdvice.hasHistory` | `💡 Primera vez con este ejercicio...` |
-| `advice.suggest` y hay al menos una opción disponible, sin resolver todavía | Tarjeta "¡Podés superarte!" con los botones de opciones (ver arriba) y "Hoy no" |
-| `advice.suggest` pero `exData.suggestionDismissed` (ya se resolvió hoy) | `✓ Ya definiste tu progresión para hoy.` (solo en este caso, desde noviembre 2026: si hay sugerencia pero ninguna opción se mostró, cae a `✓ Mantené el peso, vas bien.`) |
-| `!advice.suggest` y `effectiveThreshold != null` | `Objetivo: {effectiveThreshold} reps en la última serie` (pyramid) o `...por serie` (fixed) — informativo, ninguna caja cambia |
+| `advice.returnActive` (modo regreso, sección 15) | `🔁 Volviendo a tu nivel ({preGapLevel} kg)` — línea informativa |
+| `!advice.suggest` y `effectiveThreshold != null` | `Objetivo: {effectiveThreshold} reps en la última serie` (pyramid) o `...por serie` (fixed) |
 | `!advice.suggest` sin `effectiveThreshold` (caso residual) | `✓ Mantené el peso, vas bien.` |
-
-El título de la tarjeta cambia si el ejercicio está en modo regreso (sección 15): `"🔁 Volviendo a tu nivel ({preGapLevel} kg) · ¡Podés superarte!"` en vez de `"¡Podés superarte! 💪"`.
+| `advice.suggest` y ninguna opción válida (no se agrega fila) | `✓ Mantené el peso, vas bien.` |
+| `advice.suggest` con fila verde, o ya eliminada | Nada extra: la fila verde es la sugerencia |
 
 ### Deload manual — solo una línea de referencia
 
@@ -1316,7 +1268,7 @@ Mientras `returnState.active` es `true` y el motivo del parate **no** fue `'enfe
 
 Si el motivo del parate fue `'enfermedad'` o `'lesion'`, se ignora todo lo anterior y se usa la regla normal de 2 sesiones (con bono de salto incluido) — precaución extra para paretes por causa médica, donde conviene confirmar con más de una sesión antes de sugerir subir.
 
-`advice` expone `returnActive: true` y `preGapLevel` cuando el modo regreso está activo (con o sin motivo médico), para que `ExerciseCard` muestre el mensaje `"🔁 Volviendo a tu nivel ({preGapLevel} kg) · ¡Podés superarte!"` en la tarjeta de sugerencia (sección 13).
+`advice` expone `returnActive: true` y `preGapLevel` cuando el modo regreso está activo (con o sin motivo médico), para que `ExerciseCard` muestre la línea informativa `"🔁 Volviendo a tu nivel ({preGapLevel} kg)"` (sección 13). `advice.useReturnRule` indica si rige la regla relajada de regreso (no en parates médicos): la fila de progreso topa el peso en `preGapLevel`.
 
 ### Ejemplo (verificado en la implementación)
 
@@ -1554,7 +1506,7 @@ No confundir con `workout_draft_{uid}` (`src/utils/draftQueue.js`): esa es la co
 3. Escribe en `localStorage` de forma síncrona (try/catch — si el storage no está disponible, sigue funcionando solo en memoria).
 4. Programa el respaldo en la nube (debounce, ver abajo).
 
-Todo lo que ya persistía en el draft (`step`, `type`, `detail` con `exercises`/`sets`/`_suggested`/`suggestionDismissed`/`pendingGeneratedIds`, `fatigue`, `notes`, `date`) se mantiene tal cual — el cambio es solo el mecanismo de storage y los tres campos de timestamp nuevos.
+Todo lo que ya persistía en el draft (`step`, `type`, `detail` con `exercises`/`sets` (con `isExtra`, `_pending`, `_opt`)/`suggestionDismissed`/`pendingGeneratedIds`, `fatigue`, `notes`, `date`) se mantiene tal cual — el cambio es solo el mecanismo de storage y los tres campos de timestamp nuevos.
 
 ### Respaldo en la nube — `users/{uid}/data/workoutInProgress`
 
@@ -1599,7 +1551,7 @@ No hizo falta tocar `WorkoutWizard.jsx` para esto: su estado `date` ya se inicia
 - `ConfigPage.jsx` → `handleLogout`, antes de `logout()` (para que `uid` todavía sea válido al disparar el `deleteDoc`).
 - `Inicio.jsx` → botón "Descartar" del modal de continuar.
 
-`stripSuggestedFlags` sigue aplicándose sobre `exercises` antes de guardar el workout final en Firestore (sin cambios) — los flags de UI (`_suggested`, `suggestionDismissed`) sí se preservan en el borrador **en curso** (tienen sentido mientras se está entrenando), pero nunca llegan al workout guardado.
+`stripSuggestedFlags` sigue aplicándose sobre `exercises` antes de guardar el workout final en Firestore (sin cambios) — los flags de UI (`_pending`, `_opt`, `suggestionDismissed`) sí se preservan en el borrador **en curso** (tienen sentido mientras se está entrenando), pero nunca llegan al workout guardado.
 
 ### Reglas de Firestore
 
@@ -1863,7 +1815,9 @@ Helper único. Orden de búsqueda:
 
 Con una sola sesión de historial se sugiere +5 seg (no se exigen dos sesiones). Si la última sesión tiene 0 seg promedio, no se sugiere nada. Sin peso nunca se sugiere subir peso. En modo regreso (motivo no médico) el peso sugerido se topa en `preGapLevel`; la regla relajada de 1 sesión del modo regreso no aplica a `'secs'`. Para `'reps'` el resultado es **idéntico al anterior** (verificado con ~6500 combinaciones contra la versión previa).
 
-### Mensaje "Ya definiste tu progresión para hoy"
+### Mensaje "Ya definiste tu progresión para hoy" (reemplazado)
+
+> **Reemplazado por la serie de progreso (ver sección 13):** la tarjeta y este mensaje ya no existen. Lo que sigue es el comportamiento anterior.
 
 Ahora solo aparece si hay sugerencia (`advice.suggest`) **y** el usuario ya la resolvió (`exData.suggestionDismissed`, tras elegir una opción o "Hoy no"). Si hay sugerencia pero **ninguna opción se mostró** (p. ej. la de "+2 reps" pasaría el tope de 25 y no hay opción de peso), la tarjeta dice `✓ Mantené el peso, vas bien.`.
 

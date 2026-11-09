@@ -120,7 +120,7 @@ export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHis
 
   const jumpBonus = useReturnRule ? 0 : getJumpRepBonus(currentWeight, nextWeight)
   const effectiveThreshold = repsThreshold + jumpBonus
-  const base = { pattern, repsThreshold, repsMin, effectiveThreshold, jumpBonus, nextWeight }
+  const base = { pattern, repsThreshold, repsMin, effectiveThreshold, jumpBonus, nextWeight, useReturnRule }
   const returnMeta = returnActive ? { returnActive: true, preGapLevel: returnState.preGapLevel } : {}
 
   let hitThreshold

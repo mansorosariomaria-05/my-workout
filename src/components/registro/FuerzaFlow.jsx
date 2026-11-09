@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
-import { getRestTimer, getProgressionAdvice, estimateRepsAtWeight } from '../../utils/progression'
+import { getRestTimer, getProgressionAdvice } from '../../utils/progression'
+import { buildProgressOptions, resolveProgressValues, selectPreloadSets } from '../../utils/progressSet'
 import { generateRoutine, suggestNextExercise } from '../../utils/routineGenerator'
 import { applyDeloadMultiplier } from '../../utils/weights'
 import { reduceWeight } from '../../utils/returnRoutine'
@@ -133,76 +134,6 @@ function ExerciseHistoryModal({ sessions, unit = 'reps' }) {
   )
 }
 
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
-const REPS_CAP = 25
-
-// Sugerencias de progresión: ahora son SIEMPRE opcionales, elegidas a mano desde la tarjeta
-// "¡Podés superarte!" en ExerciseCard — nada de esto se aplica solo al armar el ejercicio.
-
-// Opción "+ peso": misma matemática que antes (Epley + clamp), a la última serie en pyramid o a
-// todas en fixed.
-function buildWeightOption(advice, lastSets) {
-  if (!advice?.suggest || advice.suggestType !== 'weight' || !lastSets?.length) return null
-  const pyramid = advice.pattern === 'pyramid'
-  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
-  const reps = {}
-  idxList.forEach(i => {
-    const prevWeight = Number(lastSets[i]?.weight) || 0
-    const prevReps   = Number(lastSets[i]?.reps) || 0
-    reps[i] = clamp(estimateRepsAtWeight(prevWeight, prevReps, advice.newWeight), advice.repsMin, prevReps)
-  })
-  return { type: 'weight', pyramid, value: advice.newWeight, reps, idxList }
-}
-
-// Opción "+2 reps": mismo peso, +2 reps sobre lo que hizo la última vez, a la última serie en
-// pyramid o a todas en fixed. No se ofrece si alguna reps resultante pasa de 25 (REPS_CAP).
-function buildRepsOption(advice, lastSets) {
-  if (!advice?.suggest || !lastSets?.length) return null
-  const pyramid = advice.pattern === 'pyramid'
-  const idxList = pyramid ? [lastSets.length - 1] : lastSets.map((_, i) => i)
-  const reps = {}
-  for (const i of idxList) {
-    const next = (Number(lastSets[i]?.reps) || 0) + 2
-    if (next > REPS_CAP) return null
-    reps[i] = next
-  }
-  const weight = lastSets[idxList[0]]?.weight ?? ''
-  return { type: 'reps', pyramid, weight, reps, idxList }
-}
-
-// Ejercicios en SEGUNDOS (unit 'secs'): sin Epley ni umbrales de reps. Opción "+5 seg": mismo peso, +5 seg
-// sobre lo que hizo la última vez en TODAS las series.
-function buildSecsOption(advice, lastSets) {
-  if (!advice?.suggest || advice.suggestType !== 'secs' || !lastSets?.length) return null
-  const idxList = lastSets.map((_, i) => i)
-  const reps = {}
-  idxList.forEach(i => { reps[i] = (Number(lastSets[i]?.reps) || 0) + advice.addSecs })
-  const weight = Number(lastSets[0]?.weight) || 0
-  return { type: 'reps', unit: 'secs', pyramid: false, weight, addSecs: advice.addSecs, reps, idxList }
-}
-
-// Opción "+ peso" en segundos: con 60 seg o más en las dos últimas sesiones al mismo peso, sube el peso y
-// vuelve a 30 seg en todas las series.
-function buildSecsWeightOption(advice, lastSets) {
-  if (!advice?.suggest || advice.suggestType !== 'weight_secs' || !lastSets?.length) return null
-  const idxList = lastSets.map((_, i) => i)
-  const reps = {}
-  idxList.forEach(i => { reps[i] = advice.resetSecs })
-  return { type: 'weight', unit: 'secs', pyramid: false, value: advice.newWeight, reps, idxList }
-}
-
-// Aplica la opción elegida a mano a exData.sets, marcando los campos tocados con _suggested (brillo
-// violeta — se apaga al editar, igual que antes).
-function applySuggestionOption(setsArr, option) {
-  return setsArr.map((s, i) => {
-    if (!option.idxList.includes(i)) return s
-    if (option.type === 'weight') {
-      return { ...s, weight: option.value, reps: option.reps[i], _suggested: { weight: true, reps: true } }
-    }
-    return { ...s, reps: option.reps[i], _suggested: { reps: true } }
-  })
-}
-
 function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, learnedWeights, allSessions }) {
   const lastSets    = lastSession?.sets
   const unit        = getExerciseUnit(exData) // 'reps' | 'secs' — viene del ejercicio, no de un botón
@@ -213,36 +144,82 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   const { sets } = exData
   const currentRestSecs = exData.restSecs ?? restSec
 
-  // Sugerencia opcional "¡Podés superarte!" — nunca se aplica sola, el usuario elige una opción o
-  // "Hoy no". El estado de "ya resuelto para esta sesión" vive en exData (persiste en el borrador
-  // del entrenamiento en curso, ver WorkoutDraftContext), así no reaparece al recargar la página.
-  const suggestionDismissed = !!exData.suggestionDismissed
-  const weightOption = suggestionDismissed ? null : (isSecs ? buildSecsWeightOption(progressionAdvice, lastSets) : buildWeightOption(progressionAdvice, lastSets))
-  const repsOption    = suggestionDismissed ? null : (isSecs ? buildSecsOption(progressionAdvice, lastSets) : buildRepsOption(progressionAdvice, lastSets))
-  const showSuggestionCard = !!progressionAdvice?.suggest && !suggestionDismissed && (weightOption || repsOption)
+  // ── Serie de progreso (fila verde) ─────────────────────────────────────────────────────────────────────
+  // Reemplaza a la tarjeta "¡Podés superarte!". Cuando corresponde progresar (getProgressionAdvice: misma doble
+  // progresión, modo regreso y bono por salto grande), se agrega UNA fila extra al final con dos opciones
+  // [+ peso | + reps] calculadas a partir de la serie anterior (utils/progressSet.js). Es "pendiente" (_pending)
+  // hasta que el usuario toca una opción o edita un campo; si queda pendiente al guardar, se descarta. Si el
+  // usuario elimina una fila extra, suggestionDismissed evita que vuelva a aparecer en esta sesión (viaja en el
+  // borrador). REGLA: nunca se sugiere un peso menor al de la serie anterior.
+  const dismissed = !!exData.suggestionDismissed
+  const hasExtra  = sets.some(s => s.isExtra)
+  const optionsFor = (i) => buildProgressOptions({
+    lastSet: sets[i - 1], level: ex.level, equip: ex.equip, learnedWeights, unit, advice: progressionAdvice,
+  })
+  const autoOptions = sets.length ? optionsFor(sets.length) : null
+  const shouldAutoAdd = !!progressionAdvice?.suggest && !dismissed && !hasExtra && !!autoOptions?.defaultKey
+  useEffect(() => {
+    if (!shouldAutoAdd) return
+    onChange({ ...exData, sets: [...sets, { isExtra: true, _pending: true, _opt: autoOptions.defaultKey }] })
+  }, [shouldAutoAdd]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const applySuggestion = (option) => {
-    onChange({ ...exData, sets: applySuggestionOption(sets, option), suggestionDismissed: true })
-  }
-  const dismissSuggestion = () => onChange({ ...exData, suggestionDismissed: true })
+  // Filas a mostrar: las pendientes se calculan en vivo a partir de la serie anterior (así nunca quedan por
+  // debajo de ella); una pendiente sin opciones válidas no se muestra.
+  const viewSets = sets.map((s, i) => {
+    const opts = s.isExtra ? optionsFor(i) : null
+    if (!s._pending) return { s, i, values: s, opts, selected: s._opt }
+    const v = resolveProgressValues(opts, s._opt)
+    return v ? { s, i, pending: true, values: { reps: v.reps, weight: v.weight }, opts, selected: v.key } : null
+  }).filter(Boolean)
 
   const updateSet = (i, field, val) => {
     const updated = sets.map((s, idx) => {
       if (idx !== i) return s
-      const next = { ...s, [field]: val === '' ? '' : Number(val) }
-      if (next._suggested?.[field]) {
-        const { [field]: _cleared, ...restFlags } = next._suggested
-        if (Object.keys(restFlags).length) next._suggested = restFlags
-        else delete next._suggested
+      let base = s
+      if (s._pending) {
+        const v = resolveProgressValues(optionsFor(i), s._opt)
+        if (!v) return s
+        base = { ...s, reps: v.reps, weight: v.weight, _opt: v.key }
       }
-      return next
+      const { _pending, ...rest } = base // editar la acepta: pasa a ser una serie real (sigue en verde)
+      return { ...rest, [field]: val === '' ? '' : Number(val) }
     })
     onChange({ ...exData, sets: updated })
   }
-  // La serie nueva copia la ÚLTIMA serie (no la primera) — sin marca _suggested.
-  const addSet    = () => onChange({ ...exData, sets: [...sets, { reps: sets[sets.length - 1]?.reps ?? 10, weight: sets[sets.length - 1]?.weight ?? 0 }] })
-  const removeSet = (i) => sets.length > 1 && onChange({ ...exData, sets: sets.filter((_, idx) => idx !== i) })
-  const maxWeight = Math.max(0, ...sets.map(s => s.weight ?? 0))
+
+  // Tocar una opción acepta la fila (si estaba pendiente) y aplica sus valores
+  const chooseOption = (i, key) => {
+    const o = optionsFor(i)?.[key]
+    if (!o) return
+    onChange({ ...exData, sets: sets.map((s, idx) => (idx === i ? { reps: o.reps, weight: o.weight, isExtra: true, _opt: key } : s)) })
+  }
+
+  // "+ Serie": agrega una fila con el mismo selector, calculada a partir de la última serie existente (incluida una
+  // fila verde ya aceptada), aunque no se cumpla la doble progresión. Se crea ya aceptada. Si hay una fila de
+  // progreso pendiente (calcularía lo mismo), "+ Serie" la acepta en vez de duplicarla.
+  const addSet = () => {
+    const pendingIdx = sets.findIndex(s => s._pending)
+    if (pendingIdx >= 0) {
+      const v = resolveProgressValues(optionsFor(pendingIdx), sets[pendingIdx]._opt)
+      if (v) { chooseOption(pendingIdx, v.key); return }
+    }
+    const base = sets.filter(s => !s._pending)
+    const last = base[base.length - 1]
+    const v = last ? resolveProgressValues(buildProgressOptions({
+      lastSet: last, level: ex.level, equip: ex.equip, learnedWeights, unit, advice: progressionAdvice,
+    })) : null
+    // Sin opción válida (p. ej. serie vacía): se copia la última tal cual (nunca menos peso)
+    const row = v
+      ? { reps: v.reps, weight: v.weight, isExtra: true, _opt: v.key }
+      : last ? { reps: last.reps ?? 10, weight: last.weight ?? 0, isExtra: true } : { reps: 10, weight: 0 }
+    onChange({ ...exData, sets: [...base, row] })
+  }
+  const removeSet = (i) => {
+    if (viewSets.length <= 1) return
+    const removed = sets[i]
+    onChange({ ...exData, sets: sets.filter((_, idx) => idx !== i), ...(removed?.isExtra ? { suggestionDismissed: true } : {}) })
+  }
+  const maxWeight = Math.max(0, ...sets.filter(s => !s._pending).map(s => s.weight ?? 0))
   const deloadPreview = deloadActive && maxWeight > 0 ? applyDeloadMultiplier(maxWeight, learnedWeights ?? []) : null
 
   const setRestSecs = (secs) => { onChange({ ...exData, restSecs: secs }); setShowPicker(false) }
@@ -294,55 +271,26 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         )}
       </div>
 
-      {!progressionAdvice?.hasHistory ? (
+      {!progressionAdvice?.hasHistory && (
         <div className="bg-app-purple/10 border border-app-purple/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-purple-light text-xs">
             💡 Primera vez con este ejercicio. {isSecs ? 'Empezá con los segundos sugeridos y sumá peso solo si podés sostenerlos con buena forma.' : 'Empezá con las reps sugeridas y elegí un peso con el que puedas completarlas con buena forma.'}
           </p>
         </div>
-      ) : showSuggestionCard ? (
-        <div className="bg-app-green/10 border border-app-green-light/20 rounded-lg px-3 py-2.5 mb-2 space-y-2">
-          <p className="text-app-green-light text-xs font-semibold">
-            {progressionAdvice.returnActive
-              ? `🔁 Volviendo a tu nivel (${progressionAdvice.preGapLevel} kg) · ¡Podés superarte!`
-              : '¡Podés superarte! 💪'}
+      )}
+      {progressionAdvice?.hasHistory && progressionAdvice.returnActive && (
+        <p className="text-app-green-light text-xs mb-2">🔁 Volviendo a tu nivel ({progressionAdvice.preGapLevel} kg)</p>
+      )}
+      {progressionAdvice?.hasHistory && !progressionAdvice.suggest && (
+        progressionAdvice.effectiveThreshold != null ? (
+          <p className="text-app-purple-light/60 text-xs mb-2">
+            Objetivo: {progressionAdvice.effectiveThreshold} reps {progressionAdvice.pattern === 'pyramid' ? 'en la última serie' : 'por serie'}
           </p>
-          <div className="flex flex-col gap-1.5">
-            {weightOption && (
-              <button
-                onClick={() => applySuggestion(weightOption)}
-                className="w-full py-2 px-3 rounded-lg bg-app-green/20 border border-app-green-light/30 text-app-green-light text-xs font-medium text-left active:opacity-70 transition-opacity"
-              >
-                + peso: {weightOption.value} kg × {weightOption.reps[weightOption.idxList[0]]}{isSecs ? ' seg' : ''}
-              </button>
-            )}
-            {repsOption && (
-              <button
-                onClick={() => applySuggestion(repsOption)}
-                className="w-full py-2 px-3 rounded-lg bg-app-green/20 border border-app-green-light/30 text-app-green-light text-xs font-medium text-left active:opacity-70 transition-opacity"
-              >
-                {isSecs
-                  ? `+${repsOption.addSecs} seg${repsOption.weight > 0 ? ` con ${repsOption.weight} kg` : ''}`
-                  : `+2 reps con ${repsOption.weight} kg`}
-              </button>
-            )}
-            <button
-              onClick={dismissSuggestion}
-              className="w-full py-1.5 rounded-lg text-app-muted text-xs text-center active:opacity-70 transition-opacity"
-            >
-              Hoy no
-            </button>
-          </div>
-        </div>
-      ) : progressionAdvice.suggest && suggestionDismissed ? (
-        <p className="text-app-purple-light/60 text-xs mb-2">✓ Ya definiste tu progresión para hoy.</p>
-      ) : progressionAdvice.suggest ? (
-        <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>
-      ) : progressionAdvice.effectiveThreshold != null ? (
-        <p className="text-app-purple-light/60 text-xs mb-2">
-          Objetivo: {progressionAdvice.effectiveThreshold} reps {progressionAdvice.pattern === 'pyramid' ? 'en la última serie' : 'por serie'}
-        </p>
-      ) : (
+        ) : (
+          <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>
+        )
+      )}
+      {progressionAdvice?.hasHistory && progressionAdvice.suggest && !dismissed && !hasExtra && !autoOptions?.defaultKey && (
         <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>
       )}
 
@@ -360,35 +308,67 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
           <span className="text-center">{isSecs ? 'Seg' : 'Reps'}</span>
           <span className="text-center">{isSecs ? 'Peso (kg) opc.' : 'Peso (kg)'}</span>
         </div>
-        {sets.map((s, i) => (
-          <div key={i}>
-            <div className="grid grid-cols-3 gap-1 items-center">
-              <button
-                onClick={() => removeSet(i)}
-                aria-label={`Eliminar serie ${i + 1}`}
-                className="relative bg-app-bg rounded-lg py-2 text-xs text-app-muted font-medium"
-              >
-                {i + 1}
-                {sets.length > 1 && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-white"
-                    style={{ width: 12, height: 12, fontSize: 8, lineHeight: 1, backgroundColor: '#E57373' }}
-                  >
-                    ✕
-                  </span>
-                )}
-              </button>
-              <input type="number" aria-label={isSecs ? 'Segundos' : 'Repeticiones'} value={s.reps ?? ''} onChange={e => updateSet(i, 'reps', e.target.value)}
-                className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.reps ? 'input-suggested' : ''}`}
-              />
-              <input type="number" step="0.5" value={s.weight ?? ''} onChange={e => updateSet(i, 'weight', e.target.value)}
-                placeholder={lastSets?.[0]?.weight ?? '0'}
-                className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.weight ? 'input-suggested' : ''}`}
-              />
+        {viewSets.map(({ s, i, pending, values, opts, selected }) => {
+          const isExtra = !!s.isExtra
+          const inputCls = isExtra
+            ? 'border-app-green-light/50 focus:border-app-green-light'
+            : 'border-white/8 focus:border-app-purple/50'
+          return (
+            <div
+              key={i}
+              data-extra={isExtra ? (pending ? 'pending' : 'accepted') : undefined}
+              className={isExtra ? 'rounded-lg border border-app-green-light/40 bg-app-green/10 p-1 space-y-1' : ''}
+            >
+              <div className="grid grid-cols-3 gap-1 items-center">
+                <button
+                  onClick={() => removeSet(i)}
+                  aria-label={`Eliminar serie ${i + 1}`}
+                  className={`relative bg-app-bg rounded-lg py-2 text-xs font-medium ${isExtra ? 'text-app-green-light' : 'text-app-muted'}`}
+                >
+                  {i + 1}
+                  {viewSets.length > 1 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-white"
+                      style={{ width: 12, height: 12, fontSize: 8, lineHeight: 1, backgroundColor: '#E57373' }}
+                    >
+                      ✕
+                    </span>
+                  )}
+                </button>
+                <input type="number" aria-label={isSecs ? 'Segundos' : 'Repeticiones'} value={values.reps ?? ''} onChange={e => updateSet(i, 'reps', e.target.value)}
+                  className={`bg-app-bg border rounded-lg py-2 text-app-text text-sm text-center focus:outline-none ${inputCls}`}
+                />
+                <input type="number" step="0.5" aria-label="Peso en kilos" value={values.weight ?? ''} onChange={e => updateSet(i, 'weight', e.target.value)}
+                  placeholder={lastSets?.[0]?.weight ?? '0'}
+                  className={`bg-app-bg border rounded-lg py-2 text-app-text text-sm text-center focus:outline-none ${inputCls}`}
+                />
+              </div>
+              {isExtra && opts?.weight && opts?.reps && (
+                <div className="flex items-center gap-1 px-0.5" role="group" aria-label="Tipo de progresión">
+                  {['weight', 'reps'].map(k => (
+                    <button
+                      key={k}
+                      type="button"
+                      aria-pressed={selected === k}
+                      onClick={() => chooseOption(i, k)}
+                      className={`px-3 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                        selected === k
+                          ? 'bg-app-green-light/25 border-app-green-light text-app-green-light'
+                          : 'bg-app-bg border-white/10 text-app-muted'
+                      }`}
+                    >
+                      {k === 'weight' ? '+ peso' : isSecs ? '+ seg' : '+ reps'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {pending && (
+                <p className="text-[10px] text-app-green-light/80 px-0.5 leading-tight">Serie de progreso: tocá una opción o editala para sumarla.</p>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="flex gap-2 mt-3">
@@ -549,7 +529,8 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, unit, sets: setsArr }
     }
 
-    const lastSets = history[0].sets
+    // Series extra (isExtra) de la última sesión: se precarga solo la cantidad base (ver utils/progressSet.js)
+    const lastSets = selectPreloadSets(history[0].sets)
     const setsArr  = lastSets.map(s => ({ reps: unit === 'secs' && !Number(s.reps) ? DEFAULT_SECS : (s.reps ?? ''), weight: s.weight ?? '' }))
 
     return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, unit, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }

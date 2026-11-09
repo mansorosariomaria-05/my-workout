@@ -4,7 +4,7 @@ import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { useWorkoutDraft } from '../../context/WorkoutDraftContext'
 import { logout } from '../../services/auth'
-import { getWorkouts, saveWorkout } from '../../services/db'
+import { saveWorkout } from '../../services/db'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 

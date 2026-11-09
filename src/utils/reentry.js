@@ -8,10 +8,10 @@ const INACTIVE_STATE = {
   active: false, preGapLevel: null, sessionsSinceReturn: null, gapDays: null, motivo: null, baseline: null,
 }
 
-// Modo regreso: reemplaza la vieja "vuelta suave" — ya no reduce peso/series en la precarga (eso
-// ahora siempre es la última sesión real, ver FuerzaFlow.jsx). Solo detecta si el usuario volvió
-// hace poco de un parate de 14+ días y todavía no alcanzó el peso que manejaba antes — mientras
-// dure, getProgressionAdvice relaja el umbral para sugerir subir (ver progression.js).
+// Modo regreso: no toca la precarga (que siempre es la última sesión real, ver FuerzaFlow.jsx). Solo
+// detecta si el usuario volvió hace poco de un parate de 14+ días y todavía no alcanzó el peso que
+// manejaba antes — mientras dure, getProgressionAdvice relaja el umbral para sugerir subir
+// (ver progression.js).
 //
 // exerciseSessions: TODAS las sesiones de un ejercicio (no el slice de 5), forma { date, sets, fatigue }.
 // today: 'YYYY-MM-DD'. inactividad: resultado de getInactivityInfo(profile) (o null).

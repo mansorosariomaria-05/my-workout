@@ -90,10 +90,6 @@ export default function WorkoutWizard({ initialType }) {
     localStorage.setItem(SESSION_TIMER_KEY, String(ts))
   }
 
-  const avgFatigue = type === 'fuerza' && detail.exercises?.length
-    ? Math.round(detail.exercises.reduce((a, e) => a + (e.fatigue ?? fatigue), 0) / detail.exercises.length)
-    : fatigue
-
   const getMuscleGroups = () => {
     if (type !== 'fuerza') return []
     const muscles = new Set()

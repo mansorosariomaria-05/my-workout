@@ -120,6 +120,3 @@ export const exercises = [
   { id: 'plancha-arrastre-mancuerna', name: 'Plancha con Arrastre de Mancuerna', muscle: 'Core & Estabilidad', group: 'Core profundo', level: 'D', equip: 'Mancuerna', alt: 'La Plancha', secondary: 'Oblicuos', pattern: 'core_rotacion', unilateral: false },
 ]
 
-export const getExerciseById = (id) => exercises.find(e => e.id === id)
-export const getExercisesByMuscle = (muscle) => exercises.filter(e => e.muscle === muscle)
-export const getExercisesByLevel = (level) => exercises.filter(e => e.level === level)

@@ -1,9 +1,7 @@
-import { useState } from 'react'
-
 const CLASES = ['Strong', 'HIIT', 'Funcional', 'Hyrox', 'Crossfit']
 
 export default function ClaseFlow({ data, onChange, deloadActive }) {
-  const { clase, duracion, fatigue, otra } = data
+  const { clase, duracion, otra } = data
   const set = (field, val) => onChange({ ...data, [field]: val })
 
   const isHighIntensity = ['HIIT', 'Hyrox', 'Crossfit'].includes(clase)

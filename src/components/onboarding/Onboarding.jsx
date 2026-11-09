@@ -43,7 +43,7 @@ const OPTIONS = {
 }
 
 export default function Onboarding() {
-  const { user, updateProfile } = useAuthContext()
+  const { updateProfile } = useAuthContext()
   const [step, setStep] = useState(0)
   const [data, setData] = useState({
     genero: '', name: '', objectives: [], nivel: '', diasSemana: 4,

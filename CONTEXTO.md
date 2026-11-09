@@ -50,17 +50,10 @@ src/
       HeroPortada.jsx          # Hero con saludo y foto de portada
       Logros.jsx               # Sistema de logros (compact en home, vitrina completa)
       WeekCalendar.jsx         # Calendario semanal — tocar un día con check abre el detalle (solo lectura) de ese día
-      MuscleBalance.jsx        # Balance muscular semanal
-      Streak.jsx               # Racha semanal
-      ValenciaCountdown.jsx    # Countdown especial
-      Intencion.jsx            # Intención semanal
 
     progreso/
       ProgresoPage.jsx         # Contenedor de tabs de progreso
       ExerciseProgress.jsx     # Progresión de peso por ejercicio
-      WeekChart.jsx            # Gráfico de entrenamientos por semana
-      FatigueChart.jsx         # Gráfico de cansancio
-      MonthCalendar.jsx        # Calendario mensual
       WorkoutHistorial.jsx     # Historial de sesiones
 
     tabata/
@@ -74,7 +67,7 @@ src/
       BottomNav.jsx            # Barra de navegación inferior
 
     auth/AuthScreen.jsx        # Login con Google
-    onboarding/Onboarding.jsx  # Configuración inicial (8 pasos)
+    onboarding/Onboarding.jsx  # Configuración inicial (10 pasos)
     configuracion/ConfigPage.jsx
     SplashScreen.jsx
 
@@ -86,7 +79,6 @@ src/
     useWorkouts.js             # Carga/guarda workouts con caché en localStorage
     useDeload.js               # Semana de descarga
     useExercises.js            # Combina exercises.js + ejercicios custom del usuario
-    useAuth.js                 # onAuthChange wrapper
     useOnlineStatus.js         # Estado online/offline del navegador
 
   services/
@@ -127,7 +119,7 @@ users/{uid}/
   workouts/{id}       → documentos de entrenamiento (addDoc, orderBy date desc)
   customRoutines/{id} → rutinas creadas por el usuario
   customExercises/{id}→ ejercicios creados por el usuario
-  intentions/{weekKey}→ intención semanal (clave: 'YYYY-MM-DD' del lunes)
+  intentions/{weekKey}→ LEGACY: intención semanal (clave: 'YYYY-MM-DD' del lunes). Sin UI ni código que la lea o escriba desde noviembre 2026; los documentos existentes no se tocaron
   tabataRecords/{id}  → { tabataId, tabataName, date }
   tabataSettings/{tabataId} → ajustes de tabata por protocolo
 ```
@@ -334,7 +326,7 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 - `STANDARD_WEIGHTS`: unión de los pesos disponibles en los gimnasios del usuario (placas/mancuernas fijas).
 - Además de esos valores fijos, el sistema **aprende** qué pesos usó realmente el usuario en cada ejercicio (`getLearnedWeights` en `useWorkouts.js`) y los suma al pool de candidatos, así las sugerencias respetan las variantes propias de cada gimnasio/equipo y no solo la tabla estándar.
 - `getNextWeight(current, learnedWeights, equipCategory)`: prioriza el salto más chico disponible en el pool dentro de un tope de +25% (o +2.5kg); si no hay ninguno en rango, usa el salto típico histórico del usuario o un default por tipo de equipo.
-- `floorWeight(target, learnedWeights)`: redondea hacia el valor del pool más cercano por abajo (usado en el modo regreso y en la línea de referencia del deload).
+- `floorWeight(target, learnedWeights)`: redondea hacia el valor del pool más cercano por abajo. Se usa en: el piso de +10 % de la sugerencia del modo regreso (`progression.js`), la línea de referencia del deload (`applyDeloadMultiplier`) y la reducción de pesos de la rutina de regreso (`reduceWeight` en `returnRoutine.js`). Ya **no** se usa para reducir la precarga automáticamente.
 
 ### Doble progresión (`getProgressionAdvice` en `progression.js`)
 
@@ -407,10 +399,10 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 **Flujo de inicio:**
 1. `onAuthChange` → si hay user, carga `profile` y `settings` en paralelo
 2. Si `!user` → `AuthScreen` (login con Google)
-3. Si `!profile?.onboardingDone` → `Onboarding` (8 pasos)
+3. Si `!profile?.onboardingDone` → `Onboarding` (10 pasos)
 4. Si todo OK → rutas normales
 
-**Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `tipoRutina`, `sesionesFuerzaObjetivo`, `lesionesYes`, `lesiones`, `equipamiento`, `onboardingDone`, `inactividad` (último parate detectado — ver "Aviso de inactividad y modo regreso"). Ya no existe el campo `pausa` (el onboarding no lo pregunta desde que se eliminó el sistema de pausas).
+**Profile** almacena: `name`, `genero` ('femenino'|'masculino'|'otro'), `objectives[]`, `objetivo` (string primario), `nivel`, `diasSemana`, `tiposPreferidos[]`, `tipoRutina`, `sesionesFuerzaObjetivo`, `lesionesYes`, `lesiones`, `equipamiento`, `onboardingDone`, `inactividad` (último parate detectado — ver "Aviso de inactividad y modo regreso"). El campo legacy `pausa` ya no se pregunta ni se guarda (ni en el onboarding ni en ConfigPage) y ningún código lo lee; los perfiles viejos en Firestore pueden conservarlo y no se borra.
 
 **Settings**: `deloadActive`, `restTimerSeconds` (default 90), `coverUrl`.
 

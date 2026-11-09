@@ -2,13 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isToday, isYesterday, differenceInDays, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Lightbulb, ChevronRight, CloudUpload } from 'lucide-react'
+import { Lightbulb, CloudUpload } from 'lucide-react'
 import { useAuthContext } from '../context/AuthContext'
 import { useWorkouts } from '../hooks/useWorkouts'
 import { useWorkoutDraft } from '../context/WorkoutDraftContext'
 import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES, computeStreakStats } from '../utils/streak'
-import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../utils/cardio'
 import { getInactivityInfo } from '../utils/inactivity'
 import { computeDailySuggestion } from '../utils/dailySuggestion'
 import { getNeverList } from '../services/db'
@@ -256,7 +255,7 @@ function InactivityModal({ daysSince, onSave }) {
   return (
     <div className="space-y-4">
       <p className="text-app-muted text-sm leading-relaxed">
-        Hace {daysSince} días que no entrenás. ¿Qué pasó? Lo usamos para que tu vuelta sea suave.
+        Hace {daysSince} días que no entrenás. ¿Qué pasó? Tus pesos siempre arrancan desde tu última sesión real, y la app te va a sugerir subidas opcionales para volver a tu nivel.
       </p>
       <div className="grid grid-cols-2 gap-3">
         {MOTIVO_OPTIONS.map(({ key, icon, label }) => (
@@ -552,57 +551,6 @@ function DailySuggestionCard({ suggestion, onDismissRegreso }) {
           <p className="text-[10px] mt-1.5 leading-snug" style={{ color: '#94A3B8' }}>{detail}</p>
         )}
       </div>
-    </div>
-  )
-}
-
-// ─── Last workout modal ───────────────────────────────────────────────────────
-function LastWorkoutModal({ workout }) {
-  if (!workout) return null
-  const fatigue = workout.fatigue ?? null
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-app-muted text-xs">{workout.date}</span>
-        <span className="text-app-purple-light text-xs font-medium">{TYPE_LABELS[workout.type] ?? workout.type}</span>
-      </div>
-      {workout.type === 'fuerza' && workout.exercises?.length > 0 && (
-        <div className="space-y-2">
-          {workout.exercises.map((ex, i) => (
-            <div key={i} className="border-b border-white/5 pb-2 last:border-0">
-              <p className="text-app-text text-sm font-medium">{ex.name}</p>
-              {ex.sets?.length > 0 && <p className="text-app-muted text-xs mt-0.5">{ex.sets.map(s => `${s.reps ?? 0}×${s.weight ?? 0}kg`).join(', ')}</p>}
-            </div>
-          ))}
-        </div>
-      )}
-      {workout.type === 'cardio' && (() => {
-        const durationSeconds = getEffectiveDurationSeconds(workout)
-        const isBici = workout.activity === 'Bici'
-        const paceOrSpeed = isBici
-          ? (durationSeconds && workout.distancia ? `${computeSpeedKmh(durationSeconds, workout.distancia)} km/h` : null)
-          : (getEffectivePaceSecondsPerKm(workout) != null ? formatPace(getEffectivePaceSecondsPerKm(workout)) : null)
-        return (
-          <div>
-            <p className="text-app-text text-sm">{workout.activity}</p>
-            <p className="text-app-muted text-xs">
-              {[
-                durationSeconds ? formatDuration(durationSeconds) : null,
-                workout.distancia ? `${workout.distancia} km` : null,
-                paceOrSpeed,
-              ].filter(Boolean).join(' · ')}
-            </p>
-          </div>
-        )
-      })()}
-      {workout.type === 'clase' && <div><p className="text-app-text text-sm">{workout.clase}</p>{workout.duracion && <p className="text-app-muted text-xs">{workout.duracion} min</p>}</div>}
-      {fatigue != null && (
-        <div className="flex items-center justify-between py-1.5 border-t border-white/5">
-          <span className="text-app-muted text-xs">Cansancio</span>
-          <span className={`text-sm font-semibold ${fatigue <= 4 ? 'text-app-green-light' : fatigue <= 7 ? 'text-app-amber' : 'text-app-coral'}`}>{fatigue}/10</span>
-        </div>
-      )}
-      {workout.notes && <div className="bg-app-bg rounded-xl px-3 py-2.5"><p className="text-app-muted text-[10px] mb-1">Nota</p><p className="text-app-text text-xs">{workout.notes}</p></div>}
     </div>
   )
 }

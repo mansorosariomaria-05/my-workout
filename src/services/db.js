@@ -2,10 +2,10 @@ import { db } from '../firebase'
 import {
   doc, getDoc, setDoc, updateDoc,
   collection, addDoc, getDocs, query,
-  orderBy, limit, where, deleteDoc,
+  orderBy, limit, deleteDoc,
   serverTimestamp, Timestamp,
 } from 'firebase/firestore'
-import { weekKey, parseLocalDate, getTodayLocal } from '../utils/dates'
+import { parseLocalDate, getTodayLocal } from '../utils/dates'
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 export const getUserProfile = async (uid) => {
@@ -54,48 +54,6 @@ export const getWorkouts = async (uid, limitN = 50) => {
     console.warn('getWorkouts sin red, devolviendo vacío:', err)
     return []
   }
-}
-
-export const getWorkoutsByDateRange = async (uid, startDate, endDate) => {
-  const q = query(
-    collection(db, 'users', uid, 'workouts'),
-    where('date', '>=', startDate),
-    where('date', '<=', endDate),
-    orderBy('date', 'asc')
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
-}
-
-export const getWorkoutsForExercise = async (uid, exerciseId) => {
-  const workouts = await getWorkouts(uid, 100)
-  return workouts.filter(w =>
-    w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === exerciseId)
-  )
-}
-
-// ─── Intentions ───────────────────────────────────────────────────────────────
-export const getIntention = async (uid) => {
-  const key = weekKey()
-  const snap = await getDoc(doc(db, 'users', uid, 'intentions', key))
-  return snap.exists() ? snap.data() : null
-}
-
-export const saveIntention = async (uid, text) => {
-  const key = weekKey()
-  await setDoc(doc(db, 'users', uid, 'intentions', key), {
-    text, weekStart: key, savedAt: serverTimestamp(),
-  })
-}
-
-export const getIntentionHistory = async (uid) => {
-  const q = query(
-    collection(db, 'users', uid, 'intentions'),
-    orderBy('weekStart', 'desc'),
-    limit(12)
-  )
-  const snap = await getDocs(q)
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
 // ─── Achievements ─────────────────────────────────────────────────────────────

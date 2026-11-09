@@ -61,7 +61,7 @@ export default function GeneradorTab({ workouts }) {
     setSaved(true)
   }
 
-  // La precarga real (peso/series con historial, sugerencias, vuelta suave) la arma FuerzaFlow con
+  // La precarga real (última sesión real de cada ejercicio) la arma FuerzaFlow con
   // buildEntry al montar — acá solo se pasan los ids elegidos, no sets ya construidos.
   const useRoutine = () => {
     const today = new Date()

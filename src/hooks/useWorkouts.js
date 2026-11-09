@@ -98,7 +98,7 @@ export function useWorkouts(uid) {
   }
 
   // Historial completo (sin slice) de un ejercicio, ordenado por fecha descendente — usado por
-  // el sistema de reentrada (src/utils/reentry.js), que necesita ver más allá de las últimas 5 sesiones.
+  // el modo regreso (src/utils/reentry.js), que necesita ver más allá de las últimas 5 sesiones.
   const getExerciseSessions = (exerciseId) => {
     const relevant = workouts
       .filter(w => w.type === 'fuerza' && w.exercises?.some(e => e.exerciseId === exerciseId))

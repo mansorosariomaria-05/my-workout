@@ -9,7 +9,7 @@ const clampMinSec = (val) => {
 }
 
 export default function CardioFlow({ data, onChange }) {
-  const { activity, horas, minutos, segundos, distancia, fatigue, otra } = data
+  const { activity, horas, minutos, segundos, distancia, otra } = data
 
   const set = (field, val) => onChange({ ...data, [field]: val })
   const selectContent = (e) => e.target.select()

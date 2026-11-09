@@ -4,7 +4,6 @@ import Card from '../ui/Card'
 export default function TabataCard({ tabata, customSettings, onClick }) {
   const settings = { ...tabata.defaults, ...customSettings, stationCount: tabata.stations.length }
   const totalTime = calcTabataTime(settings)
-  const equipment = [...new Set(tabata.stations.flatMap(s => s.equip.split('/').map(e => e.trim())))]
 
   return (
     <Card onClick={onClick} className="mb-3">

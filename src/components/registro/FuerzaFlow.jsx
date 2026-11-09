@@ -493,7 +493,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const { user } = useAuthContext()
   const [mode, setMode]               = useState(data.mode ?? 'libre')
   const [selectedMuscles, setSelectedMuscles] = useState(data.selectedMuscles ?? [])
-  const [selectedRoutine, setSelectedRoutine] = useState(data.selectedRoutine ?? '')
+  const [selectedRoutine] = useState(data.selectedRoutine ?? '')
   const [expandedRoutine, setExpandedRoutine] = useState(null)
   const [replacingIndex, setReplacingIndex] = useState(-1)
   const [replaceSearch, setReplaceSearch]   = useState('')
@@ -711,7 +711,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
 
   // Rutina generada en el tab de Rutinas (GeneradorTab.jsx) sin guardar: llega como una lista de ids
   // pendientes en vez de sets ya armados, para que acá se construya cada entrada con buildEntry
-  // (precarga con historial, sugerencias, vuelta suave) igual que el generador inline y las prearmadas.
+  // (precarga = última sesión real) igual que el generador inline y las prearmadas.
   useEffect(() => {
     if (data.pendingGeneratedIds?.length && !data.exercises?.length) {
       let exs = data.pendingGeneratedIds.map(id => allExercises.find(e => e.id === id)).filter(Boolean).map(buildEntry)

@@ -1,5 +1,7 @@
 # Informe: ejercicios por tiempo (temporizador ▶)
 
+**Estado: implementado (opción a + unidad por ejercicio)** — 09-11-2026. Se eliminó el temporizador ▶ y el botón Reps/Segs, y se agregó el campo `unit` por ejercicio; ver `LOGICA_TECNICA.md` sección 24. Lo que sigue es el análisis previo a ese cambio.
+
 Fecha: noviembre 2026 · Código analizado: rama `master`, commit `62f7190` · **No se modificó código de la app** (solo se agregó este informe).
 
 > **Cómo leer este informe.** Todo lo de las secciones 1 a 4 sale de leer el código y de ejecutar pequeñas simulaciones sobre las funciones reales (`getProgressionAdvice`, `detectPRs`, `detectImprovements` y el catálogo). Además se contrastó con un export real de datos de uso (el archivo no se incluye en el repo; acá solo van conclusiones generales) en los puntos 1.6 y 3.3.

@@ -5,6 +5,7 @@ import { toDateStr } from '../../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 import Modal from '../ui/Modal'
+import { getExerciseUnit, formatSetText } from '../../utils/exerciseUnit'
 
 const DAY_LABELS    = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MONTH_SHORT   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -19,11 +20,6 @@ const TYPE_META = {
 
 const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s
 
-function formatSet(s) {
-  const w = Number(s.weight) || 0
-  const reps = s.reps ?? 0
-  return w > 0 ? `${reps}×${w} kg` : `${reps} reps`
-}
 
 // Detalle de un entrenamiento (solo lectura) — mismo estilo compacto para los 4 tipos.
 function WorkoutDetailBlock({ workout }) {
@@ -43,7 +39,7 @@ function WorkoutDetailBlock({ workout }) {
             <p key={i} className="text-app-text text-xs leading-snug">
               <span className="font-medium">{e.name}</span>
               {e.sets?.length > 0 && (
-                <span className="text-app-muted"> — {e.sets.map(formatSet).join(' · ')}</span>
+                <span className="text-app-muted"> — {e.sets.map(s => formatSetText(s, getExerciseUnit(e))).join(' · ')}</span>
               )}
             </p>
           ))}

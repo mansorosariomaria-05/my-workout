@@ -1,4 +1,5 @@
 import { getNextWeight, getEquipCategory, floorWeight } from './weights.js'
+import { getExerciseUnit } from './exerciseUnit.js'
 
 export const OBJETIVO_PARAMS = {
   'Tonificar':           { sets: 3, repsMin: 12, repsMax: 15, restSec: 75 },
@@ -47,6 +48,42 @@ export function getJumpRepBonus(currentWeight, nextWeight) {
   return 4
 }
 
+// ─── Progresión de ejercicios en SEGUNDOS (unit 'secs') ───────────────────────────────────────────
+// No usa umbrales de reps ni Epley (los segundos viven en el campo "reps" pero no son repeticiones):
+//   · por defecto: mantener el peso y sumar +5 seg a cada serie respecto de la última sesión;
+//   · con peso: si en las DOS últimas sesiones, al mismo peso, el promedio de segundos llegó a 60 o más,
+//     sugerir subir el peso (siguiente escalón) y volver a 30 seg.
+export const SECS_STEP          = 5
+export const SECS_WEIGHT_TARGET = 60
+export const SECS_RESET         = 30
+
+function getSecsAdvice(sessionHistory, learnedWeights, equip, returnState) {
+  const sets1 = sessionHistory[0].sets
+  const avg = (arr, fn) => arr.reduce((s, x) => s + fn(x), 0) / arr.length
+  const avgSecs1      = avg(sets1, s => Number(s.reps) || 0)
+  const currentWeight = avg(sets1, s => Number(s.weight) || 0)
+  const returnActive  = !!returnState?.active
+  const medicalReturn = returnActive && (returnState.motivo === 'enfermedad' || returnState.motivo === 'lesion')
+  const returnMeta    = returnActive ? { returnActive: true, preGapLevel: returnState.preGapLevel } : {}
+  const base = { unit: 'secs', pattern: 'fixed', currentWeight }
+
+  if (avgSecs1 <= 0) return { hasHistory: true, suggest: false, ...base, ...returnMeta }
+
+  const sets2 = sessionHistory[1]?.sets
+  if (currentWeight > 0 && sets2?.length) {
+    const avgSecs2 = avg(sets2, s => Number(s.reps) || 0)
+    const avgWt2   = avg(sets2, s => Number(s.weight) || 0)
+    if (Math.abs(currentWeight - avgWt2) < 0.5 && avgSecs1 >= SECS_WEIGHT_TARGET && avgSecs2 >= SECS_WEIGHT_TARGET) {
+      let newWeight = getNextWeight(currentWeight, learnedWeights, getEquipCategory(equip))
+      if (returnActive && !medicalReturn && returnState.preGapLevel > 0) newWeight = Math.min(newWeight, returnState.preGapLevel)
+      if (newWeight > currentWeight) {
+        return { hasHistory: true, suggest: true, suggestType: 'weight_secs', newWeight, resetSecs: SECS_RESET, ...base, ...returnMeta }
+      }
+    }
+  }
+  return { hasHistory: true, suggest: true, suggestType: 'secs', addSecs: SECS_STEP, ...base, ...returnMeta }
+}
+
 // sessionHistory: [{date, sets: [{reps, weight}], fatigue}, ...]
 // learnedWeights: pesos distintos > 0 usados históricamente en este ejercicio (ver useWorkouts.getLearnedWeights)
 // equip: campo `equip` del ejercicio (string crudo de exercises.js)
@@ -54,10 +91,14 @@ export function getJumpRepBonus(currentWeight, nextWeight) {
 // motivo del parate no fue enfermedad/lesión, alcanzar el umbral con la ÚLTIMA sesión sola (sin
 // bono de salto) alcanza para sugerir subir, y el techo de la sugerencia es preGapLevel (no se
 // sugiere pasar de largo el peso que se manejaba antes del parate en un solo salto).
-export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHistory, learnedWeights = [], equip = '', returnState = null) {
+// unit: 'reps' | 'secs' (opcional; si no viene se resuelve con getExerciseUnit por id/nombre).
+export function getProgressionAdvice(exerciseId, exerciseName, level, sessionHistory, learnedWeights = [], equip = '', returnState = null, unit = null) {
   if (!sessionHistory?.length || !sessionHistory[0]?.sets?.length) {
     return { hasHistory: false, suggest: false }
   }
+
+  const exUnit = unit ?? getExerciseUnit({ exerciseId, name: exerciseName })
+  if (exUnit === 'secs') return getSecsAdvice(sessionHistory, learnedWeights, equip, returnState)
 
   const { min: repsMin, max: repsThreshold } = REP_RANGES[level] ?? REP_RANGES.D
   const pattern = detectPattern(sessionHistory[0].sets)

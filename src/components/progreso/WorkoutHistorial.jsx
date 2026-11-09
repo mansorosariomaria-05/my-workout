@@ -6,6 +6,7 @@ import { es } from 'date-fns/locale'
 import { CloudUpload } from 'lucide-react'
 import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 import Modal from '../ui/Modal'
+import { getExerciseUnit, formatSetText } from '../../utils/exerciseUnit'
 
 const TYPE_DOT = {
   fuerza: 'bg-app-purple',
@@ -101,7 +102,7 @@ export default function WorkoutHistorial({ workouts }) {
                 <div className="mt-2 space-y-1">
                   {e.sets?.map((s, j) => (
                     <p key={j} className="text-xs text-app-muted">
-                      Serie {j + 1}: {s.reps} reps · {s.weight} kg
+                      Serie {j + 1}: {formatSetText(s, getExerciseUnit(e), 'dot')}
                     </p>
                   ))}
                 </div>

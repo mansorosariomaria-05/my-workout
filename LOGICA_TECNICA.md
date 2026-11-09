@@ -329,7 +329,7 @@ export function detectPRs(workout, workoutsHistory) {
 
 ### `detectImprovements(workout, workoutsHistory)`
 
-**Qué compara**: peso máximo / reps de la sesión actual vs. la **sesión inmediatamente anterior** de ese mismo ejercicio (no el máximo histórico).
+**Qué compara**: peso máximo / reps de la sesión actual vs. la **sesión inmediatamente anterior** de ese mismo ejercicio (no el máximo histórico). Desde noviembre 2026 las mejoras de tipo `'reps'` incluyen `unit` (`'reps'` | `'secs'`, ver sección 24) para que el resumen diga "seg" en los ejercicios por tiempo.
 
 ```js
 export function detectImprovements(workout, workoutsHistory) {
@@ -1259,7 +1259,7 @@ Usa el violeta de la paleta (`app-purple-light` / `#9B7FD4`). El "borde" de 1.5p
 |---|---|
 | `!progressionAdvice.hasHistory` | `💡 Primera vez con este ejercicio...` |
 | `advice.suggest` y hay al menos una opción disponible, sin resolver todavía | Tarjeta "¡Podés superarte!" con los botones de opciones (ver arriba) y "Hoy no" |
-| `advice.suggest` pero `exData.suggestionDismissed` (ya se resolvió hoy) | `✓ Ya definiste tu progresión para hoy.` |
+| `advice.suggest` pero `exData.suggestionDismissed` (ya se resolvió hoy) | `✓ Ya definiste tu progresión para hoy.` (solo en este caso, desde noviembre 2026: si hay sugerencia pero ninguna opción se mostró, cae a `✓ Mantené el peso, vas bien.`) |
 | `!advice.suggest` y `effectiveThreshold != null` | `Objetivo: {effectiveThreshold} reps en la última serie` (pyramid) o `...por serie` (fixed) — informativo, ninguna caja cambia |
 | `!advice.suggest` sin `effectiveThreshold` (caso residual) | `✓ Mantené el peso, vas bien.` |
 
@@ -1433,6 +1433,7 @@ Reemplaza las dos implementaciones casi idénticas que existían antes (`generat
 Cada uno de los 90 ejercicios tiene dos campos nuevos:
 - **`pattern`**: patrón de movimiento (21 valores: `sentadilla`, `zancada`, `bisagra`, `empuje_cadera`, `extension_cadera`, `abduccion`, `curl_femoral`, `extension_rodilla`, `gemelos`, `traccion_vertical`, `traccion_horizontal`, `deltoides_posterior`, `empuje_horizontal`, `aperturas`, `empuje_vertical`, `elevacion_lateral`, `triceps`, `biceps`, `core_flexion`, `core_antiextension`, `core_rotacion`).
 - **`unilateral`** (boolean): ejercicios que trabajan un lado del cuerpo por vez (ej. Sentadillas búlgaras, Hip Thrust unilateral, Press de hombros unilateral).
+- **`unit`** (`'reps'` | `'secs'`, desde noviembre 2026): en qué se mide el ejercicio; ver sección 24.
 
 ### Regiones y zonas de fatiga (`PATTERN_REGION`, `PATTERN_ZONE`)
 
@@ -1906,6 +1907,70 @@ Simulación en Node (Firestore falso con `setDoc` idempotente, `localStorage` fa
 ### Verificación
 
 Simulación con jsdom y el `AuthProvider` real (Auth y Firestore simulados), 21 casos: la lógica anterior reproduce `loading → auth → onboarding → app`; la nueva da `auth → loading → app` (login con lectura lenta) y `loading → app` (arranque con sesión) sin pasar nunca por onboarding; error → "Reintentar" → app; usuario nuevo sin perfil (servidor) → onboarding; "no existe"/incompleto desde el caché → error; perfil completo desde el caché → app; perfil con `onboardingDone` falso → onboarding; evento repetido sin desmontar; cambio de usuario descarta la lectura vieja; `completeOnboarding` no pisa un perfil completo; `updateProfile` envía solo los campos nuevos; demora excesiva → error. No se probó contra Firebase real.
+
+---
+
+## 24. UNIDAD POR EJERCICIO (reps o segundos) Y FIN DEL TEMPORIZADOR ▶ (noviembre 2026)
+
+Implementa la opción "a + unidad por ejercicio" del informe `INFORME_EJERCICIOS_TIEMPO.md`. Archivos: `src/data/exercises.js`, `src/utils/exerciseUnit.js` (nuevo), `src/utils/progression.js`, `src/utils/prUtils.js`, `src/components/registro/FuerzaFlow.jsx`, `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `WeekCalendar.jsx`, `WorkoutHistorial.jsx`, `BibliotecaTab.jsx`.
+
+### El campo `unit`
+
+- **Catálogo:** cada uno de los 90 ejercicios tiene `unit: 'reps' | 'secs'` (por defecto `'reps'`). Están en `'secs'` solo 4: **Sentadilla isométrica** (`cua_07`), **La Plancha** (`cor_01`), **Plancha lateral** (`obl_03`) y **Hollow Body Hold** (`cor_04`). Plancha con flexión (`abs_02`), Plancha con Arrastre de Mancuerna, Dead Bug (`obl_04`), Bird Dog (`cor_03`) y Press Pallof (`cor_02`) quedan en `'reps'`.
+- **Workout guardado:** cada ejercicio dentro de `workout.exercises[]` lleva ahora `unit` (campo nuevo, **solo aditivo**). Se agrega en `buildEntry` (`FuerzaFlow.jsx`) y se garantiza al guardar en `stripSuggestedFlags` (`WorkoutWizard.jsx`, también para borradores armados antes de este cambio). **Los segundos se siguen guardando en `sets[].reps`** (ninguna lectura ni escritura previa se rompe) y el peso sigue en `sets[].weight` (opcional; puede ser `0`, `''` o faltar).
+
+### `getExerciseUnit(exercise)` (`src/utils/exerciseUnit.js`)
+
+Helper único. Orden de búsqueda:
+
+1. `unit` guardada en el propio registro (`'reps'` o `'secs'`);
+2. catálogo por id (`exerciseId` o `id`);
+3. catálogo por **nombre exacto** (ids `alt-…` y alternativas que existen en el catálogo, p. ej. "La Plancha");
+4. `'reps'`.
+
+**No hay ninguna detección por substring del nombre** (la lista `TIME_EXERCISES` y su `name.includes(...)` se eliminaron; un ejercicio propio llamado "Mi plancha rara" es `'reps'`). Además exporta `isSecs`, `DEFAULT_SECS = 30` y `formatSetText(set, unit, style)` (texto de una serie: `"45 seg"`, `"45 seg × 10 kg"`, `"12 reps"`, `"12×20 kg"`; con peso 0, `""`, faltante o no numérico **no** se muestra `"· 0 kg"`; estilo `'dot'`: `"12 reps · 20 kg"`).
+
+### Registro (`FuerzaFlow.jsx`)
+
+- **Eliminados:** `TIME_EXERCISES`, `InlineTimer` (el botón ▶, el ⏹ y la cuenta regresiva trabajo/descanso por serie), el botón **Reps/Segs** junto al nombre, la columna "Timer" y el estado `useSeconds` / `activeTimerIdx`. Con eso desaparece también el bug (descrito en `INFORME_EJERCICIOS_TIEMPO.md`) del estado `useSeconds` que quedaba pegado al ejercicio de la misma posición después de "Cambiar" (la unidad ahora sale del ejercicio, no de un estado por índice). **Se mantiene `InlineRestTimer`** (descanso entre series) sin cambios.
+- **Rótulos:** en un ejercicio `'secs'` la columna se llama **"Seg"** (en vez de "Reps") y la de peso **"Peso (kg) opc."**; la fila sigue siendo de 3 columnas.
+- **Precarga:** igual que antes (última sesión real tal cual). En `'secs'`, si no hay historial, 3 series de **30 seg** (en `'reps'`: 10/12 según nivel); si una serie vieja trae segundos vacíos o 0, también 30.
+- **Cambiar / alternativa:** una alternativa que existe en el catálogo toma su `unit`; una alternativa que **no** está en el catálogo (id `alt-…`) **hereda la unidad del ejercicio que se estaba haciendo** (La Plancha → "Plancha en rodillas" sigue en segundos, con 30 por defecto).
+
+### Progresión de ejercicios en `'secs'` (`getProgressionAdvice`, parámetro `unit`)
+
+`getProgressionAdvice(..., returnState, unit)`: `unit` es opcional; si no se pasa se resuelve con `getExerciseUnit({ exerciseId, name })`. En `'secs'` **no se aplican umbrales de reps (`REP_RANGES`), `jumpBonus` ni Epley**; el resultado trae `unit: 'secs'` y nunca `effectiveThreshold`/`repsMin`/`repsThreshold`:
+
+| Caso | Sugerencia (`suggestType`) | Opción en la tarjeta |
+|---|---|---|
+| Sin historial | — (`hasHistory: false`) | "Primera vez… segundos sugeridos" |
+| Por defecto (sin peso, o con peso que todavía no llegó a 60 seg) | `'secs'`, `addSecs: 5` | **"+5 seg"** o **"+5 seg con X kg"**: mismo peso, +5 seg sobre la última sesión en **todas** las series |
+| Con peso y **60 seg o más** (promedio de la serie) en las **dos últimas sesiones al mismo peso** | `'weight_secs'`, `newWeight` = siguiente escalón (`getNextWeight`), `resetSecs: 30` | **"+ peso: X kg × 30 seg"** (en lugar de "+5 seg") |
+
+Con una sola sesión de historial se sugiere +5 seg (no se exigen dos sesiones). Si la última sesión tiene 0 seg promedio, no se sugiere nada. Sin peso nunca se sugiere subir peso. En modo regreso (motivo no médico) el peso sugerido se topa en `preGapLevel`; la regla relajada de 1 sesión del modo regreso no aplica a `'secs'`. Para `'reps'` el resultado es **idéntico al anterior** (verificado con ~6500 combinaciones contra la versión previa).
+
+### Mensaje "Ya definiste tu progresión para hoy"
+
+Ahora solo aparece si hay sugerencia (`advice.suggest`) **y** el usuario ya la resolvió (`exData.suggestionDismissed`, tras elegir una opción o "Hoy no"). Si hay sugerencia pero **ninguna opción se mostró** (p. ej. la de "+2 reps" pasaría el tope de 25 y no hay opción de peso), la tarjeta dice `✓ Mantené el peso, vas bien.`.
+
+### Mensajes de mejora, historiales y resúmenes
+
+- `detectImprovements` agrega `unit` (`getExerciseUnit(ex)`) a cada mejora de tipo `'reps'`; `WorkoutSummary` muestra **"¡Aguantaste 10 seg más en La Plancha! 🎯"** si `unit === 'secs'` y el mensaje de reps de siempre si no. Las mejoras de peso no cambian.
+- Se muestra **"45 seg"** en lugar de "45 reps" (con `formatSetText`) en: `ExerciseHistoryModal` (📊 Historial del ejercicio, en `FuerzaFlow.jsx`), `WeekCalendar` (detalle del día), `WorkoutHistorial` (detalle del entrenamiento) y `BibliotecaTab` (últimas sesiones). En todos, con peso 0, vacío o `""` ya no se muestra "· 0 kg".
+
+### Lo que NO cambió (a propósito)
+
+- **Progreso, `detectPRs`, logros** y los cálculos de "mayor progreso" siguen basados solo en **peso** (se revisan en el próximo paso). `ProgresoPage` y `ExerciseProgress` todavía rotulan "reps"/"×N" sin distinguir segundos.
+- **`routines.js` y los generadores de rutina** no leen `unit`; Plancha con Arrastre de Mancuerna (`'reps'`, está en `rutina-empuje-vertical` y `rutina-fuerza-accesoria`) sigue funcionando: se verificó el catálogo, `buildEntry` y la progresión con ese ejercicio.
+- **La sección Tabata es solo de referencia y no tiene temporizador**; este cambio no la toca.
+
+### Historial anterior: no se migró
+
+Los workouts guardados antes de este cambio no tienen `unit`: se resuelven por catálogo (id → nombre exacto → `'reps'`), así que La Plancha/Sentadilla isométrica/Plancha lateral/Hollow Body Hold viejos se leen como segundos, y el resto como repeticiones. **No se migró ni se reescribió nada.** El único caso conocido de unidades mezcladas es un registro de **Dead Bug** (una sesión cargada con un valor que parece segundos y otra con uno que parece repeticiones): Dead Bug es `'reps'`, así que la sesión cargada en segundos se lee como repeticiones; se deja sin migrar.
+
+### Verificación
+
+Con las funciones reales (arnés fuera del repo): `getExerciseUnit` (catálogo, `alt-…`, registro viejo sin `unit`, ejercicio propio), `getProgressionAdvice` (`'secs'` sin peso, con peso, con ≥60 seg en 2 sesiones, peso distinto, sin historial; y `'reps'` idéntico), `detectImprovements`, `formatSetText` y un render de `FuerzaFlow` (columna "Seg" solo en los 4 ejercicios, sin ▶ ni Reps/Segs, opciones "+5 seg" / "+ peso: … × 30 seg"): 68 casos OK. En el navegador se revisó el render estático de `FuerzaFlow` con el CSS real de la app (no la app con sesión iniciada).
 
 ---
 

@@ -3,6 +3,7 @@ import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { useAuthContext } from '../../context/AuthContext'
 import { saveCustomExercise, getCustomExercises, deleteCustomExercise } from '../../services/db'
 import Card from '../ui/Card'
+import { getExerciseUnit, formatSetText } from '../../utils/exerciseUnit'
 import Button from '../ui/Button'
 
 const GROUP_COLORS = {
@@ -70,7 +71,7 @@ function ExerciseRow({ ex, isCustom, onDelete, history }) {
               <p className="text-app-muted text-xs mb-1">Últimas sesiones:</p>
               {history.slice(0, 3).map((h, i) => (
                 <p key={i} className="text-xs text-app-muted/70">
-                  {h.date}: {h.sets?.map(s => `${s.reps}×${s.weight}kg`).join(', ')}
+                  {h.date}: {h.sets?.map(s => formatSetText(s, getExerciseUnit(ex))).join(', ')}
                 </p>
               ))}
             </div>

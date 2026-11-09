@@ -10,6 +10,7 @@ import ClaseFlow from './ClaseFlow'
 import WorkoutSummary from './WorkoutSummary'
 import Button from '../ui/Button'
 import { todayStr } from '../../utils/dates'
+import { getExerciseUnit } from '../../utils/exerciseUnit'
 import { toSeconds, computePace, formatPace } from '../../utils/cardio'
 import { runAchievementCheck, ACHIEVEMENTS_META } from '../../utils/achievements'
 import { FuerzaIcon, CardioIcon, ClaseIcon } from '../icons/WorkoutIcons'
@@ -104,6 +105,7 @@ export default function WorkoutWizard({ initialType }) {
   const stripSuggestedFlags = (exs) =>
     (exs ?? []).map(({ suggestionDismissed, ...ex }) => ({
       ...ex,
+      unit: getExerciseUnit(ex), // 'reps' | 'secs' — los segundos se siguen guardando en sets[].reps
       sets: (ex.sets ?? []).map(({ _suggested, ...rest }) => rest),
     }))
 

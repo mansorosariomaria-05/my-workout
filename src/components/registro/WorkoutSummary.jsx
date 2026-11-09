@@ -209,7 +209,9 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
             <p className="text-sm" style={{ color: '#40916C' }}>
               {imp.type === 'weight'
                 ? `¡Subiste ${imp.deltaW}kg en ${imp.name}! 💪`
-                : `¡Hiciste ${imp.deltaR} rep${imp.deltaR > 1 ? 's' : ''} más en ${imp.name}! 🎯`}
+                : imp.unit === 'secs'
+                  ? `¡Aguantaste ${imp.deltaR} seg más en ${imp.name}! 🎯`
+                  : `¡Hiciste ${imp.deltaR} rep${imp.deltaR > 1 ? 's' : ''} más en ${imp.name}! 🎯`}
             </p>
           </div>
         ))}

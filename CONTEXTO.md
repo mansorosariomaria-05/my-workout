@@ -56,7 +56,7 @@ src/
       ExerciseProgress.jsx     # Progresión de peso por ejercicio
       WorkoutHistorial.jsx     # Historial de sesiones
 
-    tabata/
+    tabata/                    # Solo referencia (protocolos): no tiene temporizador
       TabataPage.jsx / TabataCard.jsx / TabataDetail.jsx
 
     ui/
@@ -312,7 +312,7 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 - Se activa al completar una serie
 - Tiempo configurable desde settings o sobreescrito por usuario
 
-**Ejercicios de tiempo** (`TIME_EXERCISES`): no piden peso, solo duración en segundos.
+**Unidad por ejercicio** (campo `unit`: `'reps'` o `'secs'`, resuelto con `getExerciseUnit` en `utils/exerciseUnit.js`; ver `LOGICA_TECNICA.md` sección 24): los ejercicios en `'secs'` (Sentadilla isométrica, La Plancha, Plancha lateral, Hollow Body Hold) rotulan la columna "Seg", el peso es opcional y los segundos se guardan en `sets[].reps`. **No hay temporizador ▶ por serie** (se eliminó; `TIME_EXERCISES` ya no existe): solo queda el timer de descanso entre series. La sección **Tabata es solo de referencia y no tiene temporizador**.
 
 ---
 

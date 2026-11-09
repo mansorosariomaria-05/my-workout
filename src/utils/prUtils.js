@@ -1,3 +1,5 @@
+import { getExerciseUnit } from './exerciseUnit.js'
+
 export function detectPRs(workout, workoutsHistory) {
   if (!workout.exercises?.length) return []
   const prs = []
@@ -37,7 +39,7 @@ export function detectImprovements(workout, workoutsHistory) {
     if (maxWeightNow > maxWeightLast) {
       improvements.push({ name: ex.name, type: 'weight', deltaW: maxWeightNow - maxWeightLast, weight: maxWeightNow })
     } else if (maxWeightNow === maxWeightLast && maxRepsNowAtSameWeight > maxRepsLastAtSameWeight) {
-      improvements.push({ name: ex.name, type: 'reps', deltaR: maxRepsNowAtSameWeight - maxRepsLastAtSameWeight, reps: maxRepsNowAtSameWeight })
+      improvements.push({ name: ex.name, type: 'reps', unit: getExerciseUnit(ex), deltaR: maxRepsNowAtSameWeight - maxRepsLastAtSameWeight, reps: maxRepsNowAtSameWeight })
     }
   }
   return improvements

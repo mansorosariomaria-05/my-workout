@@ -7,13 +7,13 @@ import { applyDeloadMultiplier } from '../../utils/weights'
 import { reduceWeight } from '../../utils/returnRoutine'
 import { getReturnState } from '../../utils/reentry'
 import { getInactivityInfo } from '../../utils/inactivity'
+import { getExerciseUnit, formatSetText, DEFAULT_SECS } from '../../utils/exerciseUnit'
 import { todayStr } from '../../utils/dates'
 import { useAuthContext } from '../../context/AuthContext'
 import { getCustomExercises, saveCustomExercise, deleteCustomExercise, getCustomRoutines } from '../../services/db'
 import { Plus } from 'lucide-react'
 import Modal from '../ui/Modal'
 
-const TIME_EXERCISES = ['Plancha', 'Sentadilla isométrica', 'Bird Dog', 'Hollow Body Hold', 'Dead Bug', 'Press Pallof']
 const REST_OPTIONS   = [30, 45, 60, 75, 90, 120, 150, 180]
 const LEVEL_ORDER    = ['A', 'B', 'C', 'D']
 const exDisplayName  = (e) => e.zone ? `${e.name} (${e.zone})` : e.name
@@ -55,48 +55,6 @@ function playBeep(freq = 880, dur = 0.12) {
   } catch (_) {}
 }
 function doVibrate(ms = 200) { try { navigator.vibrate?.(ms) } catch (_) {} }
-
-function InlineTimer({ workSecs, restSecs, onDone, onCancel }) {
-  const [phase, setPhase] = useState('work')
-  const [count, setCount] = useState(workSecs)
-  const ref   = useRef({ phase: 'work', count: workSecs })
-  const ivRef = useRef(null)
-
-  useEffect(() => {
-    ref.current = { phase: 'work', count: workSecs }
-    ivRef.current = setInterval(() => {
-      ref.current.count -= 1
-      if (ref.current.count <= 0) {
-        playBeep(); doVibrate()
-        if (ref.current.phase === 'work') {
-          ref.current = { phase: 'rest', count: restSecs }
-          setPhase('rest'); setCount(restSecs)
-        } else {
-          clearInterval(ivRef.current)
-          ref.current.phase = 'done'
-          setPhase('done'); onDone?.()
-        }
-      } else {
-        setCount(ref.current.count)
-      }
-    }, 1000)
-    return () => clearInterval(ivRef.current)
-  }, [])
-
-  if (ref.current.phase === 'done') return null
-  const isWork = phase === 'work'
-  return (
-    <div className={`flex items-center justify-between px-3 py-2 rounded-xl my-1 border ${
-      isWork ? 'bg-green-600/20 border-green-600/30' : 'bg-red-600/20 border-red-600/30'
-    }`}>
-      <span className={`text-xs font-medium ${isWork ? 'text-green-400' : 'text-red-400'}`}>
-        {isWork ? 'Trabajo' : 'Descanso'}
-      </span>
-      <span className={`text-2xl font-bold ${isWork ? 'text-green-400' : 'text-red-400'}`}>{count}s</span>
-      <button onClick={onCancel} className="text-app-muted/60 text-xs bg-white/5 px-2 py-1 rounded-lg">✕</button>
-    </div>
-  )
-}
 
 function InlineRestTimer({ totalSec, onDone, onSkip }) {
   const [sec, setSec] = useState(totalSec)
@@ -142,7 +100,7 @@ function InlineRestTimer({ totalSec, onDone, onSkip }) {
   )
 }
 
-function ExerciseHistoryModal({ sessions }) {
+function ExerciseHistoryModal({ sessions, unit = 'reps' }) {
   if (!sessions?.length) {
     return <p className="text-app-muted/50 text-sm text-center py-4">Sin historial aún</p>
   }
@@ -163,7 +121,7 @@ function ExerciseHistoryModal({ sessions }) {
               return (
                 <div key={j} className="flex items-center gap-2">
                   <span className="text-app-muted/50 text-[10px] w-5">S{j + 1}</span>
-                  <span className="text-app-text text-xs">{set.reps ?? 0} × {set.weight ?? 0}kg</span>
+                  <span className="text-app-text text-xs">{formatSetText(set, unit)}</span>
                   {w > 0 && w === globalMax && <span className="text-[9px] bg-app-gold/20 text-app-gold px-1.5 py-0.5 rounded-full">PR</span>}
                 </div>
               )
@@ -212,6 +170,27 @@ function buildRepsOption(advice, lastSets) {
   return { type: 'reps', pyramid, weight, reps, idxList }
 }
 
+// Ejercicios en SEGUNDOS (unit 'secs'): sin Epley ni umbrales de reps. Opción "+5 seg": mismo peso, +5 seg
+// sobre lo que hizo la última vez en TODAS las series.
+function buildSecsOption(advice, lastSets) {
+  if (!advice?.suggest || advice.suggestType !== 'secs' || !lastSets?.length) return null
+  const idxList = lastSets.map((_, i) => i)
+  const reps = {}
+  idxList.forEach(i => { reps[i] = (Number(lastSets[i]?.reps) || 0) + advice.addSecs })
+  const weight = Number(lastSets[0]?.weight) || 0
+  return { type: 'reps', unit: 'secs', pyramid: false, weight, addSecs: advice.addSecs, reps, idxList }
+}
+
+// Opción "+ peso" en segundos: con 60 seg o más en las dos últimas sesiones al mismo peso, sube el peso y
+// vuelve a 30 seg en todas las series.
+function buildSecsWeightOption(advice, lastSets) {
+  if (!advice?.suggest || advice.suggestType !== 'weight_secs' || !lastSets?.length) return null
+  const idxList = lastSets.map((_, i) => i)
+  const reps = {}
+  idxList.forEach(i => { reps[i] = advice.resetSecs })
+  return { type: 'weight', unit: 'secs', pyramid: false, value: advice.newWeight, reps, idxList }
+}
+
 // Aplica la opción elegida a mano a exData.sets, marcando los campos tocados con _suggested (brillo
 // violeta — se apaga al editar, igual que antes).
 function applySuggestionOption(setsArr, option) {
@@ -226,9 +205,8 @@ function applySuggestionOption(setsArr, option) {
 
 function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, origExName, pr, lastSession, progressionAdvice, restSec, lesiones, deloadActive, learnedWeights, allSessions }) {
   const lastSets    = lastSession?.sets
-  const defaultSecs = TIME_EXERCISES.some(n => ex.name.includes(n))
-  const [useSeconds, setUseSeconds]         = useState(defaultSecs)
-  const [activeTimerIdx, setActiveTimerIdx] = useState(-1)
+  const unit        = getExerciseUnit(exData) // 'reps' | 'secs' — viene del ejercicio, no de un botón
+  const isSecs      = unit === 'secs'
   const [showPicker, setShowPicker]         = useState(false)
   const [restRunning, setRestRunning]       = useState(false)
   const [showHistory, setShowHistory]       = useState(false)
@@ -239,8 +217,8 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
   // "Hoy no". El estado de "ya resuelto para esta sesión" vive en exData (persiste en el borrador
   // del entrenamiento en curso, ver WorkoutDraftContext), así no reaparece al recargar la página.
   const suggestionDismissed = !!exData.suggestionDismissed
-  const weightOption = suggestionDismissed ? null : buildWeightOption(progressionAdvice, lastSets)
-  const repsOption    = suggestionDismissed ? null : buildRepsOption(progressionAdvice, lastSets)
+  const weightOption = suggestionDismissed ? null : (isSecs ? buildSecsWeightOption(progressionAdvice, lastSets) : buildWeightOption(progressionAdvice, lastSets))
+  const repsOption    = suggestionDismissed ? null : (isSecs ? buildSecsOption(progressionAdvice, lastSets) : buildRepsOption(progressionAdvice, lastSets))
   const showSuggestionCard = !!progressionAdvice?.suggest && !suggestionDismissed && (weightOption || repsOption)
 
   const applySuggestion = (option) => {
@@ -275,14 +253,6 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-app-text font-semibold text-sm">{ex.name}</p>
-            <button
-              onClick={() => setUseSeconds(u => !u)}
-              className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                useSeconds ? 'border-app-amber text-app-amber bg-app-amber/10' : 'border-white/15 text-app-muted'
-              }`}
-            >
-              {useSeconds ? 'Segs' : 'Reps'}
-            </button>
           </div>
           <div className="flex gap-2 mt-0.5 flex-wrap">
             <span className="text-app-muted text-xs">{ex.muscle}</span>
@@ -327,7 +297,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       {!progressionAdvice?.hasHistory ? (
         <div className="bg-app-purple/10 border border-app-purple/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-purple-light text-xs">
-            💡 Primera vez con este ejercicio. Empezá con las reps sugeridas y elegí un peso con el que puedas completarlas con buena forma.
+            💡 Primera vez con este ejercicio. {isSecs ? 'Empezá con los segundos sugeridos y sumá peso solo si podés sostenerlos con buena forma.' : 'Empezá con las reps sugeridas y elegí un peso con el que puedas completarlas con buena forma.'}
           </p>
         </div>
       ) : showSuggestionCard ? (
@@ -343,7 +313,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
                 onClick={() => applySuggestion(weightOption)}
                 className="w-full py-2 px-3 rounded-lg bg-app-green/20 border border-app-green-light/30 text-app-green-light text-xs font-medium text-left active:opacity-70 transition-opacity"
               >
-                + peso: {weightOption.value} kg × {weightOption.reps[weightOption.idxList[0]]}
+                + peso: {weightOption.value} kg × {weightOption.reps[weightOption.idxList[0]]}{isSecs ? ' seg' : ''}
               </button>
             )}
             {repsOption && (
@@ -351,7 +321,9 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
                 onClick={() => applySuggestion(repsOption)}
                 className="w-full py-2 px-3 rounded-lg bg-app-green/20 border border-app-green-light/30 text-app-green-light text-xs font-medium text-left active:opacity-70 transition-opacity"
               >
-                +2 reps con {repsOption.weight} kg
+                {isSecs
+                  ? `+${repsOption.addSecs} seg${repsOption.weight > 0 ? ` con ${repsOption.weight} kg` : ''}`
+                  : `+2 reps con ${repsOption.weight} kg`}
               </button>
             )}
             <button
@@ -362,8 +334,10 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
             </button>
           </div>
         </div>
-      ) : progressionAdvice.suggest ? (
+      ) : progressionAdvice.suggest && suggestionDismissed ? (
         <p className="text-app-purple-light/60 text-xs mb-2">✓ Ya definiste tu progresión para hoy.</p>
+      ) : progressionAdvice.suggest ? (
+        <p className="text-app-purple-light/60 text-xs mb-2">✓ Mantené el peso, vas bien.</p>
       ) : progressionAdvice.effectiveThreshold != null ? (
         <p className="text-app-purple-light/60 text-xs mb-2">
           Objetivo: {progressionAdvice.effectiveThreshold} reps {progressionAdvice.pattern === 'pyramid' ? 'en la última serie' : 'por serie'}
@@ -381,15 +355,14 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       )}
 
       <div className="space-y-1">
-        <div className={`grid gap-1 text-app-muted text-[10px] font-medium px-1 ${useSeconds ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        <div className="grid grid-cols-3 gap-1 text-app-muted text-[10px] font-medium px-1">
           <span>Serie</span>
-          <span className="text-center">{useSeconds ? 'Segs' : 'Reps'}</span>
-          <span className="text-center">Peso (kg)</span>
-          {useSeconds && <span className="text-center">Timer</span>}
+          <span className="text-center">{isSecs ? 'Seg' : 'Reps'}</span>
+          <span className="text-center">{isSecs ? 'Peso (kg) opc.' : 'Peso (kg)'}</span>
         </div>
         {sets.map((s, i) => (
           <div key={i}>
-            <div className={`grid gap-1 items-center ${useSeconds ? 'grid-cols-4' : 'grid-cols-3'}`}>
+            <div className="grid grid-cols-3 gap-1 items-center">
               <button
                 onClick={() => removeSet(i)}
                 aria-label={`Eliminar serie ${i + 1}`}
@@ -406,27 +379,14 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
                   </span>
                 )}
               </button>
-              <input type="number" value={s.reps ?? ''} onChange={e => updateSet(i, 'reps', e.target.value)}
+              <input type="number" aria-label={isSecs ? 'Segundos' : 'Repeticiones'} value={s.reps ?? ''} onChange={e => updateSet(i, 'reps', e.target.value)}
                 className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.reps ? 'input-suggested' : ''}`}
               />
               <input type="number" step="0.5" value={s.weight ?? ''} onChange={e => updateSet(i, 'weight', e.target.value)}
                 placeholder={lastSets?.[0]?.weight ?? '0'}
                 className={`bg-app-bg border border-white/8 rounded-lg py-2 text-app-text text-sm text-center focus:outline-none focus:border-app-purple/50 ${s._suggested?.weight ? 'input-suggested' : ''}`}
               />
-              {useSeconds && (
-                <button
-                  onClick={() => setActiveTimerIdx(activeTimerIdx === i ? -1 : i)}
-                  className={`rounded-lg py-2 text-xs font-medium ${activeTimerIdx === i ? 'bg-red-600/20 text-red-400' : 'bg-green-600/20 text-green-400'}`}
-                >
-                  {activeTimerIdx === i ? '⏹' : '▶'}
-                </button>
-              )}
             </div>
-            {useSeconds && activeTimerIdx === i && (
-              <InlineTimer workSecs={Number(s.reps) || 30} restSecs={currentRestSecs}
-                onDone={() => setActiveTimerIdx(-1)} onCancel={() => setActiveTimerIdx(-1)}
-              />
-            )}
           </div>
         ))}
       </div>
@@ -483,7 +443,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       ) : null}
 
       <Modal isOpen={showHistory} onClose={() => setShowHistory(false)} title={`Historial · ${ex.name}`}>
-        <ExerciseHistoryModal sessions={allSessions} />
+        <ExerciseHistoryModal sessions={allSessions} unit={unit} />
       </Modal>
     </div>
   )
@@ -580,17 +540,19 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   // y se aplican a mano desde la tarjeta "¡Podés superarte!" en ExerciseCard, nunca acá.
   const buildEntry = (ex) => {
     const history = getLastWeightsForExercise(ex.id)
-    const defaultReps = ['A', 'B'].includes(ex.level) ? 10 : 12
+    const unit = getExerciseUnit(ex)
+    // En 'secs' la precarga es el valor de la última sesión si existe; si no, 30 seg. En 'reps', como siempre.
+    const defaultReps = unit === 'secs' ? DEFAULT_SECS : (['A', 'B'].includes(ex.level) ? 10 : 12)
 
     if (!history.length || !history[0]?.sets?.length) {
       const setsArr = Array.from({ length: 3 }, () => ({ reps: defaultReps, weight: '' }))
-      return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr }
+      return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, unit, sets: setsArr }
     }
 
     const lastSets = history[0].sets
-    const setsArr  = lastSets.map(s => ({ reps: s.reps ?? '', weight: s.weight ?? '' }))
+    const setsArr  = lastSets.map(s => ({ reps: unit === 'secs' && !Number(s.reps) ? DEFAULT_SECS : (s.reps ?? ''), weight: s.weight ?? '' }))
 
-    return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }
+    return { exerciseId: ex.id, name: ex.name, muscle: ex.muscle, originalMuscle: ex.muscle, unit, sets: setsArr.length ? setsArr : [{ reps: defaultReps, weight: '' }] }
   }
 
   // Rutina de regreso (utils/returnRoutine.js): SOLO cuando el usuario tocó "Empezar" en la tarjeta de
@@ -653,7 +615,12 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     const altEx = allExercises.find(e => e.name.toLowerCase() === altName.toLowerCase())
     const newEntry = altEx
       ? { ...buildEntry(altEx), originalMuscle, originalExerciseId: entry.exerciseId }
-      : { exerciseId: `alt-${i}-${Date.now()}`, name: altName, muscle: originalMuscle, originalMuscle, originalExerciseId: entry.exerciseId, sets: [{ reps: 12, weight: '' }, { reps: 12, weight: '' }, { reps: 12, weight: '' }] }
+      : (() => {
+          // Alternativa que no está en el catálogo (id alt-…): hereda la unidad del ejercicio actual.
+          const altUnit = getExerciseUnit(entry)
+          const n = altUnit === 'secs' ? DEFAULT_SECS : 12
+          return { exerciseId: `alt-${i}-${Date.now()}`, name: altName, muscle: originalMuscle, originalMuscle, originalExerciseId: entry.exerciseId, unit: altUnit, sets: [{ reps: n, weight: '' }, { reps: n, weight: '' }, { reps: n, weight: '' }] }
+        })()
     updateExercise(i, newEntry)
   }
 
@@ -1099,7 +1066,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
             const pr      = getPRForExercise(entry.exerciseId)
             const learned = getLearnedWeights(entry.exerciseId)
             const returnState = getReturnStateFor(ex)
-            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, lastSetsHistory, learned, ex.equip, returnState)
+            const advice  = getProgressionAdvice(entry.exerciseId, ex.name, ex.level, lastSetsHistory, learned, ex.equip, returnState, getExerciseUnit(entry))
             const origExName = entry.originalExerciseId
               ? (allExercises.find(e => e.id === entry.originalExerciseId)?.name ?? null)
               : null

@@ -2,7 +2,7 @@
 
 Fecha: noviembre 2026 · Código analizado: rama `master`, commit `62f7190` · **No se modificó código de la app** (solo se agregó este informe).
 
-> **Cómo leer este informe.** Todo lo de las secciones 1 a 4 sale de leer el código y de ejecutar pequeñas simulaciones sobre las funciones reales (`getProgressionAdvice`, `detectPRs`, `detectImprovements` y el catálogo). **No pude leer tus datos reales** (ver 1.6), así que no sé cuántas veces registraste cada ejercicio ni qué valores guardaste; en esos puntos digo explícitamente qué habría que mirar.
+> **Cómo leer este informe.** Todo lo de las secciones 1 a 4 sale de leer el código y de ejecutar pequeñas simulaciones sobre las funciones reales (`getProgressionAdvice`, `detectPRs`, `detectImprovements` y el catálogo). Además se contrastó con un export real de datos de uso (el archivo no se incluye en el repo; acá solo van conclusiones generales) en los puntos 1.6 y 3.3.
 
 ## Resumen (lo importante)
 
@@ -10,7 +10,7 @@ Fecha: noviembre 2026 · Código analizado: rama `master`, commit `62f7190` · *
 2. **El ▶ está disponible para cualquier ejercicio**: el botón "Reps/Segs" junto al nombre lo activa a mano. Ese estado (`useSeconds`) **no se guarda**.
 3. **El temporizador no guarda nada.** Es una cuenta regresiva visual. Los segundos que ves en la fila se guardan **en el campo `reps`** del set (`{ reps: 45, weight: 0 }`). **No existe ninguna marca que diga que ese número son segundos**: el historial no distingue "45 reps" de "45 segundos".
 4. **Todas las estadísticas de progreso (mayor progreso, PRs, logros) miran solo `weight`** y descartan los ejercicios con peso 0. Por eso los ejercicios de tiempo sin carga **no aparecen** en esas estadísticas. Lo que sí se ve contaminado son los textos que muestran `reps` (historial, "hiciste N reps más", "Objetivo: 15 reps") y el motor de sugerencias, que trata los segundos como repeticiones.
-5. **"Sentadilla isométrica +100 %"** no puede venir de los segundos (esos van en `reps`): viene de la columna **Peso (kg)** — o bien cargaste peso real (p. ej. 5 → 10 kg) o se escribieron segundos en esa columna. Detalle y cómo confirmarlo en 3.3.
+5. **"Sentadilla isométrica +100 %"** no viene de los segundos (esos van en `reps`): viene de la columna **Peso (kg)**. **Contraste con datos de uso:** el +100 % corresponde a una mejora real de peso, no a un error de carga. Detalle en 3.3.
 6. **Tabata no comparte nada con este temporizador**: la sección Tabata es solo de referencia (no tiene temporizador).
 7. Eliminar la funcionalidad: **(a) quitar el play** es el cambio más barato y no toca datos; **(b) pasar a repeticiones** deja el historial con segundos mezclados como repeticiones; **(c) solo "completado"** es el más invasivo y deja huecos en varias pantallas. Comparativa en la sección 4.
 
@@ -109,13 +109,15 @@ Consecuencia: los ejercicios `alt-…` tienen un **id distinto en cada uso**, as
 | Fuerza Accesoria | `rutina-fuerza-accesoria` | Sí: Plancha con Arrastre de Mancuerna (3 series) |
 | Glúteos | `rutina-gluteos` | No |
 
-### 1.6 Tus datos reales: no pude leerlos
+### 1.6 Contraste con datos de uso reales
 
-- El Firebase CLI **está autenticado** (`mansorosariomaria@gmail.com`), pero **no tiene ningún comando para leer documentos de Firestore** (solo gestiona índices, bases y borrado). No hay `gcloud` instalado ni ningún script de lectura en el repo.
-- La única forma de leer tus workouts desde acá habría sido sacar el **token de acceso** guardado por el CLI (`~/.config/configstore/firebase-tools.json`) y llamar a la API de Firestore a mano. No lo hice: es manejar una credencial tuya por fuera de lo que el CLI ofrece, y preferí no hacerlo sin que lo pidas expresamente.
-- El navegador integrado no tiene tu sesión de la app iniciada.
+Se leyó un export de **Configuración → Exportar** con el script del Apéndice A (solo lectura). Por privacidad, el archivo no se incluye en el repo y este informe no reproduce fechas, pesos ni valores concretos; solo conclusiones generales.
 
-**Cómo conseguir los datos reales sin darme ninguna credencial:** en la app, **Configuración → Exportar** descarga `myworkout-AAAA-MM-DD.json` (`{ profile, settings, workouts }`, desde noviembre 2026 con el historial completo). Con ese archivo, el script del **Apéndice A** muestra por ejercicio de tiempo: cantidad de sesiones, series, rango de valores en `reps`, series con `weight > 0` y rango de pesos. Si me pasás la ruta del archivo, lo corro y completo este punto.
+- **Cobertura:** algunos de los ejercicios con play tienen registros y otros nunca se usaron, así que el impacto de cualquier cambio se concentra en pocos ejercicios.
+- **Los valores guardados en `reps` se corresponden con segundos en casi todos los casos**, tal como asume el modo "Segs". Pero el archivo no guarda ninguna unidad: solo se deduce por el tamaño del número, y en algún caso no hay forma de saber si es tiempo o repeticiones.
+- **Un ejercicio tiene registros con unidades mezcladas:** en una sesión el valor parece segundos y en otra, repeticiones. La progresión y las comparaciones entre sesiones lo leen como una caída. Es el caso real del riesgo descripto en 3.2.
+- **Formatos distintos dentro del campo de peso:** en algunos ejercicios sin carga el peso se guarda como texto vacío y no como 0. Los cálculos lo tratan como 0, así que no rompe nada.
+- **Ejercicios con peso real:** varios ejercicios de tiempo combinan segundos con carga real (mancuerna o disco), por lo que ahí `weight` sí es peso verdadero y los segundos y el peso evolucionaron en el sentido esperado.
 
 ---
 
@@ -238,9 +240,10 @@ pct = (exLast - exFirst) / exFirst * 100        // se queda con el mayor %
 ```
 
 - La métrica compara **el peso máximo de la primera sesión con el de la última** (no el mejor histórico) y solo para ejercicios con peso > 0.
-- Los segundos del modo "Segs" van a `reps`, que esta cuenta **nunca lee**. Por lo tanto **"+100 %" significa que el peso máximo registrado en Sentadilla isométrica se duplicó entre la primera y la última sesión** (p. ej. 5 → 10 kg, o 30 → 60 si ahí escribiste segundos en "Peso (kg)").
-- Se puede confirmar con el script del Apéndice A (columna "series con peso>0" y "pesos"). Si los valores del peso son del orden de 30-60 y no de kilos reales, **es un dato cargado en la columna equivocada**, no un progreso real.
-- Es una métrica frágil por diseño: un primer registro chico (5 kg) y cualquier aumento razonable produce porcentajes enormes, y la misma lógica alimenta los logros `primerSalto` (+25 %), `dobleProg` (×2) y `transformacion` (3 ejercicios ×2) — ver 3.7.
+- Los segundos del modo "Segs" van a `reps`, que esta cuenta **nunca lee**. Por lo tanto **"+100 %" significa que el peso máximo registrado en Sentadilla isométrica se duplicó entre la primera y la última sesión** (por ejemplo, el doble de carga, o un valor de tiempo escrito por error en "Peso (kg)").
+- **Contraste con datos de uso:** el +100 % de Sentadilla isométrica corresponde a una mejora real de peso (carga real que subió entre la primera y la última sesión con peso), no a un error de columna. Los segundos no intervienen en el porcentaje.
+- Consecuencia: la métrica ignora las sesiones sin peso, aunque ahí haya empezado el ejercicio; el progreso en tiempo no se refleja como porcentaje.
+- Es una métrica frágil por diseño: un primer registro de peso chico y cualquier aumento razonable produce porcentajes enormes, y la misma lógica alimenta los logros `primerSalto` (+25 %), `dobleProg` (×2) y `transformacion` (3 ejercicios ×2) — ver 3.7.
 
 ### 3.4 `detectImprovements` (resumen post-entrenamiento)
 
@@ -249,7 +252,7 @@ Simulación: La Plancha 40 s × 3 contra 30 s × 3 (sin peso):
 ```
 detectImprovements → [{ name: 'La Plancha', type: 'reps', deltaR: 10, reps: 40 }]
 ```
-`WorkoutSummary.jsx:207-212` lo muestra como **"¡Hiciste 10 reps más en La Plancha! 🎯"**: mejora real, unidad equivocada. En cambio `detectPRs` devuelve `[]` para ejercicios sin peso (los PR son solo de peso). Con peso (Sentadilla isométrica 10 kg vs 5 kg) sí da PR de 10 kg.
+`WorkoutSummary.jsx:207-212` lo muestra como **"¡Hiciste 10 reps más en La Plancha! 🎯"**: mejora real, unidad equivocada. En cambio `detectPRs` devuelve `[]` para ejercicios sin peso (los PR son solo de peso). Con peso (Sentadilla isométrica con más kilos que en la sesión anterior) sí da PR.
 
 ### 3.5 Pantallas de historial
 
@@ -394,4 +397,5 @@ for (const [name, r] of Object.entries(rows).sort((a, b) => b[1].sesiones - a[1]
 - Lectura de `FuerzaFlow.jsx`, `WorkoutWizard.jsx`, `progression.js`, `prUtils.js`, `ProgresoPage.jsx`, `ExerciseProgress.jsx`, `achievements.js`, `Logros.jsx`, `Inicio.jsx`, `WeekCalendar.jsx`, `WorkoutHistorial.jsx`, `WorkoutSummary.jsx`, `useWorkouts.js`, `reentry.js`, `returnRoutine.js`, `routineGenerator.js`, `dailySuggestion.js`, `components/tabata/*`, `data/exercises.js`, `data/routines.js`.
 - Cruce del catálogo (90 ejercicios) con `TIME_EXERCISES` y con las 5 rutinas pre-armadas mediante un script de solo lectura.
 - Simulación de `getProgressionAdvice`, `detectImprovements` y `detectPRs` con datos de ejemplo (los resultados de 3.2 y 3.4 son salidas reales de esas funciones).
-- Pendiente: contrastar con tus datos reales (Apéndice A) y probar en pantalla el caso de "Cambiar" con el estado "Segs" pegado (1.4-C-2).
+- Contraste con datos de uso reales hecho con el Apéndice A (solo conclusiones generales): ver 1.6 y 3.3.
+- Pendiente: probar en pantalla el caso de "Cambiar" con el estado "Segs" pegado (1.4-C-2).

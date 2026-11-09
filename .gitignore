@@ -73,3 +73,6 @@ dist/
 
 # Scripts temporales de verificación (no forman parte del código de la app)
 *_tmp.mjs
+
+# Configuración local de Claude Code (no forma parte de la app)
+.claude/

@@ -95,7 +95,7 @@ src/
   utils/
     progression.js             # Doble progresión, Epley, bono de reps por salto
     weights.js                 # STANDARD_WEIGHTS, pesos aprendidos, nextWeight, floorWeight, deload
-    routineGenerator.js        # generateRoutine(): selección y orden por patrón de movimiento
+    routineGenerator.js        # generateRoutine(): selección y orden por patrón de movimiento + grupos (MUSCLE_BLOCKS)
     dailySuggestion.js         # computeDailySuggestion(): sugerencia diaria (pura, sin fetch)
     cardio.js                  # Tiempo/ritmo de cardio: toSeconds, formatDuration, computePace, etc.
     streak.js                  # Tipos reales (REAL_WORKOUT_TYPES) y umbral de la "Racha semanal 3+" (STREAK_MIN_DAYS = 3)
@@ -246,11 +246,17 @@ El campo `alt` en el objeto de rutina es **solo para display** en la pantalla de
 
 ## Generador de rutinas (`utils/routineGenerator.js`)
 
-Función única `generateRoutine({ muscles, count, equip, workouts, regenerate, neverIds?, patternsByMuscle?, referenceDate? })` (los tres últimos son opcionales y los usa solo la rutina de regreso), usada tanto por el tab "Generador" de Rutinas (`GeneradorTab.jsx`) como por el modo "Generador" inline del wizard de registro (`FuerzaFlow.jsx`) — antes eran dos implementaciones casi idénticas por separado.
+Función única `generateRoutine({ muscles, blocks?, count, equip, workouts, regenerate, neverIds?, patternsByMuscle?, referenceDate? })` (`neverIds`, `patternsByMuscle` y `referenceDate` son opcionales y los usa solo la rutina de regreso; `blocks` son los grupos generales, ver abajo), usada tanto por el tab "Generador" de Rutinas (`GeneradorTab.jsx`) como por el modo "Generador" inline del wizard de registro (`FuerzaFlow.jsx`) — antes eran dos implementaciones casi idénticas por separado.
 
 - Cada ejercicio del catálogo tiene un `pattern` (patrón de movimiento, ej. `sentadilla`, `zancada`, `bisagra`, `empuje_horizontal`) y un flag `unilateral`. El generador nunca repite `pattern` en ejercicios consecutivos ni encadena dos unilaterales de tren inferior seguidos.
 - Por cada músculo elegido, el ejercicio principal (nivel A/B) se elige por historial reciente del usuario (sesiones de ese ejercicio en los últimos 56 días) — esto se mantiene incluso al regenerar, para que la doble progresión (sección de Progresión de carga) tenga sesiones consecutivas del mismo ejercicio para comparar. Los accesorios sí se sortean al azar al regenerar.
-- El orden final prioriza compuestos antes que aislados y deja el core siempre al final.
+- El orden final prioriza compuestos antes que aislados y deja el core siempre al final. No hay un campo compuesto/aislado: se deduce de `level` (A compuesto pesado, B compuesto secundario, C aislado, D core).
+- **Reparto de `count`**: cada músculo o grupo elegido es un bloque; `floor(count / bloques)` para todos y el resto de a 1 a los primeros (5 ejercicios y 2 músculos → 3 + 2).
+- **Músculos sin principal A/B** (Core & Estabilidad, o cualquier músculo con "Solo básico" si el filtro deja afuera sus A/B): no hay principal y se arma solo con accesorios.
+- **Grupos generales** (`MUSCLE_BLOCKS`: Piernas · Tracción · Empuje · Brazos, noviembre 2026): cada grupo es una plantilla ordenada de 6 huecos por patrón (ej. Piernas: sentadilla → bisagra → empuje_cadera → zancada → curl_femoral/extension_rodilla → abduccion/gemelos). Un grupo toma los primeros *k* huecos que puedan cubrirse, eligiendo en cada uno el mejor nivel (A → B → C) por historial; un hueco sin candidatos se salta; con más ejercicios que huecos recorre la plantilla de nuevo; nunca repite ejercicio. Se pueden combinar grupos entre sí y con músculos sueltos (los grupos van primero en el reparto). Regenerar mantiene los huecos 1 y 2 de cada grupo por historial y sortea el resto. Sin `blocks` el resultado es idéntico al anterior (sugerencia diaria y rutina de regreso no cambian). Si lo elegido no admite ningún orden válido (ej. tres unilaterales de tren inferior en 4 ejercicios), se cambia un accesorio del grupo.
+- **UI** (`GeneradorTab.jsx` y modo Generador de `FuerzaFlow.jsx`, iguales): fila "Grupos" arriba de los chips de músculos; elegir un grupo deshabilita (y quita de la selección) los chips de sus músculos; cantidad 3–6 sin grupos y 3–8 con grupos (al quitar el último grupo, 7/8 pasa a 6); "Generar rutina" se habilita con al menos un grupo o un músculo. Valores por defecto: cantidad 4, "Gym completo". El punto ámbar de "entrenado recientemente" usa 72 h en `GeneradorTab` (con leyenda) y 48 h en el generador de `FuerzaFlow`.
+- `intercalateExercises` (en `FuerzaFlow.jsx`) ya no es parte del generador: sigue existiendo solo para ordenar la lista del modo **Libre** al filtrar por músculo.
+- "Solo básico" tiene un defecto conocido: filtra "Mancuernas" en plural y deja afuera los 10 ejercicios cuyo equipamiento dice "Mancuerna" (Gemelos queda sin ejercicios); detalle en `LOGICA_TECNICA.md` sección 16.
 - Solo elige del catálogo base (`exercises.js`), no de ejercicios personalizados del usuario (esos no tienen `pattern`).
 - Al usar una rutina generada, `FuerzaFlow.jsx` arma cada ejercicio con `buildEntry` (igual que una rutina prearmada), así que carga la última sesión real de cada uno — antes el tab standalone armaba los sets a mano sin ninguna precarga.
 

@@ -1292,7 +1292,7 @@ Igual que en el resto de la app (sección 5): `getReturnState` ordena explícita
 
 ## 16. GENERADOR DE RUTINAS (`src/utils/routineGenerator.js`)
 
-Reemplaza las dos implementaciones casi idénticas que existían antes (`generate()` en `GeneradorTab.jsx` y `generateForFlow()` en `FuerzaFlow.jsx`, cada una con su propio `intercalateExercises`), que elegían ejercicios al azar por nivel sin ningún criterio de patrón de movimiento — podían poner dos ejercicios del mismo patrón seguidos (ej. Zancadas atrás + Estocada en el lugar, ambos "zancada"). Ahora ambas UI llaman a la misma función `generateRoutine({ muscles, count, equip, workouts, regenerate })`, que devuelve la lista ya ordenada de ejercicios.
+Reemplaza las dos implementaciones casi idénticas que existían antes (`generate()` en `GeneradorTab.jsx` y `generateForFlow()` en `FuerzaFlow.jsx`, cada una con su propio `intercalateExercises`), que elegían ejercicios al azar por nivel sin ningún criterio de patrón de movimiento — podían poner dos ejercicios del mismo patrón seguidos (ej. Zancadas atrás + Estocada en el lugar, ambos "zancada"). Ahora ambas UI llaman a la misma función `generateRoutine({ muscles, count, equip, workouts, regenerate })`, que devuelve la lista ya ordenada de ejercicios. Desde noviembre 2026 acepta además un parámetro opcional `blocks` (grupos generales: Piernas, Tracción, Empuje, Brazos), ver "Grupos generales" más abajo; sin `blocks` el comportamiento es exactamente el anterior.
 
 ### Etiquetas del catálogo (`src/data/exercises.js`)
 
@@ -1306,13 +1306,62 @@ Cada uno de los 90 ejercicios tiene dos campos nuevos:
 - `PATTERN_REGION`: agrupa cada `pattern` en `'inferior'` (tren inferior), `'superior'` (tren superior) o `'core'`. Se usa para la regla dura de unilaterales y para que el core siempre quede al final.
 - `PATTERN_ZONE`: agrupación más fina (`rodilla`, `posterior`, `abductores`, `gemelos`, `empuje`, `traccion`, `core`), usada solo como preferencia de orden (alternar zona entre ejercicios consecutivos), nunca como regla obligatoria.
 
-### Selección
+### Reparto de `count` entre bloques
+
+Cada músculo elegido (y, desde noviembre 2026, cada grupo elegido) es un **bloque**. `count` se reparte con `perGroup = floor(count / nBloques)` para todos y el resto (`count % nBloques`) se da de a 1 a los **primeros** bloques, en orden de selección. Ejemplos: 5 ejercicios y 2 músculos → 3 + 2; 8 ejercicios y 3 bloques → 3 + 3 + 2. Si `count` es menor que la cantidad de bloques, los últimos bloques quedan con 0. Si el pool de un bloque se agota antes de llegar a su cuota, esa cuota queda incompleta (la rutina sale con menos ejercicios; el resto no se redistribuye).
+
+### Selección de un músculo suelto
 
 Por cada músculo elegido, en el orden en que el usuario los seleccionó:
 - **Slot principal**: nivel A (si no hay, B) con un `pattern` que todavía no se usó en la sesión (contador global, no por músculo). Entre los candidatos, gana el de mayor `historyScore` (sesiones de tipo `'fuerza'` con ese `exerciseId` en los últimos 56 días, fechas string), con empate al azar. El principal **siempre** sigue el historial, incluso con `regenerate: true`.
 - **Slots accesorios**: prioridad de nivel B → C → A → D, también exigiendo `pattern` nuevo. Con `regenerate: false` se elige por `historyScore` igual que el principal; con `regenerate: true` se elige al azar entre los candidatos válidos (solo los accesorios, no el principal).
 - Si para un slot no queda ningún candidato con `pattern` nuevo, se permite repetir un patrón ya usado (mejor un ejercicio repetido de patrón que dejar el hueco vacío) — el orden se encarga de separarlos si es posible.
 - Nunca se repite el mismo `id` dentro de la misma rutina.
+- **Músculos sin principal A/B**: el slot principal solo mira nivel A y B. Si el pool del músculo no tiene ninguno (hoy: **Core & Estabilidad**, todo nivel D; o cuando el equipamiento "Solo básico" deja afuera los A/B), no hay principal y el músculo se arma solo con el bucle de accesorios (B → C → A → D). Tríceps, Bíceps y Abductores tienen un único B (sin ningún A), y Gemelos un único A (sin ningún B): su "principal" es de hecho ese ejercicio y el resto son C.
+
+### Grupos generales (`MUSCLE_BLOCKS`) y parámetro `blocks` (noviembre 2026)
+
+`MUSCLE_BLOCKS` (en `routineGenerator.js`) define 4 grupos: **Piernas**, **Tracción**, **Empuje** y **Brazos**. Cada uno es una **plantilla**: una lista ORDENADA de 6 huecos por prioridad. Cada hueco define el/los patrón(es) permitidos (si son varios, el hueco acepta cualquiera) y, opcionalmente, los músculos permitidos (sin `muscles` = cualquier músculo del catálogo con ese patrón):
+
+| Grupo | Huecos (en orden) | Chips que deshabilita |
+|---|---|---|
+| Piernas | sentadilla (Cuádriceps) → bisagra (Isquios/Glúteos) → empuje_cadera (Glúteos) → zancada → curl_femoral o extension_rodilla → abduccion o gemelos | Glúteos, Isquios, Cuádriceps, Abductores, Gemelos |
+| Tracción | traccion_vertical → traccion_horizontal → biceps → traccion_horizontal (otro ejercicio) → deltoides_posterior → biceps | Espalda, Bíceps |
+| Empuje | empuje_horizontal → empuje_vertical → triceps → aperturas → elevacion_lateral → triceps | Pecho, Hombros, Tríceps |
+| Brazos | empuje_vertical → biceps → triceps → elevacion_lateral → biceps → triceps | Bíceps, Tríceps, Hombros |
+
+Notas de la plantilla: el hueco `deltoides_posterior` de Tracción acepta ejercicios de Espalda y de Hombros (el catálogo tiene 1 y 3), aunque Hombros no figure entre los chips que Tracción deshabilita; "traccion_horizontal (otro ejercicio)" no necesita lógica propia porque nunca se repite un `id`.
+
+`generateRoutine({ muscles, blocks, count, ... })`:
+- **Sin `blocks`** (o `null`/`[]`) el resultado es idéntico al de siempre; verificado contra la versión anterior con 6000 corridas aleatorias con la misma semilla de `Math.random` (0 diferencias). `dailySuggestion.js` y `returnRoutine.js` no pasan `blocks` y no cambian.
+- **Combinación**: se pueden combinar grupos entre sí y con músculos sueltos. Los bloques se ordenan **primero los grupos (en el orden recibido) y después los músculos sueltos (en el orden recibido)** — los dos arreglos son parámetros separados, por eso el "orden de selección" entre un grupo y un músculo suelto es siempre grupo primero. Ids de grupo repetidos o inexistentes se ignoran. `count` se reparte con la regla de arriba (Piernas + Brazos, 6 → 3 + 3: sentadilla, bisagra, empuje_cadera + empuje_vertical, biceps, triceps).
+- **Selección de un grupo** (`pickForBlock`): toma los primeros *k* huecos *que puedan cubrirse*. En cada hueco elige el primer nivel con candidatos en el orden **A → B → C → D** y, dentro de él, el de mayor `historyScore` (empate al azar) — igual que el principal de un músculo suelto. Un hueco sin candidatos (equipamiento, lista "never" o pool agotado) se salta y se pasa al siguiente. Si el grupo necesita más ejercicios que huecos (7 u 8 con un solo grupo), vuelve a recorrer la plantilla desde el hueco 1 con los ejercicios que quedan. Nunca repite un `id` (el conjunto de ids usados es compartido con el resto de la rutina).
+- **Regenerar**: los huecos 1 y 2 de cada grupo (los "principales", solo en la primera vuelta) siguen el historial, para no cortar la doble progresión; el resto se sortea: primero un patrón al azar entre los del hueco que tengan candidatos y después un ejercicio al azar del mejor nivel de ese patrón (así un hueco "abduccion o gemelos" no devuelve siempre el mismo ejercicio nivel A).
+- `neverIds` aplica a grupos y músculos sueltos; `patternsByMuscle` y `referenceDate` ya funcionaban así: `patternsByMuscle` solo a músculos sueltos, `referenceDate` a ambos.
+- **Reparación del orden** (`repairBlockPicks`, solo cuando hay grupos): la selección por huecos no mira el orden y puede juntar, por ejemplo, tres unilaterales de tren inferior en 4 ejercicios (zancada, que es siempre unilateral, más Hip Thrust a una pierna y Peso muerto B-stance), caso en que ningún orden evita dos seguidos. Si el conjunto elegido no tiene ningún orden que cumpla las reglas duras, se cambia UN ejercicio de grupo por otro del mismo hueco (primero los accesorios, de atrás para adelante; los principales solo si hace falta; prefiriendo el mismo nivel y el de más historial) y se repite hasta que exista un orden válido. Si ningún cambio lo logra, queda como estaba (caso inevitable). Los músculos sueltos no se tocan.
+- El **orden final** sigue siendo `orderRoutine` (tiers, `PATTERN_ZONE`, `hardRulesOk`, core al final): alterna zonas y evita patrones consecutivos. El orden de la rutina mostrada **no** es el de la plantilla.
+- Con **7–8** ejercicios de un solo grupo los patrones se repiten por necesidad (la plantilla tiene 4–6 patrones distintos); el orden los separa cuando es posible.
+- Verificación (noviembre 2026): cada grupo solo con 3 a 8 ejercicios, combinaciones (Piernas + Brazos, Tracción + Empuje, Piernas + Pecho, 3 y 4 grupos) y "Solo básico", 200 corridas por caso alternando Regenerar: 0 patrones consecutivos repetidos y 0 pares de unilaterales de tren inferior seguidos. Una excepción de cantidad, no de orden: "Piernas + Pecho" de 8 ejercicios con "Solo básico" sale con 7, porque Pecho solo tiene 3 ejercicios que pasan el filtro.
+- Tests: `src/utils/routineGenerator.test.js` (28 tests; plantillas, reparto, huecos saltados, Regenerar con historial, orden, compatibilidad sin grupos y los helpers de la UI).
+
+### UI del generador (`GeneradorTab.jsx` y modo "Generador" de `FuerzaFlow.jsx`)
+
+Las dos pantallas son iguales y comparten los helpers exportados por `routineGenerator.js` (`MUSCLE_BLOCKS`, `blockedMuscles`, `toggleGeneratorBlock`, `generatorCountOptions`, `generatorRoutineName`, `generatedRoutineMuscles`):
+- **Valores por defecto**: ningún grupo ni músculo elegido, cantidad **4**, equipamiento "Gym completo".
+- **Fila "Grupos"** (arriba de los chips de músculos): Piernas · Tracción · Empuje · Brazos, multi-selección. Al elegir un grupo, los chips de los músculos que incluye quedan deshabilitados (y se quitan de la selección si estaban elegidos). Al quitarlo, los chips se habilitan pero los músculos quitados no vuelven a quedar elegidos.
+- **Cantidad**: 3–6 sin grupos; 3–8 con al menos un grupo. Si se quita el último grupo y la cantidad era 7 u 8, pasa a 6.
+- **"Generar rutina"** se habilita con al menos un grupo o un músculo. Cambiar grupos, músculos o cantidad borra la rutina generada (cambiar el equipamiento no la borra ni la regenera).
+- **Nombre** de la rutina: `Generada: ` + los dos primeros bloques (grupos primero). **`muscles`** de la rutina = los músculos sueltos más los de los ejercicios que pusieron los grupos (es lo que va a `selectedMuscles` del borrador y lo que guarda "Guardar"). "Guardar" (solo en `GeneradorTab`) guarda los ids como siempre.
+- **Punto ámbar** ("entrenado recientemente"): `GeneradorTab` usa las últimas **72 h** (y lo dice en pantalla); el generador de `FuerzaFlow` usa las últimas **48 h** (`recentMuscles` de ese componente, sin leyenda). No está unificado.
+
+### Datos del catálogo y límites conocidos (consulta de noviembre 2026)
+
+- **No existe un campo compuesto/aislado.** Se deduce del `level`: A = compuesto pesado, B = compuesto secundario, C = aislado, D = core y estabilización (etiquetas en `BibliotecaTab.jsx`). El `pattern` no lo distingue (hay patrones con A, B y C). El generador trata A/B como principales y C/D como accesorios.
+- **Catálogo base**: 90 ejercicios, 21 patrones, 12 unilaterales (9 de región inferior: 6 de Glúteos, 1 de Isquios, 2 de Cuádriceps), 86 en `reps` y 4 en `secs`. Todo `zancada` (6 ejercicios) es unilateral y nivel B.
+- **Músculos con un solo patrón**: Abductores, Gemelos, Tríceps y Bíceps. Pedir más de un ejercicio de ellos obliga a repetir patrón y puede dejar el orden en el caso límite del punto 5 de "Orden".
+- **Filtro "Solo básico"** (`equipFilter`): deja pasar ejercicios cuyo `equip` contiene `Sin`, `Mancuernas`, `Banda` o `Tobilleras`. Pasan 51 de 90. Defecto conocido sin corregir: busca "Mancuernas" en plural, así que los 10 ejercicios cuyo `equip` dice "Mancuerna" (singular) quedan afuera aunque se hagan con mancuerna (Hip Thrust, Sentadilla goblet, Hip Thrust unilateral, entre otros). Efecto: Gemelos queda con 0 ejercicios, Cuádriceps con 2 del mismo patrón, y Tríceps/Bíceps sin ningún A/B. Los grupos lo resuelven saltando huecos.
+- **`intercalateExercises`** (`FuerzaFlow.jsx`) sigue existiendo: ya no es parte del generador, solo ordena la lista de ejercicios del modo **Libre** al filtrar por músculo (alterna tren inferior y superior por nivel y deja el core al final, sin mirar patrones ni unilaterales).
+- Los parámetros `neverIds`, `patternsByMuscle` y `referenceDate` de la rutina de regreso están en la sección 20.
 
 ### Orden
 
@@ -1331,6 +1380,7 @@ El generador solo elige del catálogo base (`exercises.js`), no de los ejercicio
 ### Uso en `FuerzaFlow.jsx` (evita el bug de precarga)
 
 `useGeneratedRoutine()` sigue usando `buildEntry()` sobre cada ejercicio generado (igual que las rutinas prearmadas), así que cada uno se precarga con su última sesión real (sección 13). El bug que tenía `GeneradorTab.jsx` (`useRoutine()` armaba `sets: { reps, weight: 0 }` a mano, sin ninguna precarga) se corrigió: ahora ese flujo solo guarda los `id` de los ejercicios elegidos en el draft (`detail.pendingGeneratedIds`) y navega a `/registro`; un `useEffect` nuevo en `FuerzaFlow.jsx` detecta ese campo al montar, construye cada entrada con `buildEntry()` y limpia el campo. `saveAsPrearmada()` (guardar como rutina propia) no cambió.
+
 
 ### Sugerencia de siguiente ejercicio (`suggestNextExercise`, botón "✨ Sugerencia" en modo libre)
 

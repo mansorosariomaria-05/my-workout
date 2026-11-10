@@ -3,7 +3,10 @@ import { exercises, MUSCLE_GROUPS } from '../../data/exercises'
 import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice } from '../../utils/progression'
 import { buildProgressOptions, resolveProgressValues, selectPreloadSets } from '../../utils/progressSet'
-import { generateRoutine, suggestNextExercise } from '../../utils/routineGenerator'
+import {
+  generateRoutine, suggestNextExercise, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock,
+  generatorCountOptions, generatorRoutineName, generatedRoutineMuscles,
+} from '../../utils/routineGenerator'
 import { applyDeloadMultiplier } from '../../utils/weights'
 import { reduceWeight } from '../../utils/returnRoutine'
 import { getReturnState } from '../../utils/reentry'
@@ -441,6 +444,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [addMuscles, setAddMuscles]         = useState([])
   const [cintas, setCintas]           = useState(data.cintas ?? false)
   const [genMuscles, setGenMuscles]     = useState([])
+  const [genBlocks, setGenBlocks]       = useState([])
   const [genCount, setGenCount]         = useState(4)
   const [genEquip, setGenEquip]         = useState('Gym completo')
   const [genGenerated, setGenGenerated] = useState(null)
@@ -677,16 +681,28 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
     onChange({ ...data, selectedMuscles: updated })
   }
 
+  // Grupos del generador: los chips de los músculos que incluye un grupo elegido quedan deshabilitados.
+  const genBlocked = blockedMuscles(genBlocks)
+  const genCountOptions = generatorCountOptions(genBlocks)
+
+  const toggleGenBlock = (id) => {
+    const next = toggleGeneratorBlock({ blocks: genBlocks, muscles: genMuscles, count: genCount }, id)
+    setGenBlocks(next.blocks)
+    setGenMuscles(next.muscles)
+    setGenCount(next.count)
+    setGenGenerated(null)
+  }
+
   const generateForFlow = (regenerate = false) => {
-    if (!genMuscles.length) return
-    const ordered = generateRoutine({ muscles: genMuscles, count: genCount, equip: genEquip, workouts, regenerate })
+    if (!genMuscles.length && !genBlocks.length) return
+    const ordered = generateRoutine({ muscles: genMuscles, blocks: genBlocks, count: genCount, equip: genEquip, workouts, regenerate })
     setGenGenerated({
-      name: `Generada: ${genMuscles.slice(0, 2).join(' + ')}`,
+      name: generatorRoutineName(genBlocks, genMuscles),
       exercises: ordered.map(e => ({
         id: e.id, exerciseId: e.id, name: e.name, level: e.level,
         muscle: e.muscle, sets: 3, repsScheme: getExerciseUnit(e) === 'secs' ? '30 seg' : '12',
       })),
-      muscles: genMuscles,
+      muscles: generatedRoutineMuscles(genMuscles, ordered),
     })
   }
 
@@ -697,6 +713,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       .map(buildEntry)
     setMode('libre')
     setGenMuscles([])
+    setGenBlocks([])
     setGenGenerated(null)
     onChange({ ...data, exercises: exs, mode: 'libre', selectedMuscles: genGenerated.muscles ?? [] })
     onTimerStart?.()
@@ -924,20 +941,44 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       {mode === 'generador' && (
         <div className="space-y-3">
           <div>
+            <p className="text-app-muted text-xs mb-2">Grupos</p>
+            <div className="flex flex-wrap gap-2">
+              {MUSCLE_BLOCKS.map(b => (
+                <button
+                  key={b.id}
+                  onClick={() => toggleGenBlock(b.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
+                    genBlocks.includes(b.id)
+                      ? 'border-app-purple bg-app-purple/20 text-app-purple-light font-semibold'
+                      : 'border-white/10 text-app-muted'
+                  }`}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
             <p className="text-app-muted text-xs mb-2">Músculos a trabajar</p>
             <div className="flex flex-wrap gap-2">
               {MUSCLE_GROUPS.map(m => {
                 const recent = recentMuscles.has(m)
+                const isBlocked = genBlocked.has(m)
                 return (
                   <button
                     key={m}
+                    disabled={isBlocked}
                     onClick={() => {
+                      if (isBlocked) return
                       const updated = genMuscles.includes(m) ? genMuscles.filter(x => x !== m) : [...genMuscles, m]
                       setGenMuscles(updated)
                       setGenGenerated(null)
                     }}
                     className={`px-2.5 py-1.5 rounded-full text-xs border transition-all relative ${
-                      genMuscles.includes(m)
+                      isBlocked
+                        ? 'border-white/5 text-app-muted/30 opacity-50 cursor-not-allowed'
+                        : genMuscles.includes(m)
                         ? 'border-app-purple bg-app-purple/20 text-app-purple-light'
                         : recent
                           ? 'border-app-amber/40 text-app-amber/70 bg-app-amber/5'
@@ -945,7 +986,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                     }`}
                   >
                     {m}
-                    {recent && !genMuscles.includes(m) && (
+                    {recent && !isBlocked && !genMuscles.includes(m) && (
                       <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-app-amber" />
                     )}
                   </button>
@@ -957,7 +998,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
           <div>
             <p className="text-app-muted text-xs mb-2">Cantidad de ejercicios</p>
             <div className="flex gap-2">
-              {[3, 4, 5, 6].map(n => (
+              {genCountOptions.map(n => (
                 <button
                   key={n}
                   onClick={() => { setGenCount(n); setGenGenerated(null) }}
@@ -990,9 +1031,9 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
 
           <button
             onClick={() => generateForFlow(false)}
-            disabled={genMuscles.length === 0}
+            disabled={genMuscles.length === 0 && genBlocks.length === 0}
             className={`w-full py-3 rounded-xl text-sm font-medium transition-all ${
-              genMuscles.length === 0
+              genMuscles.length === 0 && genBlocks.length === 0
                 ? 'bg-app-surface text-app-muted/50 cursor-not-allowed'
                 : 'bg-app-purple text-white'
             }`}

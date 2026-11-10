@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MUSCLE_GROUPS } from '../../data/exercises'
 import { getExerciseUnit } from '../../utils/exerciseUnit'
-import { generateRoutine } from '../../utils/routineGenerator'
+import {
+  generateRoutine, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock, generatorCountOptions,
+  generatorRoutineName, generatedRoutineMuscles,
+} from '../../utils/routineGenerator'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkoutDraft } from '../../context/WorkoutDraftContext'
 import { saveCustomRoutine } from '../../services/db'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 
-const COUNT_OPTIONS = [3, 4, 5, 6]
 const EQUIP_OPTIONS = ['Gym completo', 'Solo básico']
 
 export default function GeneradorTab({ workouts }) {
@@ -17,6 +19,7 @@ export default function GeneradorTab({ workouts }) {
   const { setDraft } = useWorkoutDraft()
   const navigate = useNavigate()
   const [selectedMuscles, setSelectedMuscles] = useState([])
+  const [selectedBlocks, setSelectedBlocks]   = useState([])
   const [count, setCount]   = useState(4)
   const [equip, setEquip]   = useState('Gym completo')
   const [generated, setGenerated] = useState(null)
@@ -32,24 +35,38 @@ export default function GeneradorTab({ workouts }) {
     }
   })
 
+  // Los chips de los músculos que incluye un grupo elegido quedan deshabilitados (y se quitan si estaban elegidos).
+  const blocked = blockedMuscles(selectedBlocks)
+  const countOptions = generatorCountOptions(selectedBlocks)
+
   const toggleMuscle = (m) => {
+    if (blocked.has(m)) return
     setSelectedMuscles(p => p.includes(m) ? p.filter(x => x !== m) : [...p, m])
     setGenerated(null)
     setSaved(false)
   }
 
-  const generate = (regenerate = false) => {
-    if (!selectedMuscles.length) return
+  const toggleBlock = (id) => {
+    const next = toggleGeneratorBlock({ blocks: selectedBlocks, muscles: selectedMuscles, count }, id)
+    setSelectedBlocks(next.blocks)
+    setSelectedMuscles(next.muscles)
+    setCount(next.count)
+    setGenerated(null)
+    setSaved(false)
+  }
 
-    const ordered = generateRoutine({ muscles: selectedMuscles, count, equip, workouts, regenerate })
+  const generate = (regenerate = false) => {
+    if (!selectedMuscles.length && !selectedBlocks.length) return
+
+    const ordered = generateRoutine({ muscles: selectedMuscles, blocks: selectedBlocks, count, equip, workouts, regenerate })
 
     const routine = {
-      name: `Generada: ${selectedMuscles.slice(0, 2).join(' + ')}`,
+      name: generatorRoutineName(selectedBlocks, selectedMuscles),
       exercises: ordered.map(e => ({
         id: e.id, exerciseId: e.id, name: e.name, level: e.level,
         muscle: e.muscle, sets: 3, repsScheme: getExerciseUnit(e) === 'secs' ? '30 seg' : '12', alt: e.alt,
       })),
-      muscles: selectedMuscles,
+      muscles: generatedRoutineMuscles(selectedMuscles, ordered),
       tipo: 'Fuerza',
     }
     setGenerated(routine)
@@ -87,16 +104,39 @@ export default function GeneradorTab({ workouts }) {
   return (
     <div className="space-y-4">
       <div>
+        <p className="text-app-muted text-xs mb-2">Grupos</p>
+        <div className="flex flex-wrap gap-2">
+          {MUSCLE_BLOCKS.map(b => (
+            <button
+              key={b.id}
+              onClick={() => toggleBlock(b.id)}
+              className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
+                selectedBlocks.includes(b.id)
+                  ? 'border-app-purple bg-app-purple/20 text-app-purple-light font-semibold'
+                  : 'border-white/10 text-app-muted'
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
         <p className="text-app-muted text-xs mb-2">Músculos a trabajar</p>
         <div className="flex flex-wrap gap-2">
           {MUSCLE_GROUPS.map(m => {
             const recent = recentMuscles.has(m)
+            const isBlocked = blocked.has(m)
             return (
               <button
                 key={m}
                 onClick={() => toggleMuscle(m)}
+                disabled={isBlocked}
                 className={`px-2.5 py-1.5 rounded-full text-xs border transition-all relative ${
-                  selectedMuscles.includes(m)
+                  isBlocked
+                    ? 'border-white/5 text-app-muted/30 opacity-50 cursor-not-allowed'
+                    : selectedMuscles.includes(m)
                     ? 'border-app-purple bg-app-purple/20 text-app-purple-light'
                     : recent
                       ? 'border-app-amber/30 text-app-amber/60'
@@ -104,7 +144,7 @@ export default function GeneradorTab({ workouts }) {
                 }`}
               >
                 {m}
-                {recent && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-app-amber" />}
+                {recent && !isBlocked && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-app-amber" />}
               </button>
             )
           })}
@@ -115,7 +155,7 @@ export default function GeneradorTab({ workouts }) {
       <div>
         <p className="text-app-muted text-xs mb-2">Cantidad de ejercicios</p>
         <div className="flex gap-2">
-          {COUNT_OPTIONS.map(n => (
+          {countOptions.map(n => (
             <button
               key={n}
               onClick={() => { setCount(n); setGenerated(null); setSaved(false) }}
@@ -146,7 +186,7 @@ export default function GeneradorTab({ workouts }) {
         </div>
       </div>
 
-      <Button size="lg" onClick={() => generate(false)} disabled={selectedMuscles.length === 0}>
+      <Button size="lg" onClick={() => generate(false)} disabled={selectedMuscles.length === 0 && selectedBlocks.length === 0}>
         Generar rutina
       </Button>
 

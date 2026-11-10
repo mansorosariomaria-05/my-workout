@@ -26,6 +26,107 @@ export const PATTERN_ZONE = {
 
 const ACCESORY_LEVEL_ORDER = ['B', 'C', 'A', 'D']
 
+// Grupos generales de músculos ("Piernas", "Tracción", "Empuje", "Brazos"): cada uno es una plantilla
+// ORDENADA de huecos por prioridad. Cada hueco define el/los patrones permitidos (si son varios, el
+// hueco acepta cualquiera de ellos) y, opcionalmente, los músculos permitidos (sin `muscles` = cualquier
+// músculo del catálogo con ese patrón). `muscles` del grupo = los chips que la UI deshabilita al elegirlo.
+// No existe un campo compuesto/aislado: la preferencia compuesto → aislado se deduce del `level` (A > B > C).
+export const MUSCLE_BLOCKS = [
+  {
+    id: 'piernas', label: 'Piernas',
+    muscles: ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos'],
+    slots: [
+      { patterns: ['sentadilla'], muscles: ['Cuádriceps'] },
+      { patterns: ['bisagra'], muscles: ['Isquios', 'Glúteos'] },
+      { patterns: ['empuje_cadera'], muscles: ['Glúteos'] },
+      { patterns: ['zancada'] },
+      { patterns: ['curl_femoral', 'extension_rodilla'] },
+      { patterns: ['abduccion', 'gemelos'] },
+    ],
+  },
+  {
+    id: 'traccion', label: 'Tracción',
+    muscles: ['Espalda', 'Bíceps'],
+    slots: [
+      { patterns: ['traccion_vertical'] },
+      { patterns: ['traccion_horizontal'] },
+      { patterns: ['biceps'] },
+      { patterns: ['traccion_horizontal'] }, // otro ejercicio distinto al del hueco 2 (nunca se repite un id)
+      { patterns: ['deltoides_posterior'] },
+      { patterns: ['biceps'] },
+    ],
+  },
+  {
+    id: 'empuje', label: 'Empuje',
+    muscles: ['Pecho', 'Hombros', 'Tríceps'],
+    slots: [
+      { patterns: ['empuje_horizontal'] },
+      { patterns: ['empuje_vertical'] },
+      { patterns: ['triceps'] },
+      { patterns: ['aperturas'] },
+      { patterns: ['elevacion_lateral'] },
+      { patterns: ['triceps'] },
+    ],
+  },
+  {
+    id: 'brazos', label: 'Brazos',
+    muscles: ['Bíceps', 'Tríceps', 'Hombros'],
+    slots: [
+      { patterns: ['empuje_vertical'] },
+      { patterns: ['biceps'] },
+      { patterns: ['triceps'] },
+      { patterns: ['elevacion_lateral'] },
+      { patterns: ['biceps'] },
+      { patterns: ['triceps'] },
+    ],
+  },
+]
+
+const BLOCK_LEVEL_ORDER = ['A', 'B', 'C', 'D']
+// Los dos primeros huecos de cada grupo son sus "principales": siguen el historial incluso al regenerar.
+export const BLOCK_PRINCIPAL_SLOTS = 2
+
+// Cantidad de ejercicios del generador (UI): 3–6 con músculos sueltos, 3–8 si hay al menos un grupo.
+export const GENERATOR_MAX_COUNT = 6
+export const GENERATOR_MAX_COUNT_WITH_BLOCKS = 8
+export const generatorMaxCount = (blockIds) => (blockIds?.length ? GENERATOR_MAX_COUNT_WITH_BLOCKS : GENERATOR_MAX_COUNT)
+export const generatorCountOptions = (blockIds) =>
+  Array.from({ length: generatorMaxCount(blockIds) - 2 }, (_, i) => i + 3)
+export const clampGeneratorCount = (count, blockIds) => Math.min(count, generatorMaxCount(blockIds))
+
+// Músculos que un conjunto de grupos incluye (chips que la UI deshabilita).
+export function blockedMuscles(blockIds) {
+  const set = new Set()
+  ;(blockIds ?? []).forEach(id => MUSCLE_BLOCKS.find(b => b.id === id)?.muscles.forEach(m => set.add(m)))
+  return set
+}
+
+// Alterna un grupo en la selección del generador. Al agregarlo, quita de `muscles` los músculos que el
+// grupo ya incluye; al quitarlo, ajusta la cantidad al máximo que quede habilitado. Devuelve el estado nuevo.
+export function toggleGeneratorBlock({ blocks, muscles, count }, blockId) {
+  const had = blocks.includes(blockId)
+  const nextBlocks = had ? blocks.filter(id => id !== blockId) : [...blocks, blockId]
+  const blocked = blockedMuscles(nextBlocks)
+  return {
+    blocks: nextBlocks,
+    muscles: muscles.filter(m => !blocked.has(m)),
+    count: clampGeneratorCount(count, nextBlocks),
+  }
+}
+
+// Nombre de la rutina generada: los dos primeros bloques elegidos (grupos primero, después músculos).
+export function generatorRoutineName(blockIds, muscles) {
+  const labels = (blockIds ?? []).map(id => MUSCLE_BLOCKS.find(b => b.id === id)?.label).filter(Boolean)
+  return `Generada: ${[...labels, ...(muscles ?? [])].slice(0, 2).join(' + ')}`
+}
+
+// Músculos de la rutina generada: los elegidos sueltos, más los de los ejercicios que pusieron los grupos.
+export function generatedRoutineMuscles(muscles, ordered) {
+  const out = [...(muscles ?? [])]
+  ;(ordered ?? []).forEach(e => { if (!out.includes(e.muscle)) out.push(e.muscle) })
+  return out
+}
+
 function equipFilter(e, equip) {
   if (equip !== 'Solo básico') return true
   return ['Sin equipamiento', 'Mancuernas', 'Banda elástica', 'Tobilleras'].some(
@@ -114,6 +215,113 @@ function pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, 
   }
 
   return picked
+}
+
+// Arma `target` ejercicios de un grupo (MUSCLE_BLOCKS): recorre los huecos de la plantilla en orden.
+// En cada hueco elige el primer nivel con candidatos (A → B → C → D) y, dentro de él, el de mayor
+// historyScore (empate al azar) — igual que el principal de pickForMuscle. Un hueco sin candidatos (equipo,
+// lista "never" o pool agotado) se salta y se pasa al siguiente. Si el grupo necesita más ejercicios que
+// huecos (ej. 7–8 con un solo grupo), vuelve a recorrer la plantilla desde el hueco 1. Nunca repite un id
+// (globalUsed compartido con el resto de la rutina).
+//
+// Con regenerate, los huecos principales (los dos primeros de la primera vuelta) siguen el historial; el resto
+// se sortea: primero un patrón al azar entre los del hueco que tengan candidatos y después un ejercicio al
+// azar del mejor nivel de ese patrón.
+function blockSlotPool(slot, equip, neverIds, globalUsed) {
+  return exercises.filter(e =>
+    slot.patterns.includes(e.pattern) &&
+    (!slot.muscles || slot.muscles.includes(e.muscle)) &&
+    equipFilter(e, equip) &&
+    !(neverIds && neverIds.has(e.id)) &&
+    !globalUsed.has(e.id)
+  )
+}
+
+// opts.meta (opcional): Map exerciseId → { slot, principal } donde pickForBlock anota de qué hueco salió
+// cada ejercicio, para que repairBlockPicks pueda cambiar uno por otro del mismo hueco.
+function pickForBlock(block, target, equip, workouts, regenerate, globalUsed, usedPatterns, opts = {}) {
+  if (target <= 0) return []
+  const { neverIds = null, refDate = null, meta = null } = opts
+  const picked = []
+
+  for (let pass = 0; picked.length < target; pass++) {
+    const before = picked.length
+    for (let i = 0; i < block.slots.length && picked.length < target; i++) {
+      const slot = block.slots[i]
+      const pool = blockSlotPool(slot, equip, neverIds, globalUsed)
+      if (!pool.length) continue
+
+      const isPrincipal = pass === 0 && i < BLOCK_PRINCIPAL_SLOTS
+      let chosen
+      if (regenerate && !isPrincipal) {
+        const available = slot.patterns.filter(p => pool.some(e => e.pattern === p))
+        const pattern = pickRandom(available)
+        chosen = pickRandom(firstNonEmptyLevel(pool.filter(e => e.pattern === pattern), BLOCK_LEVEL_ORDER))
+      } else {
+        chosen = pickByHistory(firstNonEmptyLevel(pool, BLOCK_LEVEL_ORDER), workouts, refDate)
+      }
+      picked.push(chosen)
+      globalUsed.add(chosen.id)
+      usedPatterns.add(chosen.pattern)
+      meta?.set(chosen.id, { slot, principal: isPrincipal })
+    }
+    if (picked.length === before) break // ningún hueco pudo aportar nada: pool agotado
+  }
+
+  return picked
+}
+
+// ¿Existe un orden de `items` donde todos los pares consecutivos cumplan hardRulesOk? (≤ 8 ejercicios.)
+function hasValidOrder(items) {
+  const used = new Array(items.length).fill(false)
+  const go = (n, prev) => {
+    if (n === items.length) return true
+    for (let i = 0; i < items.length; i++) {
+      if (used[i] || (prev && !hardRulesOk(items[i], prev))) continue
+      used[i] = true
+      const ok = go(n + 1, items[i])
+      used[i] = false
+      if (ok) return true
+    }
+    return false
+  }
+  return go(0, null)
+}
+
+// La selección por huecos no mira el orden: puede juntar, por ejemplo, tres unilaterales de tren inferior en
+// 4 ejercicios (zancada + Hip Thrust a una pierna + Peso muerto B-stance), y ningún orden evitaría que dos
+// queden seguidos. Si el conjunto elegido no tiene ningún orden válido, se cambia UN ejercicio de grupo por
+// otro del mismo hueco (primero los accesorios, de atrás para adelante; los principales solo si hace falta;
+// prefiriendo el mismo nivel y el de más historial) y se repite hasta que exista un orden válido. Si ningún
+// cambio lo logra, el conjunto queda como estaba (caso inevitable). Los ejercicios de músculos sueltos no se tocan.
+function repairBlockPicks(allPicked, meta, equip, neverSet, globalUsed, workouts, refDate) {
+  const feasible = (list) => hasValidOrder(list.filter(e => PATTERN_REGION[e.pattern] !== 'core'))
+  let list = allPicked
+  for (let guard = 0; guard < list.length && !feasible(list); guard++) {
+    const idxs = list.map((_, i) => i).filter(i => meta.has(list[i].id))
+    const byTurn = [
+      ...idxs.filter(i => !meta.get(list[i].id).principal).reverse(),
+      ...idxs.filter(i => meta.get(list[i].id).principal).reverse(),
+    ]
+    let swapped = false
+    for (const i of byTurn) {
+      const cur = list[i]
+      const info = meta.get(cur.id)
+      // Mismo nivel que el reemplazado primero, después A → B → C → D; a igual nivel, mayor historial.
+      const rank = (e) => (e.level === cur.level ? 0 : 1 + BLOCK_LEVEL_ORDER.indexOf(e.level))
+      const alts = blockSlotPool(info.slot, equip, neverSet, globalUsed)
+        .sort((a, b) => (rank(a) - rank(b)) || (historyScore(workouts, b.id, refDate) - historyScore(workouts, a.id, refDate)))
+      const alt = alts.find(a => feasible(list.map((e, k) => (k === i ? a : e))))
+      if (!alt) continue
+      list = list.map((e, k) => (k === i ? alt : e))
+      globalUsed.delete(cur.id); globalUsed.add(alt.id)
+      meta.delete(cur.id); meta.set(alt.id, info)
+      swapped = true
+      break
+    }
+    if (!swapped) break
+  }
+  return list
 }
 
 function tierOf(e) {
@@ -216,23 +424,44 @@ function orderRoutine(picked) {
 // Opcionales (los usa la rutina de regreso, utils/returnRoutine.js; sin ellos nada cambia):
 // neverIds: exerciseIds a excluir. patternsByMuscle: { [músculo]: patrones permitidos }.
 // referenceDate: 'YYYY-MM-DD' desde la que se cuentan los 56 días del historyScore (por defecto hoy).
-export function generateRoutine({ muscles, count, equip, workouts, regenerate = false, neverIds = null, patternsByMuscle = null, referenceDate = null }) {
-  if (!muscles?.length) return []
+//
+// blocks (opcional): ids de grupos de MUSCLE_BLOCKS ('piernas' | 'traccion' | 'empuje' | 'brazos'). Sin
+// `blocks` el comportamiento es exactamente el de siempre (lo usan dailySuggestion y returnRoutine). Con
+// `blocks`, cada grupo y cada músculo suelto es un bloque; `count` se reparte entre todos los bloques con la
+// misma regla (floor + el resto a los primeros) y el orden de bloques es: grupos (en el orden recibido) y
+// después los músculos sueltos (en el orden recibido). Un grupo toma los primeros k huecos de su plantilla
+// (pickForBlock); un músculo suelto usa pickForMuscle. neverIds aplica a los dos; patternsByMuscle solo a los
+// músculos sueltos.
+export function generateRoutine({ muscles, blocks = null, count, equip, workouts, regenerate = false, neverIds = null, patternsByMuscle = null, referenceDate = null }) {
+  const blockDefs = [...new Set(blocks ?? [])].map(id => MUSCLE_BLOCKS.find(b => b.id === id)).filter(Boolean)
+  const entries = [
+    ...blockDefs.map(block => ({ block })),
+    ...(muscles ?? []).map(muscle => ({ muscle })),
+  ]
+  if (!entries.length) return []
 
-  const perGroup  = Math.floor(count / muscles.length)
-  const remainder = count % muscles.length
+  const perGroup  = Math.floor(count / entries.length)
+  const remainder = count % entries.length
   const globalUsed = new Set()
   const usedPatterns = new Set()
-  const allPicked = []
+  let allPicked = []
   const neverSet = neverIds?.length ? new Set(neverIds) : null
+  const blockMeta = new Map()
 
-  muscles.forEach((muscle, idx) => {
+  entries.forEach((entry, idx) => {
     const target = perGroup + (idx < remainder ? 1 : 0)
-    const picked = pickForMuscle(muscle, target, equip, workouts, regenerate, globalUsed, usedPatterns, {
-      neverIds: neverSet, patterns: patternsByMuscle?.[muscle] ?? null, refDate: referenceDate,
-    })
+    const picked = entry.block
+      ? pickForBlock(entry.block, target, equip, workouts, regenerate, globalUsed, usedPatterns, {
+          neverIds: neverSet, refDate: referenceDate, meta: blockMeta,
+        })
+      : pickForMuscle(entry.muscle, target, equip, workouts, regenerate, globalUsed, usedPatterns, {
+          neverIds: neverSet, patterns: patternsByMuscle?.[entry.muscle] ?? null, refDate: referenceDate,
+        })
     allPicked.push(...picked)
   })
+
+  // Solo con grupos: si lo elegido no tiene ningún orden válido, se cambia un ejercicio de grupo (ver repairBlockPicks).
+  if (blockMeta.size) allPicked = repairBlockPicks(allPicked, blockMeta, equip, neverSet, globalUsed, workouts, referenceDate)
 
   return orderRoutine(allPicked)
 }

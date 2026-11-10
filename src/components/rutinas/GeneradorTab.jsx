@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { MUSCLE_GROUPS } from '../../data/exercises'
 import { getExerciseUnit } from '../../utils/exerciseUnit'
 import {
-  generateRoutine, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock, generatorCountOptions,
+  generateRoutineDetailed, routineNotices, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock, generatorCountOptions,
   generatorRoutineName, generatedRoutineMuscles,
 } from '../../utils/routineGenerator'
 import { useAuthContext } from '../../context/AuthContext'
@@ -23,6 +23,7 @@ export default function GeneradorTab({ workouts }) {
   const [count, setCount]   = useState(4)
   const [equip, setEquip]   = useState('Gym completo')
   const [generated, setGenerated] = useState(null)
+  const [notices, setNotices] = useState([]) // avisos de rutina incompleta (no se guardan con la rutina)
   const [saved, setSaved]   = useState(false)
 
   const recentMuscles = new Set()
@@ -58,7 +59,9 @@ export default function GeneradorTab({ workouts }) {
   const generate = (regenerate = false) => {
     if (!selectedMuscles.length && !selectedBlocks.length) return
 
-    const ordered = generateRoutine({ muscles: selectedMuscles, blocks: selectedBlocks, count, equip, workouts, regenerate })
+    const result = generateRoutineDetailed({ muscles: selectedMuscles, blocks: selectedBlocks, count, equip, workouts, regenerate })
+    const ordered = result.exercises
+    setNotices(routineNotices(result, equip))
 
     const routine = {
       name: generatorRoutineName(selectedBlocks, selectedMuscles),
@@ -205,14 +208,21 @@ export default function GeneradorTab({ workouts }) {
               </div>
             ))}
           </div>
+          {notices.length > 0 && (
+            <div className="mb-3 space-y-0.5" role="status">
+              {notices.map((n, i) => (
+                <p key={i} className="text-app-amber/80 text-[11px] leading-snug">{n}</p>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
-            <Button size="sm" onClick={useRoutine} className="flex-1">
+            <Button size="sm" onClick={useRoutine} disabled={generated.exercises.length === 0} className="flex-1">
               Usar ahora
             </Button>
             <Button size="sm" variant="secondary" onClick={() => generate(true)}>
               Regenerar
             </Button>
-            <Button size="sm" variant="secondary" onClick={saveAsPrearmada} disabled={saved}>
+            <Button size="sm" variant="secondary" onClick={saveAsPrearmada} disabled={saved || generated.exercises.length === 0}>
               {saved ? 'Guardada ✓' : 'Guardar'}
             </Button>
           </div>

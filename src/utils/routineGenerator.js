@@ -127,11 +127,17 @@ export function generatedRoutineMuscles(muscles, ordered) {
   return out
 }
 
-function equipFilter(e, equip) {
+// Equipamiento "básico" (filtro "Solo básico"): sin equipamiento, mancuerna(s), banda(s) y tobillera(s).
+// Compara el texto de `equip` normalizado (minúsculas, sin acentos) por PALABRA, aceptando singular y plural
+// ("Mancuerna" y "Mancuernas", "Banda elástica", "Tobillera"; "Sin equipamiento" y cualquier "Sin ..."). Un
+// `equip` con varias opciones ("Barra/Mancuerna", "Polea/Banda") pasa si alguna de ellas es básica.
+const BASIC_EQUIP_WORDS = /\b(sin|mancuernas?|bandas?|tobilleras?)\b/
+const normalizeEquip = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+export const isBasicEquip = (equip) => BASIC_EQUIP_WORDS.test(normalizeEquip(equip))
+
+export function equipFilter(e, equip) {
   if (equip !== 'Solo básico') return true
-  return ['Sin equipamiento', 'Mancuernas', 'Banda elástica', 'Tobilleras'].some(
-    eq => e.equip?.includes(eq.split(' ')[0])
-  )
+  return isBasicEquip(e.equip)
 }
 
 // Cantidad de sesiones de fuerza con este exerciseId en los 56 días previos a refDate (fechas string
@@ -432,13 +438,21 @@ function orderRoutine(picked) {
 // después los músculos sueltos (en el orden recibido). Un grupo toma los primeros k huecos de su plantilla
 // (pickForBlock); un músculo suelto usa pickForMuscle. neverIds aplica a los dos; patternsByMuscle solo a los
 // músculos sueltos.
-export function generateRoutine({ muscles, blocks = null, count, equip, workouts, regenerate = false, neverIds = null, patternsByMuscle = null, referenceDate = null }) {
+//
+// generateRoutine devuelve SOLO la lista ordenada (lo usan dailySuggestion, returnRoutine y las pantallas).
+// generateRoutineDetailed devuelve además qué se pidió y qué se logró por bloque, para avisar cuando la
+// rutina sale incompleta (ver routineNotices): { exercises, requested, entries: [{ kind, label, target, picked }] }.
+export function generateRoutine(params) {
+  return generateRoutineDetailed(params).exercises
+}
+
+export function generateRoutineDetailed({ muscles, blocks = null, count, equip, workouts, regenerate = false, neverIds = null, patternsByMuscle = null, referenceDate = null }) {
   const blockDefs = [...new Set(blocks ?? [])].map(id => MUSCLE_BLOCKS.find(b => b.id === id)).filter(Boolean)
   const entries = [
     ...blockDefs.map(block => ({ block })),
     ...(muscles ?? []).map(muscle => ({ muscle })),
   ]
-  if (!entries.length) return []
+  if (!entries.length) return { exercises: [], requested: count, entries: [] }
 
   const perGroup  = Math.floor(count / entries.length)
   const remainder = count % entries.length
@@ -447,6 +461,7 @@ export function generateRoutine({ muscles, blocks = null, count, equip, workouts
   let allPicked = []
   const neverSet = neverIds?.length ? new Set(neverIds) : null
   const blockMeta = new Map()
+  const summary = []
 
   entries.forEach((entry, idx) => {
     const target = perGroup + (idx < remainder ? 1 : 0)
@@ -458,12 +473,46 @@ export function generateRoutine({ muscles, blocks = null, count, equip, workouts
           neverIds: neverSet, patterns: patternsByMuscle?.[entry.muscle] ?? null, refDate: referenceDate,
         })
     allPicked.push(...picked)
+    summary.push({
+      kind: entry.block ? 'block' : 'muscle',
+      label: entry.block ? entry.block.label : entry.muscle,
+      target, picked: picked.length,
+    })
   })
 
   // Solo con grupos: si lo elegido no tiene ningún orden válido, se cambia un ejercicio de grupo (ver repairBlockPicks).
   if (blockMeta.size) allPicked = repairBlockPicks(allPicked, blockMeta, equip, neverSet, globalUsed, workouts, referenceDate)
 
-  return orderRoutine(allPicked)
+  return { exercises: orderRoutine(allPicked), requested: count, entries: summary }
+}
+
+const joinLabels = (labels) => (labels.length <= 1 ? labels.join('') : `${labels.slice(0, -1).join(', ')} y ${labels[labels.length - 1]}`)
+
+// Avisos para mostrar debajo de una rutina generada que quedó incompleta (lista vacía si salió completa):
+// - bloques (músculo o grupo) a los que les tocaban ejercicios y no se pudo elegir ninguno;
+// - bloques que no entran por la cantidad pedida (más bloques que ejercicios);
+// - rutina con menos ejercicios que `count` por pool agotado (solo si lo ya avisado arriba no lo explica).
+// result: lo que devuelve generateRoutineDetailed. equip: 'Gym completo' | 'Solo básico'.
+export function routineNotices(result, equip) {
+  const out = []
+  if (!result?.entries?.length) return out
+  const { entries, exercises, requested } = result
+
+  const empty = entries.filter(e => e.target > 0 && e.picked === 0)
+  if (empty.length) {
+    out.push(`${equip === 'Solo básico' ? 'Con Solo básico' : 'Con el equipamiento elegido'} no hay ejercicios para ${joinLabels(empty.map(e => e.label))}.`)
+  }
+
+  const squeezed = entries.filter(e => e.target === 0)
+  if (squeezed.length) {
+    out.push(`Con ${requested} ejercicios no entra ${joinLabels(squeezed.map(e => e.label))}: subí la cantidad o sacá algún bloque.`)
+  }
+
+  const explained = empty.reduce((sum, e) => sum + e.target, 0)
+  if (requested - exercises.length > explained) {
+    out.push(`Se generaron ${exercises.length} de ${requested} ejercicios con el equipamiento elegido.`)
+  }
+  return out
 }
 
 const CORE_MUSCLES = ['Abdominales', 'Core & Estabilidad']

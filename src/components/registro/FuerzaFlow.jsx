@@ -4,7 +4,7 @@ import { builtinRoutines } from '../../data/routines'
 import { getRestTimer, getProgressionAdvice } from '../../utils/progression'
 import { buildProgressOptions, resolveProgressValues, selectPreloadSets } from '../../utils/progressSet'
 import {
-  generateRoutine, suggestNextExercise, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock,
+  generateRoutineDetailed, routineNotices, suggestNextExercise, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock,
   generatorCountOptions, generatorRoutineName, generatedRoutineMuscles,
 } from '../../utils/routineGenerator'
 import { applyDeloadMultiplier } from '../../utils/weights'
@@ -448,6 +448,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   const [genCount, setGenCount]         = useState(4)
   const [genEquip, setGenEquip]         = useState('Gym completo')
   const [genGenerated, setGenGenerated] = useState(null)
+  const [genNotices, setGenNotices]     = useState([]) // avisos de rutina incompleta
   const [customExercises, setCustomExercises] = useState([])
   const [newExFormContext, setNewExFormContext] = useState(null) // null | 'libre' | 'panel'
   const [newExFormName, setNewExFormName]     = useState('')
@@ -695,7 +696,9 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
 
   const generateForFlow = (regenerate = false) => {
     if (!genMuscles.length && !genBlocks.length) return
-    const ordered = generateRoutine({ muscles: genMuscles, blocks: genBlocks, count: genCount, equip: genEquip, workouts, regenerate })
+    const result = generateRoutineDetailed({ muscles: genMuscles, blocks: genBlocks, count: genCount, equip: genEquip, workouts, regenerate })
+    const ordered = result.exercises
+    setGenNotices(routineNotices(result, genEquip))
     setGenGenerated({
       name: generatorRoutineName(genBlocks, genMuscles),
       exercises: ordered.map(e => ({
@@ -1056,10 +1059,18 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                   </div>
                 ))}
               </div>
+              {genNotices.length > 0 && (
+                <div className="mb-3 space-y-0.5" role="status">
+                  {genNotices.map((n, i) => (
+                    <p key={i} className="text-app-amber/80 text-[11px] leading-snug">{n}</p>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={useGeneratedRoutine}
-                  className="flex-1 py-2.5 rounded-xl bg-app-purple text-white text-sm font-medium"
+                  disabled={genGenerated.exercises.length === 0}
+                  className="flex-1 py-2.5 rounded-xl bg-app-purple text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Usar ahora
                 </button>

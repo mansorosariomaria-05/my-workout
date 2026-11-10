@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { exercises } from '../data/exercises.js'
 import {
-  generateRoutine, hardRulesOk, MUSCLE_BLOCKS, PATTERN_REGION, PATTERN_ZONE,
+  generateRoutine, generateRoutineDetailed, routineNotices, equipFilter, isBasicEquip,
+  hardRulesOk, MUSCLE_BLOCKS, PATTERN_REGION, PATTERN_ZONE,
   generatorCountOptions, clampGeneratorCount, blockedMuscles, toggleGeneratorBlock,
   generatorRoutineName, generatedRoutineMuscles,
 } from './routineGenerator.js'
@@ -9,8 +10,7 @@ import { todayStr } from './dates.js'
 
 const BLOCK_IDS = MUSCLE_BLOCKS.map(b => b.id)
 const block = (id) => MUSCLE_BLOCKS.find(b => b.id === id)
-const BASIC_EQUIP = ['Sin equipamiento', 'Mancuernas', 'Banda elástica', 'Tobilleras']
-const passesBasic = (e) => BASIC_EQUIP.some(eq => e.equip?.includes(eq.split(' ')[0]))
+const passesBasic = (e) => isBasicEquip(e.equip)
 const isCore = (e) => PATTERN_REGION[e.pattern] === 'core'
 
 // Todos los subconjuntos no vacíos de los 4 grupos (en orden de selección).
@@ -370,5 +370,138 @@ describe('helpers de la UI del generador', () => {
     const r = generateRoutine({ muscles: [], blocks: ['empuje'], count: 3, equip: 'Gym completo', workouts: [] })
     expect(generatedRoutineMuscles([], r).length).toBeGreaterThan(0)
     expect(generatedRoutineMuscles(['Glúteos'], [{ muscle: 'Glúteos' }, { muscle: 'Pecho' }])).toEqual(['Glúteos', 'Pecho'])
+  })
+})
+
+describe('isBasicEquip / equipFilter — "Solo básico"', () => {
+  it('acepta singular y plural, mayúsculas, acentos y variantes', () => {
+    const basic = [
+      'Sin equipamiento', 'sin equipo', 'SIN EQUIPAMIENTO', 'Sin', 'Sin equipamiento/Pesa', 'Sin equipamiento / Banda',
+      'Mancuerna', 'Mancuernas', 'MANCUERNA', 'mancuernas', 'Mancuerna en rodillas', 'Barra/Mancuerna', 'Escalón/Mancuerna',
+      'Barra EZ / Mancuernas', 'Cajón + Mancuernas', 'Banco inclinado + Mancuernas',
+      'Banda', 'Bandas', 'Banda elástica', 'banda elastica', 'BANDA ELÁSTICA', 'Polea/Banda', 'Tobilleras/Polea/Banda',
+      'Tobillera', 'Tobilleras', 'tobillera',
+    ]
+    basic.forEach(eq => expect(isBasicEquip(eq), eq).toBe(true))
+  })
+
+  it('no acepta equipamiento que no es básico (no se agregan categorías nuevas)', () => {
+    const notBasic = [
+      'Máquina', 'Maquina', 'Barra', 'Barra Z', 'Polea', 'Banco', 'Banco + Barra', 'Barra dominadas', 'Kettlebell', 'Cajón',
+      'Fitball', 'Banco Romano', 'Barra + soporte landmine', 'Disco', 'Pared', 'Soga para saltar', 'Máquina de prensa',
+      'Rueda abdominal', '', null, undefined,
+    ]
+    notBasic.forEach(eq => expect(isBasicEquip(eq), String(eq)).toBe(false))
+  })
+
+  it('compara por palabra: no confunde textos que solo contienen las letras', () => {
+    expect(isBasicEquip('Casino')).toBe(false)
+    expect(isBasicEquip('Bandejas')).toBe(false)
+  })
+
+  it('"Gym completo" deja pasar todo; "Solo básico" filtra por isBasicEquip', () => {
+    exercises.forEach(e => {
+      expect(equipFilter(e, 'Gym completo')).toBe(true)
+      expect(equipFilter(e, 'Solo básico')).toBe(isBasicEquip(e.equip))
+    })
+  })
+
+  it('catálogo con "Solo básico": los ejercicios con "Mancuerna" en singular ya pasan y cada músculo tiene candidatos', () => {
+    const basic = exercises.filter(e => equipFilter(e, 'Solo básico'))
+    expect(basic.length).toBe(61)
+    ;['glut_01', 'glut_11', 'cua_03', 'gem_02', 'gem_03', 'esp_05', 'hom_06', 'tri_02', 'bic_04'].forEach(id =>
+      expect(basic.some(e => e.id === id), id).toBe(true)
+    )
+    const muscles = [...new Set(exercises.map(e => e.muscle))]
+    muscles.forEach(m => expect(basic.some(e => e.muscle === m), m).toBe(true))
+  })
+
+  it('"Solo básico" con Gemelos o Cuádriceps ya devuelve ejercicios', () => {
+    expect(generateRoutine({ muscles: ['Gemelos'], count: 2, equip: 'Solo básico', workouts: [] })).toHaveLength(2)
+    expect(generateRoutine({ muscles: ['Cuádriceps'], count: 3, equip: 'Solo básico', workouts: [] })).toHaveLength(3)
+  })
+})
+
+describe('generateRoutineDetailed / routineNotices — aviso de rutina incompleta', () => {
+  const detailed = (args) => generateRoutineDetailed({ workouts: [], equip: 'Gym completo', ...args })
+
+  it('generateRoutine devuelve la misma lista que generateRoutineDetailed().exercises (misma semilla)', () => {
+    seedRandom(11)
+    const a = generateRoutine({ muscles: ['Glúteos', 'Pecho'], blocks: ['brazos'], count: 7, equip: 'Gym completo', workouts: [] }).map(e => e.id)
+    vi.restoreAllMocks(); seedRandom(11)
+    const b = generateRoutineDetailed({ muscles: ['Glúteos', 'Pecho'], blocks: ['brazos'], count: 7, equip: 'Gym completo', workouts: [] }).exercises.map(e => e.id)
+    expect(b).toEqual(a)
+  })
+
+  it('el detalle informa por bloque lo pedido y lo logrado', () => {
+    const r = detailed({ muscles: ['Pecho'], blocks: ['piernas'], count: 7 })
+    expect(r.requested).toBe(7)
+    expect(r.entries).toEqual([
+      { kind: 'block', label: 'Piernas', target: 4, picked: 4 },
+      { kind: 'muscle', label: 'Pecho', target: 3, picked: 3 },
+    ])
+  })
+
+  it('rutina completa: sin avisos', () => {
+    for (const equip of ['Gym completo', 'Solo básico']) {
+      const r = detailed({ muscles: ['Glúteos', 'Espalda'], count: 4, equip })
+      expect(routineNotices(r, equip)).toEqual([])
+    }
+    expect(routineNotices(detailed({ muscles: [], blocks: ['empuje'], count: 6 }), 'Gym completo')).toEqual([])
+  })
+
+  it('sin bloques elegidos no hay avisos', () => {
+    expect(routineNotices(detailed({ muscles: [], count: 4 }), 'Gym completo')).toEqual([])
+  })
+
+  it('un músculo sin ningún ejercicio posible se nombra (con neverIds, un pool vacío)', () => {
+    const all = exercises.filter(e => e.muscle === 'Gemelos').map(e => e.id)
+    const r = detailed({ muscles: ['Gemelos', 'Pecho'], count: 6, neverIds: all, equip: 'Solo básico' })
+    expect(r.entries[0]).toEqual({ kind: 'muscle', label: 'Gemelos', target: 3, picked: 0 })
+    expect(routineNotices(r, 'Solo básico')).toEqual(['Con Solo básico no hay ejercicios para Gemelos.'])
+    expect(routineNotices(r, 'Gym completo')).toEqual(['Con el equipamiento elegido no hay ejercicios para Gemelos.'])
+  })
+
+  it('varios bloques vacíos se listan juntos', () => {
+    const never = exercises.filter(e => ['Gemelos', 'Pecho'].includes(e.muscle)).map(e => e.id)
+    const r = detailed({ muscles: ['Gemelos', 'Pecho', 'Espalda'], count: 6, neverIds: never, equip: 'Solo básico' })
+    expect(routineNotices(r, 'Solo básico')).toEqual(['Con Solo básico no hay ejercicios para Gemelos y Pecho.'])
+  })
+
+  it('rutina más corta que lo pedido por pool agotado: "Se generaron X de Y"', () => {
+    const r = detailed({ muscles: ['Pecho'], blocks: ['piernas'], count: 8, equip: 'Solo básico' })
+    expect(r.exercises.length).toBeLessThan(8)
+    expect(routineNotices(r, 'Solo básico')).toEqual([`Se generaron ${r.exercises.length} de 8 ejercicios con el equipamiento elegido.`])
+  })
+
+  it('más bloques que ejercicios: avisa los que no entran', () => {
+    const r = detailed({ muscles: ['Pecho', 'Espalda'], blocks: ['piernas', 'empuje'], count: 3 })
+    expect(r.exercises).toHaveLength(3)
+    expect(routineNotices(r, 'Gym completo')).toEqual(['Con 3 ejercicios no entra Espalda: subí la cantidad o sacá algún bloque.'])
+    const r2 = detailed({ muscles: ['Pecho', 'Espalda', 'Bíceps'], blocks: ['piernas', 'empuje'], count: 3 })
+    expect(routineNotices(r2, 'Gym completo')).toEqual(['Con 3 ejercicios no entra Espalda y Bíceps: subí la cantidad o sacá algún bloque.'])
+  })
+
+  it('no repite en el segundo aviso lo que ya explica el primero', () => {
+    const never = exercises.filter(e => e.muscle === 'Gemelos').map(e => e.id)
+    const r = detailed({ muscles: ['Gemelos'], count: 4, neverIds: never })
+    expect(r.exercises).toEqual([])
+    expect(routineNotices(r, 'Gym completo')).toHaveLength(1)
+  })
+
+  it('"Solo básico" con cada grupo de 3 a 8, y Piernas + Pecho de 8: sin ejercicios que no sean básicos', () => {
+    const cases = [...BLOCK_IDS.map(id => ({ muscles: [], blocks: [id] })), { muscles: ['Pecho'], blocks: ['piernas'] }]
+    for (const c of cases) {
+      for (let k = 3; k <= 8; k++) {
+        for (let rep = 0; rep < 10; rep++) {
+          const r = generateRoutineDetailed({ ...c, count: k, equip: 'Solo básico', workouts: [], regenerate: rep % 2 === 1 })
+          expect(r.exercises.every(e => isBasicEquip(e.equip))).toBe(true)
+          expect(new Set(r.exercises.map(e => e.id)).size).toBe(r.exercises.length)
+          // si faltan ejercicios, el aviso lo dice; si no faltan, no hay aviso
+          const notices = routineNotices(r, 'Solo básico')
+          expect(notices.length > 0).toBe(r.exercises.length < k)
+        }
+      }
+    }
   })
 })

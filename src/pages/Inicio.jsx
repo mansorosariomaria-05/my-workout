@@ -12,6 +12,7 @@ import { getWeeklyGoal } from '../utils/progressStats'
 import { getInactivityInfo } from '../utils/inactivity'
 import { computeDailySuggestion } from '../utils/dailySuggestion'
 import { getNeverList } from '../services/db'
+import { normalizeIdList } from '../utils/exerciseAliases'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
 import HeroPortada from '../components/inicio/HeroPortada'
 import Logros from '../components/inicio/Logros'
@@ -725,7 +726,9 @@ export default function Inicio() {
       cached && cached.date === today && cached.realCount === realCount &&
       !!cached.skipReturn === skipReturn && (cached.profileKey ?? '') === profileKey
     ) {
-      setSuggestion(cached.suggestion)
+      // La sugerencia cacheada del día puede traer ids de ejercicios fusionados (alias): se traducen al leerla.
+      const sug = cached.suggestion
+      setSuggestion(sug?.generatedIds ? { ...sug, generatedIds: normalizeIdList(sug.generatedIds) } : sug)
       return
     }
     if (neverIds === null) return // esperando la lista "never" antes de calcular (máx. 3 s)

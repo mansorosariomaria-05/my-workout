@@ -3,6 +3,7 @@ import { useAuthContext } from './AuthContext'
 import { getTodayLocal } from '../utils/dates'
 import { getWorkoutInProgress, saveWorkoutInProgress, deleteWorkoutInProgress } from '../services/db'
 import { draftHasRealContent, isDraftExpired, pickNewerDraft } from '../utils/draftResolution.js'
+import { normalizeInProgress } from '../utils/exerciseAliases.js'
 
 const WorkoutDraftContext = createContext(null)
 
@@ -13,7 +14,8 @@ function readLocal(uid) {
   if (!uid) return null
   try {
     const raw = localStorage.getItem(DRAFT_KEY(uid))
-    return raw ? JSON.parse(raw) : null
+    // Alias de ejercicios fusionados: el entrenamiento en curso se lee con los ids ya canónicos.
+    return raw ? normalizeInProgress(JSON.parse(raw)) : null
   } catch { return null }
 }
 

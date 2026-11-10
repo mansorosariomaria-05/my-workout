@@ -5,11 +5,11 @@ import { todayStr, parseLocalDate, dateToLocal } from './dates.js'
 // de región inferior seguidos" (fatiga de estabilización unilateral) y para el tier de orden (core siempre al final).
 export const PATTERN_REGION = {
   sentadilla: 'inferior', zancada: 'inferior', bisagra: 'inferior', empuje_cadera: 'inferior',
-  extension_cadera: 'inferior', abduccion: 'inferior', curl_femoral: 'inferior', extension_rodilla: 'inferior', gemelos: 'inferior',
+  extension_cadera: 'inferior', abduccion: 'inferior', aduccion: 'inferior', curl_femoral: 'inferior', extension_rodilla: 'inferior', gemelos: 'inferior',
   traccion_vertical: 'superior', traccion_horizontal: 'superior', deltoides_posterior: 'superior',
   empuje_horizontal: 'superior', aperturas: 'superior', empuje_vertical: 'superior', elevacion_lateral: 'superior',
   triceps: 'superior', biceps: 'superior',
-  core_flexion: 'core', core_antiextension: 'core', core_rotacion: 'core',
+  core_flexion: 'core', core_antiextension: 'core', core_rotacion: 'core', carga: 'core',
 }
 
 // Zona de fatiga de cada patrón — más fina que la región, usada solo como regla blanda de orden
@@ -18,10 +18,11 @@ export const PATTERN_ZONE = {
   sentadilla: 'rodilla', zancada: 'rodilla', extension_rodilla: 'rodilla',
   bisagra: 'posterior', empuje_cadera: 'posterior', extension_cadera: 'posterior', curl_femoral: 'posterior',
   abduccion: 'abductores',
+  aduccion: 'aductores',
   gemelos: 'gemelos',
   empuje_horizontal: 'empuje', aperturas: 'empuje', empuje_vertical: 'empuje', elevacion_lateral: 'empuje', triceps: 'empuje',
   traccion_vertical: 'traccion', traccion_horizontal: 'traccion', deltoides_posterior: 'traccion', biceps: 'traccion',
-  core_flexion: 'core', core_antiextension: 'core', core_rotacion: 'core',
+  core_flexion: 'core', core_antiextension: 'core', core_rotacion: 'core', carga: 'core',
 }
 
 const ACCESORY_LEVEL_ORDER = ['B', 'C', 'A', 'D']
@@ -34,14 +35,14 @@ const ACCESORY_LEVEL_ORDER = ['B', 'C', 'A', 'D']
 export const MUSCLE_BLOCKS = [
   {
     id: 'piernas', label: 'Piernas',
-    muscles: ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos'],
+    muscles: ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Aductores', 'Gemelos'],
     slots: [
       { patterns: ['sentadilla'], muscles: ['Cuádriceps'] },
       { patterns: ['bisagra'], muscles: ['Isquios', 'Glúteos'] },
       { patterns: ['empuje_cadera'], muscles: ['Glúteos'] },
       { patterns: ['zancada'] },
       { patterns: ['curl_femoral', 'extension_rodilla'] },
-      { patterns: ['abduccion', 'gemelos'] },
+      { patterns: ['abduccion', 'aduccion', 'gemelos'] },
     ],
   },
   {

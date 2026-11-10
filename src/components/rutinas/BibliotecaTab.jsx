@@ -11,6 +11,7 @@ const GROUP_COLORS = {
   'Isquios':            '#4A9EDB',
   'Cuádriceps':         '#40916C',
   'Abductores':         '#52B788',
+  'Aductores':          '#2A9D8F',
   'Gemelos':            '#74B3CE',
   'Espalda':            '#7C5CBF',
   'Pecho':              '#C0533A',

@@ -9,7 +9,7 @@
 //   · Los ejercicios se agrupan por id del catálogo; si el id no está en el catálogo, por nombre
 //     normalizado (así las alternativas alt-… no fragmentan el historial).
 
-import { exercises as DEFAULT_CATALOG } from '../data/exercises.js'
+import { exercises as DEFAULT_CATALOG, canonicalExerciseId } from '../data/exercises.js'
 import { REAL_WORKOUT_TYPES, STREAK_MIN_DAYS } from './streak.js'
 import { getExerciseUnit } from './exerciseUnit.js'
 import { getSessionDurationSeconds } from './sessionDuration.js'
@@ -100,7 +100,9 @@ function getCatalogIndex(catalog) {
 // Clave de agrupación: id del catálogo; si no, nombre normalizado (y si el nombre coincide con un ejercicio
 // del catálogo, ese id); si no hay ni nombre, el id crudo; si no hay nada, null.
 function groupRef(entry, idx) {
-  const id = entry.exerciseId
+  let id = entry.exerciseId
+  // Defensa: un id de ejercicio fusionado que llegara sin normalizar (EXERCISE_ALIASES) se agrupa con su canónico.
+  if (id != null && !idx.byId.has(id)) { const c = canonicalExerciseId(id); if (c !== id && idx.byId.has(c)) id = c }
   if (id != null && idx.byId.has(id)) return { key: id, cat: idx.byId.get(id) }
   const n = normalizeName(entry.name)
   if (n) {

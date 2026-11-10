@@ -7,6 +7,7 @@ import {
   generateRoutineDetailed, routineNotices, suggestNextExercise, MUSCLE_BLOCKS, blockedMuscles, toggleGeneratorBlock,
   generatorCountOptions, generatorRoutineName, generatedRoutineMuscles,
 } from '../../utils/routineGenerator'
+import { normalizeIdList } from '../../utils/exerciseAliases'
 import { applyDeloadMultiplier } from '../../utils/weights'
 import { reduceWeight } from '../../utils/returnRoutine'
 import { getReturnState } from '../../utils/reentry'
@@ -21,7 +22,7 @@ import Modal from '../ui/Modal'
 const REST_OPTIONS   = [30, 45, 60, 75, 90, 120, 150, 180]
 const LEVEL_ORDER    = ['A', 'B', 'C', 'D']
 const exDisplayName  = (e) => e.zone ? `${e.name} (${e.zone})` : e.name
-const TREN_INFERIOR  = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos']
+const TREN_INFERIOR  = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Aductores', 'Gemelos']
 const TREN_SUPERIOR  = ['Espalda', 'Pecho', 'Hombros', 'Bíceps', 'Tríceps']
 const CORE           = ['Abdominales', 'Core & Estabilidad']
 
@@ -667,7 +668,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
   // (precarga = última sesión real) igual que el generador inline y las prearmadas.
   useEffect(() => {
     if (data.pendingGeneratedIds?.length && !data.exercises?.length) {
-      let exs = data.pendingGeneratedIds.map(id => allExercises.find(e => e.id === id)).filter(Boolean).map(buildEntry)
+      let exs = normalizeIdList(data.pendingGeneratedIds).map(id => allExercises.find(e => e.id === id)).filter(Boolean).map(buildEntry)
       if (data.regreso?.pct) exs = exs.map(entry => applyReturnReduction(entry, data.regreso.pct))
       onChange({ ...data, exercises: exs, pendingGeneratedIds: undefined })
       onTimerStart?.()

@@ -6,6 +6,8 @@ import {
   serverTimestamp, Timestamp,
 } from 'firebase/firestore'
 import { parseLocalDate, getTodayLocal } from '../utils/dates'
+import { canonicalExerciseId } from '../data/exercises'
+import { normalizeIdList, normalizeInProgress, normalizeRoutines } from '../utils/exerciseAliases'
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 // profile: los datos, o null si el documento no existe. fromCache: true si NO viene confirmado por el
@@ -91,28 +93,33 @@ export const unlockAchievement = async (uid, key, detail) => {
 }
 
 // ─── Favorites & Never ────────────────────────────────────────────────────────
+// Los ids se leen ya traducidos a su id canónico y sin duplicados (alias de ejercicios fusionados).
 export const getFavorites = async (uid) => {
   const snap = await getDoc(doc(db, 'users', uid, 'data', 'favorites'))
-  return snap.exists() ? (snap.data().ids ?? []) : []
+  return snap.exists() ? normalizeIdList(snap.data().ids ?? []) : []
 }
 
 export const toggleFavorite = async (uid, exerciseId, currentList) => {
-  const updated = currentList.includes(exerciseId)
-    ? currentList.filter(id => id !== exerciseId)
-    : [...currentList, exerciseId]
+  const id = canonicalExerciseId(exerciseId)
+  const list = normalizeIdList(currentList ?? [])
+  const updated = list.includes(id)
+    ? list.filter(x => x !== id)
+    : [...list, id]
   await setDoc(doc(db, 'users', uid, 'data', 'favorites'), { ids: updated })
   return updated
 }
 
 export const getNeverList = async (uid) => {
   const snap = await getDoc(doc(db, 'users', uid, 'data', 'never'))
-  return snap.exists() ? (snap.data().ids ?? []) : []
+  return snap.exists() ? normalizeIdList(snap.data().ids ?? []) : []
 }
 
 export const toggleNever = async (uid, exerciseId, currentList) => {
-  const updated = currentList.includes(exerciseId)
-    ? currentList.filter(id => id !== exerciseId)
-    : [...currentList, exerciseId]
+  const id = canonicalExerciseId(exerciseId)
+  const list = normalizeIdList(currentList ?? [])
+  const updated = list.includes(id)
+    ? list.filter(x => x !== id)
+    : [...list, id]
   await setDoc(doc(db, 'users', uid, 'data', 'never'), { ids: updated })
   return updated
 }
@@ -122,7 +129,7 @@ export const toggleNever = async (uid, exerciseId, currentList) => {
 export const getWorkoutInProgress = async (uid) => {
   try {
     const snap = await getDoc(doc(db, 'users', uid, 'data', 'workoutInProgress'))
-    return snap.exists() ? snap.data() : null
+    return snap.exists() ? normalizeInProgress(snap.data()) : null
   } catch (err) {
     console.warn('getWorkoutInProgress sin red:', err)
     return null
@@ -149,7 +156,7 @@ export const deleteWorkoutInProgress = async (uid) => {
 export const getCustomRoutines = async (uid) => {
   const q = query(collection(db, 'users', uid, 'customRoutines'), orderBy('createdAt', 'desc'))
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  return normalizeRoutines(snap.docs.map(d => ({ id: d.id, ...d.data() })))
 }
 
 export const saveCustomRoutine = async (uid, routine) => {

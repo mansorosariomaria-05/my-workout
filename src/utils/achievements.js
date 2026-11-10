@@ -196,7 +196,7 @@ function checkFinSemanaActivo(workouts) {
 }
 
 function checkPiernasAcero(workouts) {
-  const LEG = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos']
+  const LEG = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Aductores', 'Gemelos']
   const weeks = {}
   workouts.filter(w => w.type === 'fuerza').forEach(w => {
     const muscles = [...(w.muscleGroups ?? []), ...(w.exercises?.map(e => e.muscle).filter(Boolean) ?? [])]

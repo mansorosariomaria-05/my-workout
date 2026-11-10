@@ -1,5 +1,5 @@
 export const MUSCLE_GROUPS = [
-  'Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos',
+  'Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Aductores', 'Gemelos',
   'Espalda', 'Pecho', 'Hombros', 'Tríceps', 'Bíceps',
   'Abdominales', 'Core & Estabilidad',
 ]
@@ -7,30 +7,23 @@ export const MUSCLE_GROUPS = [
 export const exercises = [
   // GLÚTEOS
   { id: 'glut_01', name: 'Hip Thrust', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'A', equip: 'Barra/Mancuerna', alt: 'Puente de Glúteo', secondary: 'Isquios', pattern: 'empuje_cadera', unilateral: false, unit: 'reps' },
-  { id: 'glut_02', name: 'Hip Thrust a una pierna', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'A', equip: 'Barra', alt: 'Puente de Glúteo un lado', secondary: 'Isquios', pattern: 'empuje_cadera', unilateral: true, unit: 'reps' },
+  { id: 'glut_02', name: 'Hip Thrust a una pierna', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Barra/Mancuerna', alt: 'Puente de Glúteo unilateral', secondary: 'Isquios', pattern: 'empuje_cadera', unilateral: true, unit: 'reps' },
   { id: 'glut_03', name: 'Kettlebell swing', muscle: 'Glúteos', group: 'Isquios', level: 'A', equip: 'Kettlebell', alt: 'Peso muerto B-stance', secondary: 'Core', pattern: 'bisagra', unilateral: false, unit: 'reps' },
   { id: 'glut_04', name: 'Sentadillas búlgaras', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Mancuernas', alt: 'Estocada en el lugar', secondary: 'Cuádriceps', pattern: 'zancada', unilateral: true, unit: 'reps' },
-  { id: 'glut_05', name: 'Step-ups altos', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Cajón', alt: 'Zancadas atrás', secondary: 'Cuádriceps', pattern: 'zancada', unilateral: true, unit: 'reps' },
+  { id: 'glut_05', name: 'Step-ups al cajón alto', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Cajón / Cajón + Mancuernas', alt: 'Zancadas atrás', secondary: 'Cuádriceps', pattern: 'zancada', unilateral: true, unit: 'reps' },
   { id: 'glut_06', name: 'Zancadas atrás', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Mancuernas', alt: 'Estocada sin peso', secondary: 'Cuádriceps', pattern: 'zancada', unilateral: true, unit: 'reps' },
   { id: 'glut_07', name: 'Puente de Glúteo', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'C', equip: 'Sin equipamiento', alt: 'Hip Thrust con mancuerna', secondary: 'Isquios', pattern: 'empuje_cadera', unilateral: false, unit: 'reps' },
-  { id: 'glut_08', name: 'Abducción con banda', muscle: 'Glúteos', group: 'Glúteo medio', level: 'C', equip: 'Banda elástica', alt: 'Abducción en cuadrupedia', secondary: 'Glúteo menor', pattern: 'abduccion', unilateral: false, unit: 'reps' },
-  { id: 'glut_09', name: 'Clamshell', muscle: 'Glúteos', group: 'Glúteo medio', level: 'C', equip: 'Banda elástica', alt: 'Clamshell sin banda', secondary: 'Core lateral', pattern: 'abduccion', unilateral: false, unit: 'reps' },
   { id: 'glut_10', name: 'Patada de glúteo', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'C', equip: 'Tobilleras/Polea/Banda', alt: 'Patada en cuadrupedia sin peso', secondary: 'Isquios', pattern: 'extension_cadera', unilateral: false, unit: 'reps' },
-  { id: 'glut_11', name: 'Hip Thrust unilateral', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Mancuerna', alt: 'Puente de Glúteo unilateral', secondary: 'Isquios', pattern: 'empuje_cadera', unilateral: true, unit: 'reps' },
-  { id: 'glut_12', name: 'Step-ups con mancuernas al cajón alto', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Cajón + Mancuernas', alt: 'Zancadas atrás', secondary: 'Cuádriceps', pattern: 'zancada', unilateral: true, unit: 'reps' },
   { id: 'glut_reverse_frog', name: 'Reverse Frog', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Sin equipamiento', alt: 'Patada de glúteo en cuadrupedia', secondary: 'Isquios', pattern: 'extension_cadera', unilateral: false, unit: 'reps' },
-  { id: 'glut_abd_pausa', name: 'Abducción con pausa', muscle: 'Glúteos', group: 'Glúteo medio', level: 'B', equip: 'Sin equipamiento / Banda', alt: 'Hip Abduction de pie con banda', secondary: 'Glúteo mayor', pattern: 'abduccion', unilateral: false, unit: 'reps' },
-  { id: 'glut_patada_lateral', name: 'Patada lateral con tobillera', muscle: 'Glúteos', group: 'Glúteo menor', level: 'C', equip: 'Tobilleras', alt: 'Abducción en suelo con banda', secondary: 'TFL', pattern: 'abduccion', unilateral: false, unit: 'reps' },
+  { id: 'isq_03', name: 'Sentadilla punta pies elevados', muscle: 'Glúteos', group: 'Glúteo mayor', level: 'B', equip: 'Sin equipamiento', alt: 'Sentadilla goblet', secondary: 'Cuádriceps', pattern: 'sentadilla', unilateral: false, unit: 'reps' },
 
   // ISQUIOS
   { id: 'isq_01', name: 'Peso Muerto', muscle: 'Isquios', group: 'Isquios / Glúteo', level: 'A', equip: 'Barra', alt: 'Peso muerto B-stance', secondary: 'Espalda baja', pattern: 'bisagra', unilateral: false, unit: 'reps' },
   { id: 'isq_02', name: 'Peso muerto B-stance', muscle: 'Isquios', group: 'Isquios', level: 'A', equip: 'Mancuernas', alt: 'Landmine RDL', secondary: 'Glúteo mayor', pattern: 'bisagra', unilateral: true, unit: 'reps' },
-  { id: 'isq_03', name: 'Sentadilla punta pies elevados', muscle: 'Isquios', group: 'Isquios', level: 'B', equip: 'Sin equipamiento', alt: 'Sentadilla goblet', secondary: 'Glúteos', pattern: 'sentadilla', unilateral: false, unit: 'reps' },
   { id: 'isq_04', name: 'Curl femoral fitball', muscle: 'Isquios', group: 'Isquios', level: 'C', equip: 'Fitball', alt: 'Puente pies elevados', secondary: 'Core', pattern: 'curl_femoral', unilateral: false, unit: 'reps' },
   { id: 'isq_05', name: 'Puente pies elevados', muscle: 'Isquios', group: 'Isquios', level: 'C', equip: 'Banco', alt: 'Puente de Glúteo', secondary: 'Glúteos', pattern: 'empuje_cadera', unilateral: false, unit: 'reps' },
-  { id: 'isq_06', name: 'Curl Femoral Máquina', muscle: 'Isquios', group: 'Isquios', level: 'C', equip: 'Máquina', alt: 'Curl femoral fitball', secondary: '—', pattern: 'curl_femoral', unilateral: false, unit: 'reps' },
-  { id: 'isq_07', name: 'Curl de Isquiotibiales en máquina', muscle: 'Isquios', group: 'Isquios', level: 'B', equip: 'Máquina', alt: 'Curl femoral fitball / Nordic Curl', secondary: 'Glúteos', pattern: 'curl_femoral', unilateral: false, unit: 'reps' },
-  { id: 'isq_08', name: 'Nordic Curl', muscle: 'Isquios', group: 'Isquios', level: 'C', equip: 'Sin equipamiento', alt: 'Curl femoral fitball', secondary: 'Core', pattern: 'curl_femoral', unilateral: false, unit: 'reps' },
+  { id: 'isq_06', name: 'Curl femoral acostado', muscle: 'Isquios', group: 'Isquios', level: 'C', equip: 'Máquina', alt: 'Curl femoral fitball', secondary: 'Gemelos', pattern: 'curl_femoral', unilateral: false, unit: 'reps' },
+  { id: 'isq_08', name: 'Nordic Curl', muscle: 'Isquios', group: 'Isquios', level: 'B', equip: 'Sin equipamiento', alt: 'Curl femoral fitball', secondary: 'Core', pattern: 'curl_femoral', unilateral: false, unit: 'reps' },
   { id: 'hiperextensiones', name: 'Hiperextensiones', muscle: 'Isquios', group: 'Isquios / Lumbar', level: 'C', equip: 'Banco Romano', alt: 'Buenos días con mancuerna', secondary: 'Glúteos / Lumbar', pattern: 'bisagra', unilateral: false, unit: 'reps' },
   { id: 'landmine-rdl', name: 'Landmine RDL', muscle: 'Isquios', group: 'Isquios', level: 'B', equip: 'Barra + soporte landmine', alt: 'Peso muerto B-stance', secondary: 'Glúteos', pattern: 'bisagra', unilateral: false, unit: 'reps' },
 
@@ -50,9 +43,19 @@ export const exercises = [
   { id: 'abd_02', name: 'Abducción piernas tobilleras', muscle: 'Abductores', group: 'Glúteo menor', level: 'C', equip: 'Tobilleras', alt: 'Abducción lateral en suelo', secondary: 'TFL', pattern: 'abduccion', unilateral: false, unit: 'reps' },
   { id: 'abd_03', name: 'Abducción en cuadrupedia', muscle: 'Abductores', group: 'Glúteo medio', level: 'C', equip: 'Tobilleras', alt: 'Abducción sin tobilleras', secondary: 'Core', pattern: 'abduccion', unilateral: false, unit: 'reps' },
   { id: 'abd_04', name: 'Hip Abduction de pie con banda', muscle: 'Abductores', group: 'Glúteo medio', level: 'C', equip: 'Banda elástica', alt: 'Abducción lateral en suelo', secondary: 'TFL', pattern: 'abduccion', unilateral: false, unit: 'reps' },
+  { id: 'glut_08', name: 'Abducción con banda', muscle: 'Abductores', group: 'Glúteo medio', level: 'C', equip: 'Banda elástica', alt: 'Abducción en cuadrupedia', secondary: 'Glúteo menor', pattern: 'abduccion', unilateral: false, unit: 'reps' },
+  { id: 'glut_09', name: 'Clamshell', muscle: 'Abductores', group: 'Glúteo medio', level: 'C', equip: 'Banda elástica', alt: 'Clamshell sin banda', secondary: 'Core lateral', pattern: 'abduccion', unilateral: false, unit: 'reps' },
+  { id: 'glut_patada_lateral', name: 'Patada lateral con tobillera', muscle: 'Abductores', group: 'Glúteo menor', level: 'C', equip: 'Tobilleras', alt: 'Abducción en suelo con banda', secondary: 'TFL', pattern: 'abduccion', unilateral: false, unit: 'reps' },
+  { id: 'glut_abd_pausa', name: 'Abducción con pausa', muscle: 'Abductores', group: 'Glúteo medio', level: 'B', equip: 'Sin equipamiento / Banda', alt: 'Hip Abduction de pie con banda', secondary: 'Glúteo mayor', pattern: 'abduccion', unilateral: false, unit: 'reps' },
+
+  // ADUCTORES
+  { id: 'adu_01', name: 'Plancha Copenhague', muscle: 'Aductores', group: 'Aductores', level: 'C', equip: 'Sin equipamiento / Banco', alt: 'Aducción de pie con banda o polea', secondary: 'Oblicuos', pattern: 'aduccion', unilateral: true, unit: 'secs' },
+  { id: 'adu_02', name: 'Aducción en máquina', muscle: 'Aductores', group: 'Aductores', level: 'C', equip: 'Máquina', alt: 'Aducción de pie con banda o polea', secondary: 'Grácil / Pectíneo', pattern: 'aduccion', unilateral: false, unit: 'reps' },
+  { id: 'adu_03', name: 'Aducción de pie con banda o polea', muscle: 'Aductores', group: 'Aductores', level: 'C', equip: 'Banda/Polea', alt: 'Aducción en máquina', secondary: 'Core', pattern: 'aduccion', unilateral: true, unit: 'reps' },
+  { id: 'adu_04', name: 'Sentadilla sumo con mancuerna', muscle: 'Aductores', group: 'Aductor mayor', level: 'B', equip: 'Mancuerna', alt: 'Sentadilla goblet', secondary: 'Glúteos', pattern: 'sentadilla', unilateral: false, unit: 'reps' },
 
   // GEMELOS
-  { id: 'gem_01', name: 'Salto a la soga', muscle: 'Gemelos', group: 'Gemelos', level: 'A', equip: 'Soga para saltar', alt: 'Salto en el lugar', secondary: 'Cardio', pattern: 'gemelos', unilateral: false, unit: 'reps' },
+  { id: 'gem_01', name: 'Salto a la soga', muscle: 'Gemelos', group: 'Gemelos', level: 'C', equip: 'Soga para saltar', alt: 'Salto en el lugar', secondary: 'Cardio', pattern: 'gemelos', unilateral: false, unit: 'reps' },
   { id: 'gem_02', name: 'Elevación de talones de pie', muscle: 'Gemelos', group: 'Gemelos', level: 'C', equip: 'Escalón/Mancuerna', alt: 'Elevación en suelo', secondary: 'Sóleo', pattern: 'gemelos', unilateral: false, unit: 'reps' },
   { id: 'gem_03', name: 'Elevación de talones sentada', muscle: 'Gemelos', group: 'Sóleo', level: 'C', equip: 'Mancuerna en rodillas', alt: 'Elevación en suelo', secondary: 'Gemelos', pattern: 'gemelos', unilateral: false, unit: 'reps' },
   { id: 'gem_04', name: 'Prensa en punta de pies', muscle: 'Gemelos', group: 'Gemelos', level: 'C', equip: 'Máquina de prensa', alt: 'Elevación de talones en suelo', secondary: 'Sóleo', pattern: 'gemelos', unilateral: false, unit: 'reps' },
@@ -64,7 +67,7 @@ export const exercises = [
   { id: 'esp_04', name: 'Remo polea baja', muscle: 'Espalda', group: 'Romboides + Trapecio', level: 'A', equip: 'Polea', alt: 'Remo con Mancuerna', secondary: 'Dorsal', pattern: 'traccion_horizontal', unilateral: false, unit: 'reps' },
   { id: 'esp_05', name: 'Remo con Mancuerna', muscle: 'Espalda', group: 'Dorsal ancho', level: 'B', equip: 'Mancuerna', alt: 'Remo en polea', secondary: 'Bíceps', pattern: 'traccion_horizontal', unilateral: true, unit: 'reps' },
   { id: 'esp_06', name: 'Remo en prono', muscle: 'Espalda', group: 'Trapecio + Deltoides', level: 'B', equip: 'Banco + Mancuernas', alt: 'Remo con Mancuerna', secondary: 'Trapecio medio', pattern: 'traccion_horizontal', unilateral: false, unit: 'reps' },
-  { id: 'esp_07', name: 'Face Pull', muscle: 'Espalda', group: 'Trapecio medio', level: 'C', equip: 'Polea/Banda', alt: 'Face Pull con banda', secondary: 'Deltoides post.', pattern: 'deltoides_posterior', unilateral: false, unit: 'reps' },
+  { id: 'esp_07', name: 'Face Pull', muscle: 'Espalda', group: 'Trapecio medio', level: 'C', equip: 'Polea/Banda elástica', alt: 'Face Pull con banda', secondary: 'Deltoides post.', pattern: 'deltoides_posterior', unilateral: false, unit: 'reps' },
 
   // PECHO
   { id: 'pec_01', name: 'Press de Banca', muscle: 'Pecho', group: 'Pectoral mayor', level: 'A', equip: 'Banco + Barra', alt: 'Flexiones de brazos', secondary: 'Tríceps / Hombro', pattern: 'empuje_horizontal', unilateral: false, unit: 'reps' },
@@ -77,10 +80,8 @@ export const exercises = [
   { id: 'hom_01', name: 'Press hombros', muscle: 'Hombros', group: 'Deltoides anterior', level: 'A', equip: 'Mancuernas/Barra', alt: 'Press con banda', secondary: 'Tríceps', pattern: 'empuje_vertical', unilateral: false, unit: 'reps' },
   { id: 'hom_02', name: 'Elevaciones laterales', muscle: 'Hombros', group: 'Deltoides lateral', level: 'C', equip: 'Mancuernas', alt: 'Elevaciones con banda', secondary: 'Trapecio sup.', pattern: 'elevacion_lateral', unilateral: false, unit: 'reps' },
   { id: 'hom_03', name: 'Vuelo posterior', muscle: 'Hombros', group: 'Deltoides posterior', level: 'C', equip: 'Mancuernas', alt: 'Vuelo posterior con banda', secondary: 'Romboides', pattern: 'deltoides_posterior', unilateral: false, unit: 'reps' },
-  { id: 'hom_04', name: 'Face Pull', muscle: 'Hombros', group: 'Deltoides posterior', level: 'C', equip: 'Polea/Banda elástica', alt: 'Vuelo posterior con banda', secondary: 'Trapecio', pattern: 'deltoides_posterior', unilateral: false, unit: 'reps' },
   { id: 'hom_05', name: 'Arnold Press', muscle: 'Hombros', group: 'Deltoides completo', level: 'B', equip: 'Mancuernas', alt: 'Press de hombros unilateral', secondary: 'Tríceps', pattern: 'empuje_vertical', unilateral: false, unit: 'reps' },
   { id: 'hom_06', name: 'Press de hombros unilateral', muscle: 'Hombros', group: 'Deltoides anterior', level: 'C', equip: 'Mancuerna', alt: 'Press hombros', secondary: 'Core', pattern: 'empuje_vertical', unilateral: true, unit: 'reps' },
-  { id: 'hom_07', name: 'Vuelos posteriores con mancuerna', muscle: 'Hombros', group: 'Deltoides posterior', level: 'C', equip: 'Mancuernas', alt: 'Face Pull', secondary: 'Romboides', pattern: 'deltoides_posterior', unilateral: false, unit: 'reps' },
 
   // TRÍCEPS
   { id: 'tri_01', name: 'Fondos de banco', muscle: 'Tríceps', group: 'Tríceps', level: 'B', equip: 'Banco', alt: 'Fondos en suelo', secondary: 'Pecho / Hombro', pattern: 'triceps', unilateral: false, unit: 'reps' },
@@ -95,7 +96,6 @@ export const exercises = [
   { id: 'bic_02', name: 'Curl mancuernas', muscle: 'Bíceps', group: 'Bíceps', level: 'C', equip: 'Mancuernas', alt: 'Curl con banda', secondary: 'Antebrazo', pattern: 'biceps', unilateral: false, unit: 'reps' },
   { id: 'bic_03', name: 'Curl martillo', muscle: 'Bíceps', group: 'Bíceps / Braquial', level: 'C', equip: 'Mancuernas', alt: 'Curl martillo con banda', secondary: 'Antebrazo', pattern: 'biceps', unilateral: false, unit: 'reps' },
   { id: 'bic_04', name: 'Curl concentrado', muscle: 'Bíceps', group: 'Bíceps', level: 'C', equip: 'Mancuerna', alt: 'Curl con banda', secondary: 'Bíceps', pattern: 'biceps', unilateral: true, unit: 'reps' },
-  { id: 'bic_05', name: 'Curl de bíceps con mancuerna', muscle: 'Bíceps', group: 'Bíceps', level: 'C', equip: 'Mancuernas', alt: 'Curl en polea', secondary: 'Antebrazo', pattern: 'biceps', unilateral: false, unit: 'reps' },
 
   // ABDOMINALES
   { id: 'abs_01', name: 'Rueda abdominal',          muscle: 'Abdominales', zone: 'Superior', group: 'Recto abdominal',     level: 'B', equip: 'Rueda abdominal',       alt: 'Plancha con flexión',         secondary: 'Serrato', pattern: 'core_antiextension', unilateral: false, unit: 'reps' },
@@ -118,5 +118,26 @@ export const exercises = [
   { id: 'cor_03', name: 'Bird Dog', muscle: 'Core & Estabilidad', group: 'Core profundo', level: 'D', equip: 'Sin equipamiento', alt: 'Bird Dog simplificado', secondary: 'Lumbar', pattern: 'core_antiextension', unilateral: false, unit: 'reps' },
   { id: 'cor_04', name: 'Hollow Body Hold', muscle: 'Core & Estabilidad', group: 'Core profundo', level: 'D', equip: 'Sin equipamiento', alt: 'La Plancha', secondary: 'Recto abdominal', pattern: 'core_antiextension', unilateral: false, unit: 'secs' },
   { id: 'plancha-arrastre-mancuerna', name: 'Plancha con Arrastre de Mancuerna', muscle: 'Core & Estabilidad', group: 'Core profundo', level: 'D', equip: 'Mancuerna', alt: 'La Plancha', secondary: 'Oblicuos', pattern: 'core_rotacion', unilateral: false, unit: 'reps' },
+  { id: 'cor_05', name: 'Paseo del granjero', muscle: 'Core & Estabilidad', group: 'Core global', level: 'D', equip: 'Mancuernas / Kettlebell', alt: 'La Plancha', secondary: 'Agarre / Trapecio', pattern: 'carga', unilateral: false, unit: 'secs' },
+  { id: 'cor_06', name: 'Paseo de maleta', muscle: 'Core & Estabilidad', group: 'Core lateral', level: 'D', equip: 'Mancuerna / Kettlebell', alt: 'Plancha lateral', secondary: 'Oblicuos / Cuadrado lumbar', pattern: 'carga', unilateral: true, unit: 'secs' },
 ]
 
+
+// ─── Alias de ejercicios fusionados ──────────────────────────────────────────────────────────────────────
+// Ejercicios duplicados que se fusionaron en uno solo (noviembre 2026). El historial guardado en Firestore NO
+// se modifica: conserva el id viejo y se traduce al id canónico AL LEER (src/utils/exerciseAliases.js).
+// Para fusionar otro duplicado: borrar su entrada de `exercises`, mejorar la que queda y sumar acá
+// `id_viejo: 'id_que_queda'`. Ver LOGICA_TECNICA.md (sección "Alias de ejercicios").
+export const EXERCISE_ALIASES = {
+  glut_11: 'glut_02',
+  glut_12: 'glut_05',
+  hom_07: 'hom_03',
+  bic_05: 'bic_02',
+  isq_07: 'isq_06',
+  hom_04: 'esp_07',
+}
+
+// Id canónico de un ejercicio (el mismo id si no tiene alias). Tolera null/undefined/ids que no son string.
+export function canonicalExerciseId(id) {
+  return Object.prototype.hasOwnProperty.call(EXERCISE_ALIASES, id) ? EXERCISE_ALIASES[id] : id
+}

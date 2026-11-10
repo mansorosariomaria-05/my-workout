@@ -1,7 +1,8 @@
-import { createContext, useState, useEffect, useCallback, useRef } from 'react'
+import { createContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuthContext } from './AuthContext'
 import { getWorkoutsSnapshot, saveWorkout as dbSaveWorkout, newWorkoutId } from '../services/db'
 import { getDrafts } from '../utils/draftQueue'
+import { normalizeWorkouts } from '../utils/exerciseAliases'
 import { readWorkoutCache, writeWorkoutCache } from '../utils/workoutCache'
 import {
   saveWorkoutWithFallback, composeWorkoutList, loadWorkoutsSafely, syncPendingDrafts,
@@ -156,8 +157,14 @@ export function WorkoutsProvider({ children }) {
     return { id: result.id, pending: result.pending }
   }, [writeWorkout, update, load, syncPending])
 
+  // Alias de ejercicios fusionados (data/exercises.js → EXERCISE_ALIASES): el estado interno, el caché local y
+  // los borradores conservan los ids tal como se guardaron (nada se reescribe en Firestore); acá, en el ÚNICO
+  // punto por el que el resto de la app lee el historial, cada exerciseId / originalExerciseId pasa a su id
+  // canónico (y name al del catálogo). Cubre lo leído de Firestore, del caché y de los borradores sin subir.
+  const workouts = useMemo(() => (state.uid === uid ? normalizeWorkouts(state.list) : []), [state.uid, state.list, uid])
+
   const value = {
-    workouts: state.uid === uid ? state.list : [],
+    workouts,
     loading: state.uid === uid ? state.loading : !!uid,
     loadError: state.loadError,
     saveWorkout, refresh, forceReload,

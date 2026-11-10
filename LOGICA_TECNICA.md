@@ -857,7 +857,7 @@ En orden de prioridad sugerido:
 
 5. **Consolidar la lógica de calendario duplicada en 2 archivos** (`WeekCalendar.jsx`, `WeekRow` de `ProgresoPage.jsx`) — los dos filtran por `REAL_WORKOUT_TYPES` y pintan días de forma casi idéntica, pero son implementaciones separadas. Podrían compartir un solo helper.
 
-6. **Unificar ejercicios casi duplicados del catálogo** (`src/data/exercises.js`) — pares/grupos que representan esencialmente el mismo movimiento con nombres separados, detectados al etiquetar `pattern` para el generador de rutinas (sección 16): `glut_02`/`glut_11` (Hip Thrust a una pierna / unilateral), `esp_07`/`hom_04` (Face Pull, duplicado exacto en dos músculos distintos), `hom_03`/`hom_07` (Vuelo posterior / Vuelos posteriores con mancuerna), `bic_02`/`bic_05` (Curl mancuernas / Curl de bíceps con mancuerna), `isq_06`/`isq_07` (Curl Femoral Máquina / Curl de Isquiotibiales en máquina), `glut_05`/`glut_12` (Step-ups altos / Step-ups con mancuernas al cajón alto). Mientras existan como ids separados, el generador los trata como ejercicios distintos con el mismo `pattern`, así que la regla "sin pattern repetido" ya evita que aparezcan juntos en una rutina generada — pero conviene evaluar fusionarlos o diferenciarlos más claramente (equipo/variante) para no inflar el catálogo con duplicados.
+6. ~~**Unificar ejercicios casi duplicados del catálogo**~~ — **RESUELTO (noviembre 2026).** Los seis pares (`glut_02`/`glut_11`, `glut_05`/`glut_12`, `hom_03`/`hom_07`, `bic_02`/`bic_05`, `isq_06`/`isq_07`, `esp_07`/`hom_04`) se fusionaron en un solo ejercicio y los ids eliminados quedan como alias que se traducen al leer, sin tocar Firestore. Ver sección 27 (`EXERCISE_ALIASES`).
 
 ---
 
@@ -1297,14 +1297,14 @@ Reemplaza las dos implementaciones casi idénticas que existían antes (`generat
 ### Etiquetas del catálogo (`src/data/exercises.js`)
 
 Cada uno de los 90 ejercicios tiene dos campos nuevos:
-- **`pattern`**: patrón de movimiento (21 valores: `sentadilla`, `zancada`, `bisagra`, `empuje_cadera`, `extension_cadera`, `abduccion`, `curl_femoral`, `extension_rodilla`, `gemelos`, `traccion_vertical`, `traccion_horizontal`, `deltoides_posterior`, `empuje_horizontal`, `aperturas`, `empuje_vertical`, `elevacion_lateral`, `triceps`, `biceps`, `core_flexion`, `core_antiextension`, `core_rotacion`).
+- **`pattern`**: patrón de movimiento (23 valores: `sentadilla`, `zancada`, `bisagra`, `empuje_cadera`, `extension_cadera`, `abduccion`, `aduccion`, `curl_femoral`, `extension_rodilla`, `gemelos`, `traccion_vertical`, `traccion_horizontal`, `deltoides_posterior`, `empuje_horizontal`, `aperturas`, `empuje_vertical`, `elevacion_lateral`, `triceps`, `biceps`, `core_flexion`, `core_antiextension`, `core_rotacion`, `carga`). `aduccion` (aductores, región inferior) y `carga` (paseos con peso: granjero, maleta; región core) se sumaron en noviembre 2026.
 - **`unilateral`** (boolean): ejercicios que trabajan un lado del cuerpo por vez (ej. Sentadillas búlgaras, Hip Thrust unilateral, Press de hombros unilateral).
 - **`unit`** (`'reps'` | `'secs'`, desde noviembre 2026): en qué se mide el ejercicio; ver sección 24.
 
 ### Regiones y zonas de fatiga (`PATTERN_REGION`, `PATTERN_ZONE`)
 
 - `PATTERN_REGION`: agrupa cada `pattern` en `'inferior'` (tren inferior), `'superior'` (tren superior) o `'core'`. Se usa para la regla dura de unilaterales y para que el core siempre quede al final.
-- `PATTERN_ZONE`: agrupación más fina (`rodilla`, `posterior`, `abductores`, `gemelos`, `empuje`, `traccion`, `core`), usada solo como preferencia de orden (alternar zona entre ejercicios consecutivos), nunca como regla obligatoria.
+- `PATTERN_ZONE`: agrupación más fina (`rodilla`, `posterior`, `abductores`, `aductores`, `gemelos`, `empuje`, `traccion`, `core`), usada solo como preferencia de orden (alternar zona entre ejercicios consecutivos), nunca como regla obligatoria.
 
 ### Reparto de `count` entre bloques
 
@@ -1325,7 +1325,7 @@ Por cada músculo elegido, en el orden en que el usuario los seleccionó:
 
 | Grupo | Huecos (en orden) | Chips que deshabilita |
 |---|---|---|
-| Piernas | sentadilla (Cuádriceps) → bisagra (Isquios/Glúteos) → empuje_cadera (Glúteos) → zancada → curl_femoral o extension_rodilla → abduccion o gemelos | Glúteos, Isquios, Cuádriceps, Abductores, Gemelos |
+| Piernas | sentadilla (Cuádriceps) → bisagra (Isquios/Glúteos) → empuje_cadera (Glúteos) → zancada → curl_femoral o extension_rodilla → abduccion, aduccion o gemelos | Glúteos, Isquios, Cuádriceps, Abductores, Aductores, Gemelos |
 | Tracción | traccion_vertical → traccion_horizontal → biceps → traccion_horizontal (otro ejercicio) → deltoides_posterior → biceps | Espalda, Bíceps |
 | Empuje | empuje_horizontal → empuje_vertical → triceps → aperturas → elevacion_lateral → triceps | Pecho, Hombros, Tríceps |
 | Brazos | empuje_vertical → biceps → triceps → elevacion_lateral → biceps → triceps | Bíceps, Tríceps, Hombros |
@@ -1342,7 +1342,7 @@ Notas de la plantilla: el hueco `deltoides_posterior` de Tracción acepta ejerci
 - El **orden final** sigue siendo `orderRoutine` (tiers, `PATTERN_ZONE`, `hardRulesOk`, core al final): alterna zonas y evita patrones consecutivos. El orden de la rutina mostrada **no** es el de la plantilla.
 - Con **7–8** ejercicios de un solo grupo los patrones se repiten por necesidad (la plantilla tiene 4–6 patrones distintos); el orden los separa cuando es posible.
 - Verificación (noviembre 2026): cada grupo solo con 3 a 8 ejercicios, combinaciones (Piernas + Brazos, Tracción + Empuje, Piernas + Pecho, 3 y 4 grupos) y "Solo básico", 200 corridas por caso alternando Regenerar: 0 patrones consecutivos repetidos y 0 pares de unilaterales de tren inferior seguidos. Una excepción de cantidad, no de orden: "Piernas + Pecho" de 8 ejercicios con "Solo básico" sale con 7, porque Pecho solo tiene 3 ejercicios que pasan el filtro (la pantalla lo avisa, ver "Aviso de rutina incompleta"). Después del arreglo del filtro, cada grupo solo con "Solo básico" completa de 3 a 8 ejercicios.
-- Tests: `src/utils/routineGenerator.test.js` (44 tests; plantillas, reparto, huecos saltados, Regenerar con historial, orden, compatibilidad sin grupos, helpers de la UI, `isBasicEquip`/`equipFilter` y el aviso de rutina incompleta).
+- Tests: `src/utils/routineGenerator.test.js` (52 tests; plantillas, reparto, huecos saltados, Regenerar con historial, orden, compatibilidad sin grupos, helpers de la UI, `isBasicEquip`/`equipFilter`, el aviso de rutina incompleta, Aductores y los patrones `aduccion`/`carga`), `exerciseAliases.test.js` (23), `dailySuggestion.test.js` (3). En total 174 tests.
 
 ### UI del generador (`GeneradorTab.jsx` y modo "Generador" de `FuerzaFlow.jsx`)
 
@@ -1358,9 +1358,10 @@ Las dos pantallas son iguales y comparten los helpers exportados por `routineGen
 ### Datos del catálogo y límites conocidos (consulta de noviembre 2026)
 
 - **No existe un campo compuesto/aislado.** Se deduce del `level`: A = compuesto pesado, B = compuesto secundario, C = aislado, D = core y estabilización (etiquetas en `BibliotecaTab.jsx`). El `pattern` no lo distingue (hay patrones con A, B y C). El generador trata A/B como principales y C/D como accesorios.
-- **Catálogo base**: 90 ejercicios, 21 patrones, 12 unilaterales (9 de región inferior: 6 de Glúteos, 1 de Isquios, 2 de Cuádriceps), 86 en `reps` y 4 en `secs`. Todo `zancada` (6 ejercicios) es unilateral y nivel B.
+- **Catálogo base** (noviembre 2026, tras la reorganización de la sección 27): 90 ejercicios, 13 músculos, 23 patrones, 13 unilaterales (9 de región inferior: 4 de Glúteos, 1 de Isquios, 2 de Cuádriceps, 2 de Aductores), 83 en `reps` y 7 en `secs`. Por músculo: Glúteos 10, Isquios 8, Cuádriceps 9, Abductores 8, Aductores 4, Gemelos 4, Espalda 7, Pecho 5, Hombros 5, Tríceps 6, Bíceps 4, Abdominales 12, Core & Estabilidad 8. Todo `zancada` (6 ejercicios) es unilateral y nivel B. Sin ningún A/B: Gemelos y Core & Estabilidad; sin ningún A: Abductores, Aductores, Gemelos, Tríceps, Bíceps, Abdominales y Core & Estabilidad.
 - **Músculos con un solo patrón**: Abductores, Gemelos, Tríceps y Bíceps. Pedir más de un ejercicio de ellos obliga a repetir patrón y puede dejar el orden en el caso límite del punto 5 de "Orden".
-- **Filtro "Solo básico"** (`equipFilter`, que usa `isBasicEquip`; noviembre 2026): una vez normalizado el texto de `equip` (minúsculas, sin acentos) deja pasar el ejercicio si contiene, **como palabra**, `sin` (sin equipamiento / sin equipo), `mancuerna(s)`, `banda(s)` (incluida "banda elástica") o `tobillera(s)`, en singular o plural. Un `equip` con varias opciones ("Barra/Mancuerna", "Polea/Banda", "Cajón + Mancuernas") pasa si alguna es básica. Son las mismas categorías de siempre; lo único que cambió es que ahora entran los 10 ejercicios cuyo `equip` dice "Mancuerna" en singular (antes quedaban afuera por buscar solo el plural). Con el arreglo pasan 61 de 90 (antes 51); ningún ejercicio que pasaba antes quedó afuera, y con "Gym completo" nada cambió (misma semilla, mismo resultado que antes). Por músculo con "Solo básico": Glúteos 12/15, Isquios 3/10, Cuádriceps 3/9, Abductores 4/4, Gemelos 2/4, Espalda 3/7, Pecho 3/5, Hombros 7/7, Tríceps 4/6, Bíceps 4/5, Abdominales 10/12, Core & Estabilidad 6/6. Siguen sin ningún A/B con "Solo básico": Gemelos, Tríceps, Bíceps y Core & Estabilidad. Quedan afuera 29 ejercicios con 17 valores de `equip` (Máquina, Barra, Polea, Banco, Barra dominadas, Kettlebell, Cajón, Fitball, Banco Romano, Barra + soporte landmine, Disco, Pared, Soga para saltar, Máquina de prensa, Banco + Barra, Barra Z, Rueda abdominal).
+- **Filtro "Solo básico"** (`equipFilter`, que usa `isBasicEquip`; noviembre 2026): una vez normalizado el texto de `equip` (minúsculas, sin acentos) deja pasar el ejercicio si contiene, **como palabra**, `sin` (sin equipamiento / sin equipo), `mancuerna(s)`, `banda(s)` (incluida "banda elástica") o `tobillera(s)`, en singular o plural. Un `equip` con varias opciones ("Barra/Mancuerna", "Polea/Banda", "Cajón / Cajón + Mancuernas", "Mancuernas / Kettlebell") pasa si alguna es básica. Son las mismas categorías de siempre; lo único que cambió en ese arreglo es que entraron los ejercicios cuyo `equip` dice "Mancuerna" en singular (antes quedaban afuera por buscar solo el plural). **Cuenta actual (tras la reorganización del catálogo): pasan 63 de 90.** Por músculo: Glúteos 9/10, Isquios 2/8, Cuádriceps 3/9, Abductores 8/8, Aductores 3/4, Gemelos 2/4, Espalda 3/7, Pecho 3/5, Hombros 5/5, Tríceps 4/6, Bíceps 3/4, Abdominales 10/12, Core & Estabilidad 8/8. Con "Solo básico" siguen sin ningún A/B: Gemelos, Tríceps, Bíceps y Core & Estabilidad. Los nuevos `adu_01`, `adu_03`, `adu_04`, `cor_05` y `cor_06` pasan; `adu_02` (Máquina) no. Quedan afuera 27 ejercicios con 16 valores de `equip`: Máquina (5), Polea (4), Barra (3), Banco (2), Barra dominadas (2), y uno cada uno: Kettlebell, Fitball, Banco Romano, Barra + soporte landmine, Disco, Pared, Soga para saltar, Máquina de prensa, Banco + Barra, Barra Z, Rueda abdominal.
+- **Aductores y patrones nuevos** (noviembre 2026): `aduccion` es de región `inferior` y zona `aductores` (zona nueva), de modo que sus unilaterales (`adu_01` Plancha Copenhague y `adu_03` Aducción de pie con banda o polea) cuentan para la regla dura de "no dos unilaterales de tren inferior seguidos"; `carga` es de región y zona `core`, así que sus ejercicios (`cor_05`, `cor_06`) van siempre al final de la rutina como el resto del core. `adu_04` Sentadilla sumo con mancuerna es del músculo Aductores pero de patrón `sentadilla`: el hueco 1 de Piernas solo acepta Cuádriceps, así que no lo toma. En Piernas, el hueco 6 (abducción, aducción o gemelos) solo elige aducción en Regenerar o si se agotan los abductores nivel B, porque los ejercicios de aducción son nivel C y A → B → C prioriza antes. `returnRoutine.js` suma `carga` a los patrones del hueco de core.
 - **`intercalateExercises`** (`FuerzaFlow.jsx`) sigue existiendo: ya no es parte del generador, solo ordena la lista de ejercicios del modo **Libre** al filtrar por músculo (alterna tren inferior y superior por nivel y deja el core al final, sin mirar patrones ni unilaterales).
 - Los parámetros `neverIds`, `patternsByMuscle` y `referenceDate` de la rutina de regreso están en la sección 20.
 
@@ -1693,7 +1694,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **5. `profile.equipamiento` no se usa en ningún lado.** `Onboarding.jsx:42` y `ConfigPage.jsx:12` guardan `'Gym completo' | 'Solo mancuernas y bandas' | 'Sin equipamiento'`; `routineGenerator.js:29` (`equipFilter`) solo entiende `'Gym completo' | 'Solo básico'` y los selectores (`GeneradorTab.jsx:12,20`, `FuerzaFlow.jsx:504`) arrancan siempre en 'Gym completo' sin mirar el perfil. `dailySuggestion.js:158` y `returnRoutine.js:123` fijan `'Gym completo'`. Escenario: usuaria con "Sin equipamiento" recibe como sugerencia del día o como rutina de regreso Peso Muerto con barra, Prensa, Remo con barra. El subtítulo del onboarding ("Filtramos ejercicios según esto", `Onboarding.jsx:36`) es falso hoy. Falta un mapeo perfil → filtro.
 
-**6. El filtro 'Solo básico' tiene errores.** `routineGenerator.js:29-34` hace `e.equip.includes(<primera palabra>)` con `'Sin'`, `'Mancuernas'`, `'Banda'`, `'Tobilleras'`. Resultado medido sobre el catálogo (51 de 90 pasan): quedan afuera 19 ejercicios de equipamiento básico: los que dicen `'Mancuerna'` en singular (Sentadilla goblet `cua_03`, Remo con mancuerna `esp_05`, Hip Thrust unilateral `glut_11`, Press unilateral `hom_06`, entre otros) y los de Kettlebell, Fitball, Banco, Cajón, Disco o Pared; y pasan ejercicios de polea o barra por contener 'Banda' o 'Mancuernas' (`esp_07`/`hom_04` Face Pull con polea, `cor_02` Press Pallof, `glut_10`, `hom_01` Press hombros "Mancuernas/Barra", `tri_05`). En 'Solo básico', Espalda queda con un solo ejercicio de nivel A/B y Cuádriceps con 2.
+**6. El filtro 'Solo básico' tiene errores.** *(Corregido en noviembre 2026: ahora compara por palabra, normalizado, en singular y plural; ver sección 16, "Datos del catálogo y límites conocidos". El texto de abajo describe el estado de la auditoría.)* `routineGenerator.js:29-34` hace `e.equip.includes(<primera palabra>)` con `'Sin'`, `'Mancuernas'`, `'Banda'`, `'Tobilleras'`. Resultado medido sobre el catálogo de entonces (51 de 90 pasan): quedan afuera 19 ejercicios de equipamiento básico: los que dicen `'Mancuerna'` en singular (Sentadilla goblet `cua_03`, Remo con mancuerna `esp_05`, Hip Thrust unilateral `glut_11`, Press unilateral `hom_06`, entre otros) y los de Kettlebell, Fitball, Banco, Cajón, Disco o Pared; y pasan ejercicios de polea o barra por contener 'Banda' o 'Mancuernas' (`esp_07`/`hom_04` Face Pull con polea, `cor_02` Press Pallof, `glut_10`, `hom_01` Press hombros "Mancuernas/Barra", `tri_05`). En 'Solo básico', Espalda queda con un solo ejercicio de nivel A/B y Cuádriceps con 2.
 
 **7. Ejercicios custom (sin `pattern` ni `unilateral`).** Se crean en `FuerzaFlow.jsx:559` con `level: 'C'`, `equip: ''` y sin esos campos; solo existen en el modo libre. Efectos: `generateRoutine`/`orderRoutine`/`pickForMuscle` leen únicamente el catálogo (`exercises.js`), así que **nunca** los eligen ni los ven en `historyScore` (un custom que la usuaria entrena todas las semanas no pesa en la elección). `suggestNextExercise` (`routineGenerator.js:293-297`) busca cada ejercicio de la sesión en el catálogo: un custom da `undefined`, no entra en `usedPatterns`, y si es el último de la lista `lastExercise` es `null` → se saltan las reglas duras/blandas de patrón y zona; `hasMainAlready` (`:303`) no lo cuenta como principal (nivel `undefined`), entonces vuelve a sugerir un principal de ese músculo. `hardRulesOk` con dos patrones `undefined` devolvería `false` (`undefined === undefined`) — hoy no se llama con customs, pero es una trampa si se reutiliza. En `PATTERN_REGION[undefined]` → `undefined`, por lo que un custom contaría como "no core" en `tierOf` si llegara a ordenarse.
 
@@ -1833,7 +1834,7 @@ Implementa la opción "a + unidad por ejercicio" del informe `INFORME_EJERCICIOS
 
 ### El campo `unit`
 
-- **Catálogo:** cada uno de los 90 ejercicios tiene `unit: 'reps' | 'secs'` (por defecto `'reps'`). Están en `'secs'` solo 4: **Sentadilla isométrica** (`cua_07`), **La Plancha** (`cor_01`), **Plancha lateral** (`obl_03`) y **Hollow Body Hold** (`cor_04`). Plancha con flexión (`abs_02`), Plancha con Arrastre de Mancuerna, Dead Bug (`obl_04`), Bird Dog (`cor_03`) y Press Pallof (`cor_02`) quedan en `'reps'`.
+- **Catálogo:** cada uno de los 90 ejercicios tiene `unit: 'reps' | 'secs'` (por defecto `'reps'`). Están en `'secs'` solo 7: **Sentadilla isométrica** (`cua_07`), **La Plancha** (`cor_01`), **Plancha lateral** (`obl_03`), **Hollow Body Hold** (`cor_04`) y, desde noviembre 2026, **Plancha Copenhague** (`adu_01`), **Paseo del granjero** (`cor_05`) y **Paseo de maleta** (`cor_06`) — los tres nuevos se tratan igual que los demás (peso opcional). Plancha con flexión (`abs_02`), Plancha con Arrastre de Mancuerna, Dead Bug (`obl_04`), Bird Dog (`cor_03`) y Press Pallof (`cor_02`) quedan en `'reps'`.
 - **Workout guardado:** cada ejercicio dentro de `workout.exercises[]` lleva ahora `unit` (campo nuevo, **solo aditivo**). Se agrega en `buildEntry` (`FuerzaFlow.jsx`) y se garantiza al guardar en `stripSuggestedFlags` (`WorkoutWizard.jsx`, también para borradores armados antes de este cambio). **Los segundos se siguen guardando en `sets[].reps`** (ninguna lectura ni escritura previa se rompe) y el peso sigue en `sets[].weight` (opcional; puede ser `0`, `''` o faltar).
 
 ### `getExerciseUnit(exercise)` (`src/utils/exerciseUnit.js`)
@@ -2043,6 +2044,56 @@ Los números usan coma decimal (es-AR) y hasta 2 decimales. Mismos datos ⇒ mis
 ### Pruebas (`npm test`)
 
 `vitest run` con `vitest.config.js` (entorno Node, sin plugins de la app). Cubren: períodos y comparación (4w, 12w, all, variación con anterior 0), semana en curso (incompleta y cumplida), total de semanas de la racha 3+ con huecos y parates largos, semana en curso con menos de 3 días y con 3, promedio de días por semana el día 1 / a mitad / a fin de mes, porcentajes que suman 100, mes vacío, récords en kg / segundos / reps y con primera sesión, mayor progreso con menos de 3 sesiones, alternativas `alt-…`, workouts sin `durationSeconds`, clase con duración, cardio sin tiempo, cansancio con pocos registros, y las 5 reglas del dato clave (y su prioridad).
+
+---
+
+## 27. ALIAS DE EJERCICIOS FUSIONADOS (`EXERCISE_ALIASES`, noviembre 2026)
+
+### Qué se fusionó y por qué con alias
+
+Seis pares del catálogo eran el mismo movimiento con dos ids (los detectó la consulta de la sección 11, punto 6). Se dejó **un solo ejercicio** en `src/data/exercises.js` y los ids eliminados quedaron como alias:
+
+```js
+export const EXERCISE_ALIASES = {
+  glut_11: 'glut_02',   // Hip Thrust unilateral            → Hip Thrust a una pierna
+  glut_12: 'glut_05',   // Step-ups con mancuernas al cajón alto → Step-ups al cajón alto
+  hom_07:  'hom_03',    // Vuelos posteriores con mancuerna → Vuelo posterior
+  bic_05:  'bic_02',    // Curl de bíceps con mancuerna     → Curl mancuernas
+  isq_07:  'isq_06',    // Curl de Isquiotibiales en máquina → Curl femoral acostado
+  hom_04:  'esp_07',    // Face Pull (Hombros)              → Face Pull (Espalda)
+}
+export function canonicalExerciseId(id)  // el id canónico, o el mismo id si no tiene alias
+```
+
+**Por qué alias al leer y no una migración en Firestore:** el historial de cada usuaria (`users/{uid}/workouts`, favoritos, lista "never", rutinas propias, entrenamiento en curso, caché local, borradores sin subir) ya tiene guardados los ids viejos. Reescribirlos exigiría recorrer y modificar documentos de todas las cuentas (lecturas y escrituras masivas, riesgo de dejar el historial a medias si se corta, y no hay forma barata de deshacerlo). Con el alias, **nada guardado se toca**: los datos conservan el id con el que se registraron y la traducción ocurre en memoria, cada vez que se leen. Si algún día se quiere migrar, el alias sigue siendo válido (idempotente).
+
+### Dónde se aplica (todo en `src/utils/exerciseAliases.js`, funciones puras)
+
+| Dato | Punto de lectura | Función |
+|---|---|---|
+| Historial de workouts (Firestore, caché local `workouts_cache_{uid}` y borradores sin subir `workout_draft_{uid}`) | `WorkoutsContext.jsx`: el estado interno queda **crudo**, y el valor que entrega el proveedor (`workouts`, memoizado) pasa por la normalización. Es el único punto por el que las pantallas leen el historial (`useWorkouts`, `prUtils`, `progressStats`, `ExerciseProgress`, `BibliotecaTab`, `historyScore`, `reentry`, `returnRoutine`, logros, etc.). | `normalizeWorkouts` → `normalizeWorkoutExercises` → `normalizeExerciseEntry` |
+| Favoritos y lista "never" | `db.js`: `getFavorites`, `getNeverList` (y `toggleFavorite`/`toggleNever` traducen el id y la lista antes de escribir) | `normalizeIdList` (ids canónicos, sin duplicados, mismo orden) |
+| Rutinas personalizadas | `db.js`: `getCustomRoutines` | `normalizeRoutine` (traduce `id`/`exerciseId`, pone el nombre canónico y no duplica el ejercicio si la rutina tenía los dos del par) |
+| Entrenamiento en curso | `db.js`: `getWorkoutInProgress` (nube) y `WorkoutDraftContext.jsx`: `readLocal` (local) | `normalizeInProgress` (`detail.exercises[]` y `detail.pendingGeneratedIds`) |
+| Sugerencia del día cacheada en `localStorage` (`daily_suggestion_{uid}`) y ids pendientes del generador | `Inicio.jsx` al leer el caché; `FuerzaFlow.jsx` al cargar `pendingGeneratedIds` | `normalizeIdList` |
+
+Qué hace `normalizeExerciseEntry` en cada ejercicio de un workout: `exerciseId` y `originalExerciseId` pasan a su id canónico; si cambió el `exerciseId`, `name` pasa al nombre del catálogo. No toca `muscle`/`originalMuscle` (la sesión conserva el músculo con el que se registró, que es lo que usa la sugerencia diaria para saber qué se entrenó), ni `unit`, ni las series. Si una sesión vieja tiene **los dos ejercicios del par**, quedan **dos entradas** con el mismo id canónico (las series no se fusionan); los lectores que buscan "el ejercicio X dentro del workout" con `find` ven la primera, y los que recorren todas (récords, pesos aprendidos, `progressStats.groupExercises`, que suma las entradas de un mismo workout en una sola sesión) ven las dos. `progressStats.groupExercises` además traduce por su cuenta un id con alias que no esté en el catálogo, como defensa.
+
+**Lo que NO hace:** no escribe nada. El caché local y los borradores se guardan tal cual vinieron; un borrador pendiente se sube a Firestore con los ids con los que se registró. Lo nuevo que se guarda ya usa ids canónicos, porque el catálogo ya no ofrece los viejos.
+
+### Cómo sumar un alias en el futuro
+
+1. En `exercises.js`, borrar la entrada duplicada y mejorar la que queda (nombre, nivel, equipo, `alt`…).
+2. Sumar `id_viejo: 'id_que_queda'` a `EXERCISE_ALIASES`. El destino tiene que existir en el catálogo y no ser a su vez un alias (hay un test).
+3. Reemplazar el id viejo en `src/data/routines.js` (y en los `alt` que nombren al ejercicio eliminado). Hay tests que fallan si una rutina pre-armada o un alias apuntan a un id que no existe, o si queda un `alt` con un nombre viejo.
+4. **No** cambiar el nombre del ejercicio que queda sin revisar `getExerciseUnit`, que cae a buscar por nombre exacto cuando no encuentra el id.
+
+### Reorganización del catálogo de noviembre 2026
+
+- **Fusiones** (los 6 alias). Quedaron: `glut_02` Hip Thrust a una pierna (nivel B, equipo Barra/Mancuerna), `glut_05` Step-ups al cajón alto (B, Cajón / Cajón + Mancuernas), `hom_03` Vuelo posterior, `bic_02` Curl mancuernas, `isq_06` Curl femoral acostado (C, Máquina, secundario Gemelos) y `esp_07` Face Pull (solo en Espalda, Polea/Banda elástica). En `routines.js` se reemplazaron los ids y la entrada de `isq_06` quedó en nivel C. Los campos `alt` se revisaron: ninguno nombraba un ejercicio eliminado.
+- **Clasificaciones corregidas**: `isq_03` Sentadilla punta pies elevados pasó a músculo Glúteos (grupo Glúteo mayor, secundario Cuádriceps; mantiene su id y su patrón `sentadilla`); `isq_08` Nordic Curl pasó a nivel B; `gem_01` Salto a la soga a nivel C. `glut_08` Abducción con banda, `glut_09` Clamshell, `glut_patada_lateral` y `glut_abd_pausa` pasaron al músculo **Abductores** (mantienen su id). En `routines.js` el campo `muscle` de esas entradas pasó a 'Abductores' pero **los arrays `muscles` de las rutinas no cambiaron**: `dailySuggestion` los compara de forma exacta, y `rutina-empuje-horizontal` (Pecho y Glúteos) tiene que seguir pudiendo sugerirse (hay un test en `dailySuggestion.test.js`). El historial viejo conserva `muscle: 'Glúteos'` en esos ejercicios: cuenta como Glúteos en la sugerencia diaria y en los logros, y nuevos registros cuentan como Abductores.
+- **Músculo Aductores** (`MUSCLE_GROUPS`, justo después de Abductores) con 4 ejercicios (`adu_01`–`adu_04`), y 2 ejercicios de patrón `carga` en Core & Estabilidad (`cor_05` Paseo del granjero, `cor_06` Paseo de maleta). Detalle de patrones en la sección 16.
+- Totales: 90 ejercicios (6 eliminados, 6 agregados). `DEPRECATED` de `FuerzaFlow.jsx` (Reverse Frog y Abducción con pausa, que sigue siendo solo para borrar copias personalizadas) no se tocó: ambos siguen en el catálogo.
 
 ---
 

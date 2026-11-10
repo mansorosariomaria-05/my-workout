@@ -66,7 +66,7 @@ export function reduceWeight(weight, pct, learnedWeights = []) {
 // Slots del full body. Cada slot admite músculos alternativos (se elige el que tenga más historial
 // conocido en los 56 días previos al último workout de fuerza) y restringe los patrones de movimiento.
 // Solo cuentan ejercicios de nivel A/B, que son los que generateRoutine elige como principal de un músculo.
-const CORE_PATTERNS = ['core_flexion', 'core_antiextension', 'core_rotacion']
+const CORE_PATTERNS = ['core_flexion', 'core_antiextension', 'core_rotacion', 'carga']
 const BODY_SLOTS = [
   { key: 'rodilla',   options: [{ muscle: 'Cuádriceps', patterns: ['sentadilla', 'zancada'] }] },
   { key: 'posterior', options: [

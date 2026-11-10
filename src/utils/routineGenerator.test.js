@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { exercises } from '../data/exercises.js'
+import { exercises, EXERCISE_ALIASES, MUSCLE_GROUPS } from '../data/exercises.js'
 import {
   generateRoutine, generateRoutineDetailed, routineNotices, equipFilter, isBasicEquip,
   hardRulesOk, MUSCLE_BLOCKS, PATTERN_REGION, PATTERN_ZONE,
@@ -9,6 +9,8 @@ import {
 import { todayStr } from './dates.js'
 
 const BLOCK_IDS = MUSCLE_BLOCKS.map(b => b.id)
+const BASIC_COUNT = exercises.filter(e => isBasicEquip(e.equip)).length
+const REMOVED_IDS = Object.keys(EXERCISE_ALIASES)
 const block = (id) => MUSCLE_BLOCKS.find(b => b.id === id)
 const passesBasic = (e) => isBasicEquip(e.equip)
 const isCore = (e) => PATTERN_REGION[e.pattern] === 'core'
@@ -84,7 +86,7 @@ describe('MUSCLE_BLOCKS — definición', () => {
 
   it('plantillas tal como se definieron', () => {
     const pats = (id) => block(id).slots.map(s => s.patterns.join('|'))
-    expect(pats('piernas')).toEqual(['sentadilla', 'bisagra', 'empuje_cadera', 'zancada', 'curl_femoral|extension_rodilla', 'abduccion|gemelos'])
+    expect(pats('piernas')).toEqual(['sentadilla', 'bisagra', 'empuje_cadera', 'zancada', 'curl_femoral|extension_rodilla', 'abduccion|aduccion|gemelos'])
     expect(pats('traccion')).toEqual(['traccion_vertical', 'traccion_horizontal', 'biceps', 'traccion_horizontal', 'deltoides_posterior', 'biceps'])
     expect(pats('empuje')).toEqual(['empuje_horizontal', 'empuje_vertical', 'triceps', 'aperturas', 'elevacion_lateral', 'triceps'])
     expect(pats('brazos')).toEqual(['empuje_vertical', 'biceps', 'triceps', 'elevacion_lateral', 'biceps', 'triceps'])
@@ -94,7 +96,7 @@ describe('MUSCLE_BLOCKS — definición', () => {
   })
 
   it('músculos que cada grupo deshabilita en la UI', () => {
-    expect(block('piernas').muscles).toEqual(['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos'])
+    expect(block('piernas').muscles).toEqual(['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Aductores', 'Gemelos'])
     expect(block('traccion').muscles).toEqual(['Espalda', 'Bíceps'])
     expect(block('empuje').muscles).toEqual(['Pecho', 'Hombros', 'Tríceps'])
     expect(block('brazos').muscles).toEqual(['Bíceps', 'Tríceps', 'Hombros'])
@@ -152,7 +154,7 @@ describe('generateRoutine con grupos — selección', () => {
     const r = generateRoutine({ muscles: ['Abdominales'], blocks: ['piernas', 'empuje'], count: 8, equip: 'Gym completo', workouts: [] })
     expect(r).toHaveLength(8)
     expect(r.filter(e => e.muscle === 'Abdominales')).toHaveLength(2)
-    const legsMuscles = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Gemelos']
+    const legsMuscles = ['Glúteos', 'Isquios', 'Cuádriceps', 'Abductores', 'Aductores', 'Gemelos']
     expect(r.filter(e => legsMuscles.includes(e.muscle))).toHaveLength(3)
     expect(r.filter(e => ['Pecho', 'Hombros', 'Tríceps'].includes(e.muscle))).toHaveLength(3)
   })
@@ -276,12 +278,13 @@ describe('generateRoutine con grupos — orden final', () => {
     }
   })
 
-  it('Piernas con historial que favorece tres unilaterales: cambia un accesorio para que haya un orden válido', () => {
-    // Peso muerto B-stance (unilateral A) + Hip Thrust a una pierna (unilateral A) + zancada (siempre unilateral):
-    // 3 unilaterales de tren inferior en 4 ejercicios no se pueden ordenar sin dejar dos seguidos.
-    const history = [workoutWith('isq_02', 'glut_02'), workoutWith('isq_02', 'glut_02')]
+  it('Piernas con 3 unilaterales posibles: cambia un accesorio para que haya un orden válido', () => {
+    // Sin Hip Thrust (glut_01) el hueco 3 cae en Hip Thrust a una pierna (unilateral B); con el historial el hueco 2
+    // es Peso muerto B-stance (unilateral A) y el hueco 4 es siempre una zancada (unilateral): 3 unilaterales de
+    // tren inferior en 4 ejercicios no se pueden ordenar sin dejar dos seguidos.
+    const history = [workoutWith('isq_02'), workoutWith('isq_02')]
     for (let rep = 0; rep < 30; rep++) {
-      const r = generateRoutine({ muscles: [], blocks: ['piernas'], count: 4, equip: 'Gym completo', workouts: history, regenerate: rep % 2 === 1 })
+      const r = generateRoutine({ muscles: [], blocks: ['piernas'], count: 4, equip: 'Gym completo', workouts: history, neverIds: ['glut_01'], regenerate: rep % 2 === 1 })
       expect(violations(r)).toBe(0)
       expect(r.map(e => e.id)).toContain('isq_02') // el principal del historial se respeta
       expect(r.map(e => e.id)).not.toContain('glut_02') // el accesorio es el que se cambia
@@ -408,8 +411,8 @@ describe('isBasicEquip / equipFilter — "Solo básico"', () => {
 
   it('catálogo con "Solo básico": los ejercicios con "Mancuerna" en singular ya pasan y cada músculo tiene candidatos', () => {
     const basic = exercises.filter(e => equipFilter(e, 'Solo básico'))
-    expect(basic.length).toBe(61)
-    ;['glut_01', 'glut_11', 'cua_03', 'gem_02', 'gem_03', 'esp_05', 'hom_06', 'tri_02', 'bic_04'].forEach(id =>
+    expect(basic.length).toBe(BASIC_COUNT)
+    ;['glut_01', 'glut_02', 'cua_03', 'gem_02', 'gem_03', 'esp_05', 'hom_06', 'tri_02', 'bic_04'].forEach(id =>
       expect(basic.some(e => e.id === id), id).toBe(true)
     )
     const muscles = [...new Set(exercises.map(e => e.muscle))]
@@ -502,6 +505,93 @@ describe('generateRoutineDetailed / routineNotices — aviso de rutina incomplet
           expect(notices.length > 0).toBe(r.exercises.length < k)
         }
       }
+    }
+  })
+})
+
+describe('Aductores y patrones nuevos (aduccion, carga)', () => {
+  it('Aductores es un músculo del catálogo, está en Piernas y tiene los 4 ejercicios nuevos', () => {
+    expect(MUSCLE_GROUPS).toContain('Aductores')
+    expect(MUSCLE_GROUPS.indexOf('Aductores')).toBe(MUSCLE_GROUPS.indexOf('Abductores') + 1)
+    expect(block('piernas').muscles).toContain('Aductores')
+    expect(exercises.filter(e => e.muscle === 'Aductores').map(e => e.id).sort()).toEqual(['adu_01', 'adu_02', 'adu_03', 'adu_04'])
+    expect(PATTERN_REGION.aduccion).toBe('inferior')
+    expect(PATTERN_ZONE.aduccion).toBe('aductores')
+    expect(PATTERN_REGION.carga).toBe('core')
+    expect(PATTERN_ZONE.carga).toBe('core')
+    expect(block('piernas').slots[5].patterns).toEqual(['abduccion', 'aduccion', 'gemelos'])
+  })
+
+  it('todos los patrones del catálogo tienen región y zona', () => {
+    new Set(exercises.map(e => e.pattern)).forEach(p => {
+      expect(PATTERN_REGION[p], p).toBeTruthy()
+      expect(PATTERN_ZONE[p], p).toBeTruthy()
+    })
+    expect(new Set(exercises.map(e => e.pattern)).size).toBe(23)
+  })
+
+  it('con Piernas y suficientes ejercicios puede aparecer un ejercicio de aducción (y solo en el hueco 6)', () => {
+    let seen = 0
+    for (let rep = 0; rep < 300; rep++) {
+      const r = generateRoutine({ muscles: [], blocks: ['piernas'], count: 6, equip: 'Gym completo', workouts: [], regenerate: true })
+      const adu = r.filter(e => e.pattern === 'aduccion')
+      expect(adu.length).toBeLessThanOrEqual(1)
+      if (adu.length) seen++
+    }
+    expect(seen).toBeGreaterThan(0)
+  })
+
+  it('un ejercicio de patrón "carga" se ordena al final como core', () => {
+    const noOtherCore = exercises.filter(e => e.muscle === 'Core & Estabilidad' && e.id !== 'cor_05').map(e => e.id)
+    for (let rep = 0; rep < 20; rep++) {
+      const r = generateRoutine({ muscles: ['Glúteos', 'Pecho', 'Core & Estabilidad'], count: 6, equip: 'Gym completo', workouts: [], neverIds: noOtherCore })
+      expect(r.map(e => e.id)).toContain('cor_05')
+      expect(r[r.length - 1].id).toBe('cor_05')
+      expect(r.slice(0, -1).every(e => PATTERN_REGION[e.pattern] !== 'core')).toBe(true)
+    }
+  })
+
+  it('"Solo básico" deja pasar adu_01, adu_03, adu_04, cor_05 y cor_06 (y no adu_02)', () => {
+    const byId = Object.fromEntries(exercises.map(e => [e.id, e]))
+    ;['adu_01', 'adu_03', 'adu_04', 'cor_05', 'cor_06'].forEach(id => expect(equipFilter(byId[id], 'Solo básico'), id).toBe(true))
+    expect(equipFilter(byId.adu_02, 'Solo básico')).toBe(false)
+  })
+
+  it('ningún id eliminado (alias) aparece nunca en lo generado, con ningún músculo, grupo ni equipamiento', () => {
+    const muscles = MUSCLE_GROUPS.filter(m => m !== 'x')
+    let runs = 0
+    for (const equip of ['Gym completo', 'Solo básico']) {
+      for (const blocks of [[], ...blockSubsets()]) {
+        for (let k = 3; k <= 8; k++) {
+          const sets = blocks.length ? [[]] : muscles.map(m => [m])
+          for (const ms of sets) {
+            const r = generateRoutine({ muscles: ms, blocks, count: k, equip, workouts: [], regenerate: k % 2 === 0 })
+            runs++
+            r.forEach(e => {
+              expect(REMOVED_IDS.includes(e.id), e.id).toBe(false)
+              expect(exercises.some(x => x.id === e.id)).toBe(true)
+            })
+          }
+        }
+      }
+    }
+    expect(runs).toBeGreaterThan(300)
+  })
+
+  it('el catálogo no contiene ids eliminados, los alias apuntan a ejercicios que existen y los ids son únicos', () => {
+    const ids = exercises.map(e => e.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    Object.entries(EXERCISE_ALIASES).forEach(([oldId, newId]) => {
+      expect(ids.includes(oldId), oldId).toBe(false)
+      expect(ids.includes(newId), newId).toBe(true)
+    })
+  })
+
+  it('Piernas + Brazos de 6 con "Solo básico" sigue completo y sin violaciones de orden', () => {
+    for (let rep = 0; rep < 20; rep++) {
+      const r = generateRoutine({ muscles: [], blocks: ['piernas', 'brazos'], count: 6, equip: 'Solo básico', workouts: [], regenerate: rep % 2 === 1 })
+      expect(r).toHaveLength(6)
+      expect(violations(r)).toBe(0)
     }
   })
 })

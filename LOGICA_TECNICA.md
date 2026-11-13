@@ -1342,7 +1342,7 @@ Notas de la plantilla: el hueco `deltoides_posterior` de Tracción acepta ejerci
 - El **orden final** sigue siendo `orderRoutine` (tiers, `PATTERN_ZONE`, `hardRulesOk`, core al final): alterna zonas y evita patrones consecutivos. El orden de la rutina mostrada **no** es el de la plantilla.
 - Con **7–8** ejercicios de un solo grupo los patrones se repiten por necesidad (la plantilla tiene 4–6 patrones distintos); el orden los separa cuando es posible.
 - Verificación (noviembre 2026): cada grupo solo con 3 a 8 ejercicios, combinaciones (Piernas + Brazos, Tracción + Empuje, Piernas + Pecho, 3 y 4 grupos) y "Solo básico", 200 corridas por caso alternando Regenerar: 0 patrones consecutivos repetidos y 0 pares de unilaterales de tren inferior seguidos. Una excepción de cantidad, no de orden: "Piernas + Pecho" de 8 ejercicios con "Solo básico" sale con 7, porque Pecho solo tiene 3 ejercicios que pasan el filtro (la pantalla lo avisa, ver "Aviso de rutina incompleta"). Después del arreglo del filtro, cada grupo solo con "Solo básico" completa de 3 a 8 ejercicios.
-- Tests: `src/utils/routineGenerator.test.js` (52 tests; plantillas, reparto, huecos saltados, Regenerar con historial, orden, compatibilidad sin grupos, helpers de la UI, `isBasicEquip`/`equipFilter`, el aviso de rutina incompleta, Aductores y los patrones `aduccion`/`carga`), `exerciseAliases.test.js` (23), `dailySuggestion.test.js` (3). En total 174 tests.
+- Tests: `src/utils/routineGenerator.test.js` (52 tests; plantillas, reparto, huecos saltados, Regenerar con historial, orden, compatibilidad sin grupos, helpers de la UI, `isBasicEquip`/`equipFilter`, el aviso de rutina incompleta, Aductores y los patrones `aduccion`/`carga`), `exerciseAliases.test.js` (23), `dailySuggestion.test.js` (3). `dailySuggestionAlt.test.js` (16). En total 190 tests.
 
 ### UI del generador (`GeneradorTab.jsx` y modo "Generador" de `FuerzaFlow.jsx`)
 
@@ -1469,6 +1469,32 @@ Muestra `suggestion.routineName ?? suggestion.title` (o `'Cardio o Clase 🏃'` 
 - `routineId` → navega a `/registro` con `state: { type: 'fuerza', routineId }`, igual que antes.
 - `generatedIds` → arma un draft con `pendingGeneratedIds` (mismo mecanismo que `GeneradorTab.useRoutine`, sección 16) y navega a `/registro` sin `state` — `FuerzaFlow.jsx` los detecta al montar y construye cada entrada con `buildEntry` (precarga = última sesión real de cada ejercicio, sección 13).
 - `cardio` → navega a `/registro` con `state: { type: 'cardio' }`.
+
+### Alternativa de fuerza: `computeStrengthAlternative` y el botón "Rutina de Fuerza" (noviembre 2026)
+
+Cuando la sugerencia del día es **cardio** o **descanso**, la tarjeta ofrece un botón secundario "Rutina de Fuerza" para quien igual quiere entrenar fuerza ese día.
+
+**Refactor sin cambio de comportamiento.** Los pasos 4, 5 y 6 (músculos foco, prearmada, generada) se extrajeron de `computeDailySuggestion` a la función interna `pickStrengthSuggestion({ real, workouts, today, allowSingle, minCount })`, que usan las dos funciones públicas. `computeDailySuggestion` la llama con `allowSingle: false` y mantiene sus chequeos previos (ya entrenó, regreso, días cumplidos, 3 días seguidos, balance cardio) y el `sub` de "primer entrenamiento". Se verificó con 8000 historiales aleatorios (todos los tipos de sugerencia) y la misma semilla de `Math.random` contra la versión anterior: 0 diferencias.
+
+**`computeStrengthAlternative({ workouts, profile, today })`** (función pura, `profile` no se usa hoy):
+- Se saltea los chequeos de días cumplidos, 3 días seguidos y balance cardio/fuerza.
+- Reutiliza los pasos 4–6: los músculos foco son los mismos (`LOWER`/`UPPER`, sin los entrenados ayer o anteayer, orden por `weekCount` y `daysSince`), luego una prearmada que encaje exactamente y, si no hay, `generateRoutine`.
+- **Mínimo 5 ejercicios** en la rutina generada: `count = Math.max(STRENGTH_MIN_EXERCISES, minCount)` (`STRENGTH_MIN_EXERCISES = 5`; la sugerencia normal también genera 5).
+- **Un solo músculo elegible** (los demás se entrenaron ayer o anteayer) → rutina generada solo con ese músculo (las prearmadas se definen por pares, así que no se busca ninguna). La sugerencia normal en ese caso devuelve descanso.
+- **Ninguno** → `{ type: 'none', reason: 'Entrenaste todos los grupos en los últimos 2 días. Hoy conviene recuperar.' }`.
+- **Misma forma que la rama fuerza**: `{ type: 'fuerza', routineId, routineName, muscles, reason }` o `{ type: 'fuerza', generatedIds, title, muscles, reason }` (sin el `sub` de primer entrenamiento).
+- `canOfferStrengthAlternative(suggestion)`: `true` solo con `type` `cardio` o `descanso`; nunca con fuerza, `trained_today` ni `regreso`.
+
+**Caché propio**: `getCachedStrengthAlternative({ uid, workouts, profile, today, storage })` guarda en `localStorage` la clave `daily_strength_alt_{uid}` con `{ date, realCount, suggestion }` (también el resultado `none`). Se calcula la primera vez que se toca el botón en el día y después se reusa mientras sea el mismo día y no cambie la cantidad de workouts reales, así la rutina propuesta es **estable durante el día** (el generador tiene aleatoriedad). Toda lectura y escritura va en `try/catch` (sin caché se calcula igual). No toca `daily_suggestion_{uid}`. Al leer traduce `generatedIds` con `normalizeIdList` (alias de la sección 27).
+
+**Tarjeta** (`DailySuggestionCard` en `Inicio.jsx`, ahora exportada y con la prop `getStrengthAlt`; `Inicio` le pasa `() => getCachedStrengthAlternative(...)`):
+- **Cardio**: título arriba y, abajo, "Rutina de Fuerza" (outline, sin relleno) a la izquierda y "Empezar" a la derecha. **Descanso**: el texto y, abajo a la izquierda, "Rutina de Fuerza" (no hay "Empezar").
+- Al tocarlo la tarjeta cambia (`animate-fadeIn`) a la alternativa: "Rutina de Fuerza: {routineName | title}", los músculos debajo, el motivo expandible tocando el título (igual que la sugerencia normal) y "Empezar", que navega como la rama fuerza (`routineId` → `/registro` con `state: { type: 'fuerza', routineId }`; `generatedIds` → borrador con `pendingGeneratedIds` y `/registro`; ambas comparten `startSuggestion`). Abajo a la izquierda, "← Volver a la sugerencia" vuelve a la tarjeta original.
+- Con `none`: el mensaje y el link para volver, sin "Empezar".
+- No hay botón con sugerencia de fuerza, `trained_today` ni `regreso`. Si el tipo de la sugerencia cambia mientras se ve la alternativa (por ejemplo al guardar un entrenamiento), la tarjeta vuelve a la vista normal.
+- La alternativa se pide recién al tocar el botón (no se calcula al renderizar).
+
+Tests: `src/utils/dailySuggestionAlt.test.js` (16: músculos distintos a los de la semana, forma de la respuesta, 5 o más ejercicios en varios escenarios, un solo músculo, `none`, sin los chequeos de la sugerencia normal, cuándo se ofrece el botón y el caché con almacenamiento falso). La tarjeta se verificó además con un entorno jsdom (28 comprobaciones: posición y estilo de los botones, transición, `Empezar` de cada rama, `none`, `Volver`, y que no aparezca con fuerza / `trained_today` / `regreso`).
 
 ---
 

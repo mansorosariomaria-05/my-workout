@@ -10,7 +10,7 @@ import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../utils/streak'
 import { getWeeklyGoal } from '../utils/progressStats'
 import { getInactivityInfo } from '../utils/inactivity'
-import { computeDailySuggestion } from '../utils/dailySuggestion'
+import { computeDailySuggestion, getCachedStrengthAlternative, canOfferStrengthAlternative } from '../utils/dailySuggestion'
 import { getNeverList } from '../services/db'
 import { normalizeIdList } from '../utils/exerciseAliases'
 import { FRASES_PRE, FRASES_POST } from '../data/frases'
@@ -420,10 +420,60 @@ function LastAndSuggestion({ workouts }) {
 // El cálculo puro vive en utils/dailySuggestion.js (computeDailySuggestion) — evaluado contra el
 // historial ya cargado en memoria (workouts de useWorkouts), sin fetch propio a Firestore. Ver el
 // useEffect de más abajo (dentro de Inicio()) para el cacheo diario en localStorage.
-function DailySuggestionCard({ suggestion, onDismissRegreso }) {
+// getStrengthAlt: () => { type: 'fuerza', … } | { type: 'none', reason } — la alternativa de fuerza (con su caché),
+// que se pide recién al tocar "Rutina de Fuerza". Sin esa prop no se ofrece el botón.
+export function DailySuggestionCard({ suggestion, onDismissRegreso, getStrengthAlt }) {
   const [expanded, setExpanded] = useState(false)
+  const [showAlt, setShowAlt] = useState(false)
+  const [alt, setAlt] = useState(null)
+  // Si la sugerencia cambia de tipo (por ejemplo después de guardar un entrenamiento), se vuelve a la tarjeta normal.
+  useEffect(() => { setShowAlt(false); setExpanded(false) }, [suggestion?.type])
   const navigate = useNavigate()
   const { setDraft } = useWorkoutDraft()
+
+  // Cómo empieza cada tipo de sugerencia (la normal de fuerza y la alternativa comparten esto).
+  const startSuggestion = (sug) => {
+    if (sug.type === 'cardio') {
+      navigate('/registro', { state: { type: 'cardio' } })
+      return
+    }
+    if (sug.routineId) {
+      navigate('/registro', { state: { type: 'fuerza', routineId: sug.routineId } })
+      return
+    }
+    if (sug.generatedIds?.length) {
+      setDraft({
+        step: 1,
+        type: 'fuerza',
+        detail: {
+          exercises: [],
+          mode: 'libre',
+          selectedMuscles: sug.muscles ?? [],
+          selectedRoutine: '',
+          pendingGeneratedIds: sug.generatedIds,
+        },
+        fatigue: 5,
+        notes: '',
+        date: getTodayLocal(),
+      })
+      navigate('/registro')
+    }
+  }
+
+  // Botón "Rutina de Fuerza": solo con sugerencia de cardio o descanso. Cambia la tarjeta a la alternativa.
+  const offerAlt = typeof getStrengthAlt === 'function' && canOfferStrengthAlternative(suggestion)
+  const altOpen = offerAlt && showAlt && !!alt
+  const openAlt = () => { setAlt(getStrengthAlt()); setExpanded(false); setShowAlt(true) }
+  const closeAlt = () => { setShowAlt(false); setExpanded(false) }
+  const strengthBtn = offerAlt && (
+    <button
+      type="button"
+      onClick={openAlt}
+      className="px-3 py-1.5 rounded-lg border border-app-purple/40 text-app-purple-light text-xs font-medium bg-transparent active:opacity-70 transition-opacity"
+    >
+      Rutina de Fuerza
+    </button>
+  )
 
   if (!suggestion) {
     return (
@@ -487,11 +537,61 @@ function DailySuggestionCard({ suggestion, onDismissRegreso }) {
     )
   }
 
+  // Alternativa de fuerza (cardio / descanso): reemplaza el contenido de la tarjeta, con transición suave.
+  if (altOpen) {
+    const backLink = (
+      <button
+        type="button"
+        onClick={closeAlt}
+        className="text-[11px] active:opacity-70 transition-opacity"
+        style={{ color: '#94A3B8' }}
+      >
+        ← Volver a la sugerencia
+      </button>
+    )
+    if (alt.type === 'none') {
+      return (
+        <div key="alt-none" className="mx-4 rounded-xl border border-white/[0.06] px-3 py-2.5 animate-fadeIn" style={{ backgroundColor: '#1a1625' }}>
+          <p className="text-app-text text-xs font-semibold">Rutina de Fuerza</p>
+          <p className="text-[10px] mt-1 leading-snug" style={{ color: '#94A3B8' }}>{alt.reason}</p>
+          <div className="mt-2">{backLink}</div>
+        </div>
+      )
+    }
+    const altTitle = alt.routineName ?? alt.title
+    return (
+      <div key="alt" className="mx-4 rounded-xl border border-white/[0.06] px-3 py-2.5 animate-fadeIn" style={{ backgroundColor: '#1a1625' }}>
+        <div className="flex items-center gap-2 w-full">
+          <div className="flex-shrink-0"><Lightbulb size={14} color="#9b7fd4" /></div>
+          <button onClick={() => setExpanded(e => !e)} className="flex-1 min-w-0 text-left">
+            <p className="text-app-text text-xs font-medium truncate">Rutina de Fuerza: {altTitle}</p>
+            {alt.muscles?.length > 0 && (
+              <p className="text-[10px] truncate" style={{ color: '#94A3B8' }}>{alt.muscles.join(' · ')}</p>
+            )}
+          </button>
+        </div>
+        {expanded && alt.reason && (
+          <p className="text-[10px] mt-1.5 leading-snug" style={{ color: '#94A3B8' }}>{alt.reason}</p>
+        )}
+        <div className="flex items-center justify-between mt-2.5">
+          {backLink}
+          <button
+            onClick={() => startSuggestion(alt)}
+            className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-app-purple text-white text-xs font-semibold active:opacity-70 transition-opacity"
+          >
+            Empezar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (suggestion.type === 'descanso') {
     return (
-      <div className="mx-4 rounded-xl border border-white/[0.06] px-3 py-2.5" style={{ backgroundColor: '#1a1625' }}>
+      <div key="descanso" className="mx-4 rounded-xl border border-white/[0.06] px-3 py-2.5 animate-fadeIn" style={{ backgroundColor: '#1a1625' }}>
         <p className="text-app-text text-xs font-semibold">Descanso 💤</p>
         <p className="text-[10px] mt-1 leading-snug" style={{ color: '#94A3B8' }}>{suggestion.sub}</p>
+        {strengthBtn && <div className="flex items-center justify-start mt-2.5">{strengthBtn}</div>}
       </div>
     )
   }
@@ -500,32 +600,29 @@ function DailySuggestionCard({ suggestion, onDismissRegreso }) {
   const detail = suggestion.sub ?? suggestion.reason
   const label = `Hoy te sugerimos: ${title}`
 
-  const handleStart = () => {
-    if (suggestion.type === 'cardio') {
-      navigate('/registro', { state: { type: 'cardio' } })
-      return
-    }
-    if (suggestion.routineId) {
-      navigate('/registro', { state: { type: 'fuerza', routineId: suggestion.routineId } })
-      return
-    }
-    if (suggestion.generatedIds?.length) {
-      setDraft({
-        step: 1,
-        type: 'fuerza',
-        detail: {
-          exercises: [],
-          mode: 'libre',
-          selectedMuscles: suggestion.muscles ?? [],
-          selectedRoutine: '',
-          pendingGeneratedIds: suggestion.generatedIds,
-        },
-        fatigue: 5,
-        notes: '',
-        date: getTodayLocal(),
-      })
-      navigate('/registro')
-    }
+  const handleStart = () => startSuggestion(suggestion)
+
+  // Cardio con el botón de fuerza: título arriba y, abajo, "Rutina de Fuerza" a la izquierda y "Empezar" a la derecha.
+  if (suggestion.type === 'cardio' && strengthBtn) {
+    return (
+      <div key="cardio" className="mx-4">
+        <div className="rounded-xl border border-white/[0.06] px-3 py-2.5 animate-fadeIn" style={{ backgroundColor: '#1a1625' }}>
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex-shrink-0"><Lightbulb size={14} color="#9b7fd4" /></div>
+            <p className="flex-1 min-w-0 text-app-text text-xs font-medium truncate">{label}</p>
+          </div>
+          <div className="flex items-center justify-between mt-2.5">
+            {strengthBtn}
+            <button
+              onClick={handleStart}
+              className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-app-purple text-white text-xs font-semibold active:opacity-70 transition-opacity"
+            >
+              Empezar
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -737,6 +834,10 @@ export default function Inicio() {
     writeSuggestionCache(user.uid, { date: today, realCount, suggestion: computed, skipReturn, profileKey })
   }, [user?.uid, loading, workouts, profile, neverIds, regresoDismissTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Alternativa de fuerza del botón "Rutina de Fuerza": caché diario propio (daily_strength_alt_{uid}) con
+  // { date, realCount, suggestion }; se reusa si es de hoy y no cambió la cantidad de workouts reales.
+  const getStrengthAlt = () => getCachedStrengthAlternative({ uid: user?.uid, workouts, profile, today: getTodayLocal() })
+
   useEffect(() => {
     if (loading) return
     if (new Date().getDay() !== 1) return
@@ -784,7 +885,7 @@ export default function Inicio() {
         <div className="mb-2"><FraseDiariaCard workouts={workouts} /></div>
         <div className="mb-3"><WeekCalendar workouts={workouts} /></div>
         <div className="mb-2"><LastAndSuggestion workouts={workouts} /></div>
-        <div className="mb-2"><DailySuggestionCard suggestion={suggestion} onDismissRegreso={dismissRegreso} /></div>
+        <div className="mb-2"><DailySuggestionCard suggestion={suggestion} onDismissRegreso={dismissRegreso} getStrengthAlt={getStrengthAlt} /></div>
         <div className="mb-2"><Logros workouts={workouts} compact /></div>
       </div>
 

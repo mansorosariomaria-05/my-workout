@@ -398,6 +398,8 @@ Función **pura** (sin fetch propio a Firestore) evaluada contra el historial ya
 
 La sugerencia devuelve `{ type, routineId | generatedIds, routineName | title, muscles, reason }`. `Inicio.jsx` cachea el resultado en `localStorage` (`daily_suggestion_{uid}`) por día y por cantidad de entrenamientos reales, para no recalcular en cada render. El botón "Empezar": con `routineId` navega como antes; con `generatedIds` arma un draft con `pendingGeneratedIds` (mismo mecanismo que "Usar ahora" del generador) para que `FuerzaFlow` los arme con `buildEntry`.
 
+**Alternativa de fuerza** (noviembre 2026): cuando la sugerencia es cardio o descanso, la tarjeta de Inicio muestra abajo a la izquierda un botón outline "Rutina de Fuerza" que cambia la tarjeta a una rutina de fuerza (`computeStrengthAlternative`: los mismos pasos 4–6 sin los chequeos de días cumplidos / 3 seguidos / balance cardio, mínimo 5 ejercicios, un solo músculo si es el único elegible, o `{ type: 'none' }` si se entrenó todo ayer y anteayer), con "Empezar" y "← Volver a la sugerencia"; se cachea por día en `daily_strength_alt_{uid}`.
+
 Ver `LOGICA_TECNICA.md` sección 17 para el algoritmo completo.
 
 ---

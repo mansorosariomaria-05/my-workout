@@ -1,4 +1,5 @@
 // Helpers puros de tiempo/ritmo para el registro de cardio — sin dependencias de React ni Firestore.
+import { formatScore } from './format.js'
 
 export function toSeconds(h, m, s) {
   return (Number(h) || 0) * 3600 + (Number(m) || 0) * 60 + (Number(s) || 0)
@@ -37,7 +38,7 @@ export function computeSpeedKmh(seconds, km) {
   const d = Number(km) || 0
   if (t <= 0 || d <= 0) return '—'
   const kmh = d / (t / 3600)
-  return kmh.toFixed(1).replace('.', ',')
+  return formatScore(kmh)
 }
 
 // Duración efectiva de un workout de cardio guardado: usa durationSeconds si existe (workouts

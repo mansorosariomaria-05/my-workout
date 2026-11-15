@@ -14,6 +14,7 @@ import { getReturnState } from '../../utils/reentry'
 import { getInactivityInfo } from '../../utils/inactivity'
 import { getExerciseUnit, formatSetText, DEFAULT_SECS } from '../../utils/exerciseUnit'
 import { todayStr } from '../../utils/dates'
+import { formatKg, formatPercent } from '../../utils/format'
 import { useAuthContext } from '../../context/AuthContext'
 import { getCustomExercises, saveCustomExercise, deleteCustomExercise, getCustomRoutines } from '../../services/db'
 import { Plus } from 'lucide-react'
@@ -269,7 +270,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       )}
 
       <div className="flex items-center gap-2 mb-2 flex-wrap">
-        {pr > 0 && <span className="text-app-gold text-xs font-medium">PR: {pr}kg</span>}
+        {pr > 0 && <span className="text-app-gold text-xs font-medium">PR: {formatKg(pr)}</span>}
         {pr > 0 && maxWeight > 0 && maxWeight >= pr && (
           <span className="text-xs bg-app-gold/20 text-app-gold px-2 py-0.5 rounded-full font-medium">¡Nuevo récord! 🏆</span>
         )}
@@ -283,7 +284,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
         </div>
       )}
       {progressionAdvice?.hasHistory && progressionAdvice.returnActive && (
-        <p className="text-app-green-light text-xs mb-2">🔁 Volviendo a tu nivel ({progressionAdvice.preGapLevel} kg)</p>
+        <p className="text-app-green-light text-xs mb-2">🔁 Volviendo a tu nivel ({formatKg(progressionAdvice.preGapLevel)})</p>
       )}
       {progressionAdvice?.hasHistory && !progressionAdvice.suggest && (
         progressionAdvice.effectiveThreshold != null ? (
@@ -301,7 +302,7 @@ function ExerciseCard({ ex, exData, onChange, onRemove, onSwapToAlt, onReplace, 
       {deloadActive && (
         <div className="bg-app-purple/10 border border-app-purple/20 rounded-lg px-3 py-1.5 mb-2">
           <p className="text-app-purple-light text-xs">
-            Semana de descarga: probá con ~{deloadPreview ?? '—'} kg
+            Semana de descarga: probá con ~{deloadPreview != null ? formatKg(deloadPreview) : '—'}
           </p>
         </div>
       )}
@@ -1090,7 +1091,7 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       {exerciseList.length > 0 && (
         <div>
           {data.regreso?.pct > 0 && (
-            <p className="text-app-purple-light text-[11px] mb-1.5">🔁 Regreso: pesos −{data.regreso.pct} %</p>
+            <p className="text-app-purple-light text-[11px] mb-1.5">🔁 Regreso: pesos −{formatPercent(data.regreso.pct)}</p>
           )}
           <p className="text-app-muted text-xs mb-3">Ejercicios de la sesión</p>
           {exerciseList.map((entry, i) => {

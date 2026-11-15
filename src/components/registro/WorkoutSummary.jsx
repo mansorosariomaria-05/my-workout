@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Button from '../ui/Button'
 import { FRASES_POST } from '../../data/frases'
 import { detectPRs, detectImprovements } from '../../utils/prUtils'
+import { formatKg, formatDeltaKg, formatNumber, formatKm } from '../../utils/format'
 import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 
 const CONFETTI_COLORS = ['#7C5CBF', '#40916C', '#4A9EDB', '#F59E0B', '#E57373', '#9B7FD4']
@@ -164,7 +165,7 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
                 {workout.distancia > 0 && (
                   <div className="flex justify-between">
                     <span className="text-app-muted text-sm">Distancia</span>
-                    <span className="text-app-text font-semibold">{workout.distancia} km</span>
+                    <span className="text-app-text font-semibold">{formatKm(workout.distancia)}</span>
                   </div>
                 )}
                 {paceOrSpeed && (
@@ -198,7 +199,7 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
           <div className="bg-app-gold/10 border border-app-gold/20 rounded-xl px-4 py-3 mb-3">
             {prs.map((pr, i) => (
               <p key={i} className="text-app-gold text-sm font-medium">
-                ¡Nuevo récord en {pr.name}! 🏆 {pr.weight} kg
+                ¡Nuevo récord en {pr.name}! 🏆 {formatKg(pr.weight)}
               </p>
             ))}
           </div>
@@ -208,10 +209,10 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
           <div key={i} className="rounded-xl px-4 py-2.5 mb-3" style={{ backgroundColor: 'rgba(64,145,108,0.12)', border: '1px solid rgba(64,145,108,0.25)' }}>
             <p className="text-sm" style={{ color: '#40916C' }}>
               {imp.type === 'weight'
-                ? `¡Subiste ${imp.deltaW}kg en ${imp.name}! 💪`
+                ? `¡Subiste ${(formatDeltaKg(imp.deltaW) ?? formatKg(imp.deltaW)).replace(/^\+/, '')} en ${imp.name}! 💪`
                 : imp.unit === 'secs'
-                  ? `¡Aguantaste ${imp.deltaR} seg más en ${imp.name}! 🎯`
-                  : `¡Hiciste ${imp.deltaR} rep${imp.deltaR > 1 ? 's' : ''} más en ${imp.name}! 🎯`}
+                  ? `¡Aguantaste ${formatNumber(imp.deltaR)} seg más en ${imp.name}! 🎯`
+                  : `¡Hiciste ${formatNumber(imp.deltaR)} rep${imp.deltaR > 1 ? 's' : ''} más en ${imp.name}! 🎯`}
             </p>
           </div>
         ))}

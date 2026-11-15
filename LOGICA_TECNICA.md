@@ -2123,6 +2123,33 @@ Qué hace `normalizeExerciseEntry` en cada ejercicio de un workout: `exerciseId`
 
 ---
 
+## 28. FORMATO DE NÚMEROS (`src/utils/format.js`, noviembre 2026)
+
+**Convención: todo número visible pasa por `utils/format.js`.** Usa `Intl.NumberFormat('es-AR')` (coma decimal) y deja un espacio entre número y unidad. Motivo: restar pesos en JS da errores de punto flotante (`22.2 − 20 = 2.1999999999999993`) y se veían como "+2.200000000000001kg". Es solo presentación: no se tocan los valores guardados ni los cálculos.
+
+Todas las funciones redondean internamente (mitad hacia afuera, absorbiendo el error binario), así que se les puede pasar directamente el resultado de una resta.
+
+| Función | Qué hace | Ejemplos |
+|---|---|---|
+| `formatKg(n)` | Peso, máx. 1 decimal, sin decimales si es entero, con unidad | `24` → "24 kg" · `11.25` → "11,3 kg" · `2.200000000000001` → "2,2 kg" |
+| `formatDeltaKg(n)` | Igual con signo (menos tipográfico `−`). **Devuelve `null` si el delta redondeado es 0** (el llamador no lo muestra) | `2.2` → "+2,2 kg" · `-1` → "−1 kg" · `0.04` → `null` |
+| `formatPct(n)` | Variación porcentual entera con signo | `66.67` → "+67 %" · `-20` → "−20 %" · `0` → "0 %" |
+| `formatPercent(n)` | Porcentaje entero sin signo (proporciones, inclinación, reducción de regreso) | `25` → "25 %" |
+| `formatScore(n)` | 1 decimal fijo (fatiga, días por semana, km/h calculados) | `7.1` → "7,1" · `7` → "7,0" |
+| `formatNumber(n)` | Reps, segundos, km/h cargados: máx. 1 decimal | `12` → "12" · `8.5` → "8,5" |
+| `formatKm(n)` | Distancia, máx. 2 decimales, con unidad | `5.25` → "5,25 km" |
+| `diffKg(a, b)` | Resta de pesos ya redondeada a 2 decimales (número, no texto) | `diffKg(22.2, 20)` → `2.2` |
+
+Valores nulos o no numéricos devuelven `"—"` (`formatDeltaKg` devuelve `null`). El espacio entre número y unidad es un espacio común: en filas angostas poner `whitespace-nowrap` al contenedor.
+
+Aplicado en: `components/progreso/*` (ProgresoPage, ExerciseProgress, WeeklyStreakCard, WorkoutHistorial), `WorkoutSummary`, `FuerzaFlow`, `Inicio`, `ConfigPage`, `WeekCalendar`, y los textos de `progressStats.js` (dato clave), `achievements.js` (detalle de logros nuevos), `exerciseUnit.js` (`formatSetText`) y `cardio.js` (`computeSpeedKmh`). Los detalles de logros ya guardados en Firestore no se reescriben.
+
+Pruebas: `src/utils/format.test.js`.
+
+**Principales progresiones (ProgresoPage):** cada fila tiene el nombre del ejercicio en su propia línea (`truncate`, nunca recortado a una letra) y debajo la línea de datos: `peso × reps · delta (verde) · tiempo`.
+
+---
+
 ## Documentación técnica extendida
 
 Este archivo es la fuente de verdad para lógicas complejas, decisiones de producto y bugs conocidos del proyecto. **Debe actualizarse** cada vez que se modifique alguna de las lógicas acá documentadas (racha, pausa, medallas, PRs, fechas, offline/auth, estructura de datos). Ver también `CONTEXTO.md` para arquitectura general, stack, y convenciones de código.

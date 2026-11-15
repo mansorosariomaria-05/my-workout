@@ -3,13 +3,14 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceL
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { getExerciseUnit } from '../../utils/exerciseUnit'
+import { formatKg, formatNumber } from '../../utils/format'
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-app-elevated border border-white/10 rounded-xl px-3 py-2 text-xs">
       <p className="text-app-muted">{payload[0]?.payload.label}</p>
-      <p className="text-app-text font-medium">{payload[0]?.value} kg</p>
+      <p className="text-app-text font-medium">{formatKg(payload[0]?.value)}</p>
     </div>
   )
 }
@@ -143,13 +144,13 @@ export default function ExerciseProgress({ workouts }) {
             <div>
               <p className="text-app-muted text-[10px]">Última serie</p>
               <p className="text-app-text font-bold text-sm">
-                {lastSession ? `${lastSession.count}×${lastSession.reps}${lastSession.unit === 'secs' ? ' seg' : ''}${lastSession.weight > 0 ? ` · ${lastSession.weight}kg` : ''}` : '—'}
+                {lastSession ? `${lastSession.count}×${formatNumber(lastSession.reps)}${lastSession.unit === 'secs' ? ' seg' : ''}${lastSession.weight > 0 ? ` · ${formatKg(lastSession.weight)}` : ''}` : '—'}
               </p>
             </div>
             <div>
               <p className="text-app-muted text-[10px]">PR histórico</p>
               <p className="font-bold text-sm" style={{ color: '#D4AF37' }}>
-                🏆 {pr}kg
+                🏆 {formatKg(pr)}
                 {prDate && (
                   <span className="font-normal text-[10px] ml-1" style={{ color: '#6B7280' }}>
                     ({format(new Date(prDate + 'T12:00:00'), 'd MMM', { locale: es })})
@@ -171,7 +172,7 @@ export default function ExerciseProgress({ workouts }) {
                     try { return format(new Date(v + 'T12:00:00'), 'd MMM', { locale: es }) } catch { return v }
                   }}
                 />
-                <YAxis tick={{ fill: '#9090A8', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#9090A8', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={formatNumber} />
                 <Tooltip content={<CustomTooltip />} />
                 <ReferenceLine y={pr} stroke="#D4AF37" strokeDasharray="3 3" strokeOpacity={0.6} />
                 <Line

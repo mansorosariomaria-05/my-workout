@@ -1,4 +1,5 @@
 import { exercises } from '../data/exercises.js'
+import { formatKg } from './format.js'
 
 // Unidad en la que se mide un ejercicio: 'reps' (repeticiones) o 'secs' (segundos de mantenimiento).
 // Los segundos se guardan en el campo `reps` de cada serie (compatibilidad con el historial); la unidad
@@ -43,6 +44,6 @@ export function formatSetText(set, unit = 'reps', style = 'times') {
   const weight = Number(set?.weight) || 0
   const base   = unit === 'secs' ? `${value} seg` : `${value} reps`
   if (!(weight > 0)) return base
-  if (style === 'dot') return `${base} · ${weight} kg`
-  return unit === 'secs' ? `${base} × ${weight} kg` : `${value}×${weight} kg`
+  if (style === 'dot') return `${base} · ${formatKg(weight)}`
+  return unit === 'secs' ? `${base} × ${formatKg(weight)}` : `${value}×${formatKg(weight)}`
 }

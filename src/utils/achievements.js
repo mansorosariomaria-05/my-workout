@@ -4,6 +4,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { REAL_WORKOUT_TYPES } from './streak'
 import { computeRecords } from './progressStats'
+import { formatKg, formatKm } from './format'
 
 // ─── Achievement metadata (no React/icon refs) ────────────────────────────────
 export const ACHIEVEMENTS_META = [
@@ -336,11 +337,11 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
     const { firstW, curW, names } = computeWeightProgression(workouts)
     if (!a.primerSalto?.unlocked) {
       const jumped = Object.keys(firstW).find(id => firstW[id] > 0 && curW[id] >= firstW[id] * 1.25)
-      if (jumped) push('primerSalto', `${names[jumped]} · de ${firstW[jumped]}kg a ${curW[jumped]}kg`)
+      if (jumped) push('primerSalto', `${names[jumped]} · de ${formatKg(firstW[jumped])} a ${formatKg(curW[jumped])}`)
     }
     if (!a.dobleProg?.unlocked) {
       const doubled = Object.keys(firstW).find(id => firstW[id] > 0 && curW[id] >= firstW[id] * 2)
-      if (doubled) push('dobleProg', `${names[doubled]} · de ${firstW[doubled]}kg a ${curW[doubled]}kg`)
+      if (doubled) push('dobleProg', `${names[doubled]} · de ${formatKg(firstW[doubled])} a ${formatKg(curW[doubled])}`)
     }
     if (!a.transformacion?.unlocked) {
       const doubledList = Object.keys(firstW).filter(id => firstW[id] > 0 && curW[id] >= firstW[id] * 2)
@@ -379,8 +380,8 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
 
   if (!a.cinco5km?.unlocked || !a.veinte20km?.unlocked) {
     const km = getTotalRunningKm(workouts)
-    if (!a.cinco5km?.unlocked   && km >= 5)  push('cinco5km',   `${km.toFixed(1)}km acumulados corriendo`)
-    if (!a.veinte20km?.unlocked && km >= 20) push('veinte20km', `${km.toFixed(1)}km acumulados corriendo`)
+    if (!a.cinco5km?.unlocked   && km >= 5)  push('cinco5km',   `${formatKm(km)} acumulados corriendo`)
+    if (!a.veinte20km?.unlocked && km >= 20) push('veinte20km', `${formatKm(km)} acumulados corriendo`)
   }
 
   if (!a.ritmoSolido?.unlocked) {

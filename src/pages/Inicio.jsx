@@ -10,6 +10,7 @@ import { dateToLocal, getTodayLocal, getWeekStartLocal } from '../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../utils/streak'
 import { getWeeklyGoal } from '../utils/progressStats'
 import { getInactivityInfo } from '../utils/inactivity'
+import { formatKg, formatScore } from '../utils/format'
 import { computeDailySuggestion, getCachedStrengthAlternative, canOfferStrengthAlternative } from '../utils/dailySuggestion'
 import { getNeverList } from '../services/db'
 import { normalizeIdList } from '../utils/exerciseAliases'
@@ -187,13 +188,13 @@ function WeeklySummaryModal({ stats, onClose, onViewProgress }) {
       {prs.length > 0 && (
         <div className="bg-app-gold/10 border border-app-gold/20 rounded-xl px-4 py-2.5">
           <p className="text-app-gold text-xs font-medium mb-1.5">Superaste {prs.length} récord{prs.length > 1 ? 's' : ''} 🏆</p>
-          {prs.map(([name, { from, to }]) => <p key={name} className="text-app-muted text-xs">{name}: {from}kg → {to}kg</p>)}
+          {prs.map(([name, { from, to }]) => <p key={name} className="text-app-muted text-xs">{name}: {formatKg(from)} → {formatKg(to)}</p>)}
         </div>
       )}
       {avgFatigue != null && (
         <div className="bg-app-bg rounded-xl px-4 py-2.5 flex items-center justify-between">
           <p className="text-app-muted text-xs">Cansancio promedio</p>
-          <span className={`text-sm font-semibold ${avgFatigue <= 4 ? 'text-app-green-light' : avgFatigue <= 7 ? 'text-app-amber' : 'text-app-coral'}`}>{avgFatigue.toFixed(1)}/10</span>
+          <span className={`text-sm font-semibold ${avgFatigue <= 4 ? 'text-app-green-light' : avgFatigue <= 7 ? 'text-app-amber' : 'text-app-coral'}`}>{formatScore(avgFatigue)}/10</span>
         </div>
       )}
       <div className="flex gap-2 pt-1">

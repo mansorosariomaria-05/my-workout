@@ -1,5 +1,6 @@
 import FlipCard from '../ui/FlipCard'
 import { formatDaysPerWeek } from '../../utils/progressStats'
+import { formatPercent } from '../../utils/format'
 import { TYPE_COLORS, TYPE_LABELS } from '../../utils/workoutTypes'
 
 const PURPLE = '#9B7FD4'
@@ -40,7 +41,7 @@ export default function WeeklyStreakCard({ total, month, height = '108px', showT
             {formatDaysPerWeek(month.avgDaysPerWeek)} días por semana
           </p>
           <div className="flex h-1.5 rounded-full overflow-hidden mt-2 bg-white/5" role="img"
-            aria-label={keys.map(k => `${TYPE_LABELS[k]} ${month.percentages[k]} %`).join(', ')}>
+            aria-label={keys.map(k => `${TYPE_LABELS[k]} ${formatPercent(month.percentages[k])}`).join(', ')}>
             {keys.map(k => (
               <div key={k} style={{ width: `${month.percentages[k]}%`, backgroundColor: TYPE_COLORS[k] }} />
             ))}
@@ -48,7 +49,7 @@ export default function WeeklyStreakCard({ total, month, height = '108px', showT
           <div className="flex justify-between gap-1 mt-1.5">
             {keys.map(k => (
               <div key={k} className="flex flex-col items-center flex-1 min-w-0">
-                <span className="text-xs font-bold leading-none" style={{ color: TYPE_COLORS[k] }}>{month.percentages[k]} %</span>
+                <span className="text-xs font-bold leading-none" style={{ color: TYPE_COLORS[k] }}>{formatPercent(month.percentages[k])}</span>
                 <span className="text-[10px] text-app-muted leading-tight mt-0.5 truncate max-w-full">{TYPE_LABELS[k]}</span>
               </div>
             ))}

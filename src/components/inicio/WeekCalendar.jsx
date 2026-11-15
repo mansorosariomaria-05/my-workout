@@ -5,6 +5,7 @@ import { toDateStr } from '../../utils/dates'
 import { REAL_WORKOUT_TYPES } from '../../utils/streak'
 import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 import Modal from '../ui/Modal'
+import { formatNumber, formatPercent, formatKm } from '../../utils/format'
 import { getExerciseUnit, formatSetText } from '../../utils/exerciseUnit'
 
 const DAY_LABELS    = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -48,8 +49,8 @@ function WorkoutDetailBlock({ workout }) {
               Cinta{workout.cinta.tipo ? ` · ${workout.cinta.tipo}` : ''}
               {[
                 workout.cinta.min ? `${workout.cinta.min} min` : null,
-                workout.cinta.kmh ? `${workout.cinta.kmh} km/h` : null,
-                workout.cinta.inclinacion ? `${workout.cinta.inclinacion}% inclinación` : null,
+                workout.cinta.kmh ? `${formatNumber(workout.cinta.kmh)} km/h` : null,
+                workout.cinta.inclinacion ? `${formatPercent(workout.cinta.inclinacion)} inclinación` : null,
               ].filter(Boolean).map(s => ` · ${s}`).join('')}
             </p>
           )}
@@ -68,7 +69,7 @@ function WorkoutDetailBlock({ workout }) {
             {workout.activity && ' — '}
             {[
               durationSeconds ? formatDuration(durationSeconds) : null,
-              workout.distancia ? `${workout.distancia} km` : null,
+              workout.distancia ? formatKm(workout.distancia) : null,
               paceOrSpeed,
             ].filter(Boolean).join(' · ')}
           </p>

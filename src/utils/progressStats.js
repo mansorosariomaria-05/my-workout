@@ -15,6 +15,7 @@ import { getExerciseUnit } from './exerciseUnit.js'
 import { getSessionDurationSeconds } from './sessionDuration.js'
 import { getEffectiveDurationSeconds } from './cardio.js'
 import { getTodayLocal } from './dates.js'
+import { formatKg, formatDeltaKg, formatNumber, formatScore, formatPercent, diffKg } from './format.js'
 import { addDays, daysBetween, mondayOf, sundayOf, monthOf } from './weeks.js'
 
 const REAL = new Set(REAL_WORKOUT_TYPES)
@@ -306,7 +307,7 @@ function percentagesSummingTo100(entries) {
 }
 
 // Un decimal con coma: 3.5 → "3,5"; 4 → "4,0".
-export const formatDaysPerWeek = (n) => (n == null ? '—' : n.toFixed(1).replace('.', ','))
+export const formatDaysPerWeek = (n) => formatScore(n)
 
 // Dorso de la tarjeta: resumen del MES CALENDARIO en curso (del día 1 hasta hoy).
 //   avgDaysPerWeek = días distintos entrenados en el mes / (días transcurridos del mes / 7), con un decimal
@@ -454,7 +455,8 @@ function ruleWeightRecord(records, range) {
     const rel = (x) => (x.value - x.previous) / x.previous
     return rel(e) > rel(best) ? e : best
   }, null)
-  return `Récord nuevo en ${pick.name}: ${fmtNum(pick.value)} kg (+${fmtNum(pick.value - pick.previous)} kg sobre tu marca anterior de ${fmtNum(pick.previous)} kg).`
+  const delta = formatDeltaKg(diffKg(pick.value, pick.previous))
+  return `Récord nuevo en ${pick.name}: ${formatKg(pick.value)}${delta ? ` (${delta} sobre tu marca anterior de ${formatKg(pick.previous)})` : ''}.`
 }
 
 // R3 · mejor tiempo: ejercicio en segundos cuyo máximo por serie en el período supera el de todas las sesiones
@@ -479,7 +481,7 @@ function ruleBestTime(groups, range) {
     }
   }
   if (!best) return null
-  return `Aguantaste ${fmtNum(best.n)} seg en ${best.name}${best.w > 0 ? ` con ${fmtNum(best.w)} kg` : ''}, tu mejor marca (antes ${fmtNum(best.m)} seg).`
+  return `Aguantaste ${formatNumber(best.n)} seg en ${best.name}${best.w > 0 ? ` con ${formatKg(best.w)}` : ''}, tu mejor marca (antes ${formatNumber(best.m)} seg).`
 }
 
 // Evalúa las 5 reglas y devuelve las que se cumplen, en orden de prioridad: [{ rule, text }].
@@ -488,7 +490,7 @@ function evaluateRules({ workouts, groups, records, range, cur, prev, goal, toda
   const out = []
 
   const fat = getFatigueStatus(workouts, today)
-  if (fat.high) out.push({ rule: 'R1', text: `Tu cansancio promedio de las últimas 2 semanas fue ${fmtNum(fat.avg)}/10. Podés considerar una semana de descarga.` })
+  if (fat.high) out.push({ rule: 'R1', text: `Tu cansancio promedio de las últimas 2 semanas fue ${formatScore(fat.avg)}/10. Podés considerar una semana de descarga.` })
 
   const r2 = ruleWeightRecord(records, range)
   if (r2) out.push({ rule: 'R2', text: r2 })
@@ -501,7 +503,7 @@ function evaluateRules({ workouts, groups, records, range, cur, prev, goal, toda
     if (delta != null && Math.abs(delta) >= 10) {
       const inP = cur.inWin.filter(w => w.type === 'fuerza')
       const suffix = inP.some(w => w.deload === true) ? ' (incluye semana de descarga)' : inP.some(w => w.regreso === true) ? ' (incluye una sesión de regreso)' : ''
-      const amount = delta > 200 ? 'más de un 200 %' : `un ${Math.abs(delta)} %`
+      const amount = delta > 200 ? 'más de un 200 %' : `un ${formatPercent(Math.abs(delta))}`
       out.push({ rule: 'R4', text: `Tu volumen de fuerza ${delta > 0 ? 'subió' : 'bajó'} ${amount} frente a las ${range.weeks} semanas anteriores${suffix}.` })
     }
   }

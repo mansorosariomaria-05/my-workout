@@ -495,6 +495,7 @@ Usado en logros, mensajes y saludos para adaptar terminaciones.
 - `originalMuscle` se preserva siempre en `replaceWithExercise` para que el modal de reemplazo filtre por el músculo correcto
 - `originalExerciseId` se setea cuando se activa el alt, se limpia cuando se vuelve al original
 - Las fechas de workouts nunca se convierten a `Date` para comparaciones — se comparan como strings `'YYYY-MM-DD'`
+- **Todo número visible pasa por `utils/format.js`** (`formatKg`, `formatDeltaKg`, `formatPct`, `formatPercent`, `formatScore`, `formatNumber`, `formatKm`). Nada de `toFixed`, `${x}kg` ni `${x}%` en la UI. Es solo presentación: lo guardado en Firestore y la lógica de cálculo no cambian
 - El build siempre va a `dist/` (excluida de git), deploy con `firebase deploy --only hosting`
 
 ---

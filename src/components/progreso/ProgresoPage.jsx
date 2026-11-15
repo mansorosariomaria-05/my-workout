@@ -17,6 +17,7 @@ import { TYPE_COLORS } from '../../utils/workoutTypes'
 import WeeklyStreakCard from './WeeklyStreakCard'
 import { getExerciseUnit } from '../../utils/exerciseUnit'
 import { WorkoutIcon } from '../icons/WorkoutIcons'
+import { formatKg, formatDeltaKg, formatPct, formatScore, formatNumber } from '../../utils/format'
 
 const GREEN    = '#22c55e'
 const RED      = '#ef4444'
@@ -78,7 +79,7 @@ function computeAll(workouts) {
       if (pct > maxPct) { maxPct = pct; maxPctId = id }
     }
   })
-  const mayorProgresoVal  = maxPct > 0 ? `+${Math.round(maxPct)}%` : '—'
+  const mayorProgresoVal  = maxPct > 0 ? formatPct(maxPct) : '—'
   const mayorProgresoName = maxPctId ? exName[maxPctId] : ''
 
   let topN = 0, topId = ''
@@ -93,8 +94,8 @@ function computeAll(workouts) {
     const d = (exLast[id] ?? 0) - exFirst[id]
     if (d > maxDelta) { maxDelta = d; maxDeltaEx = exName[id] }
   })
-  const mejorMarcaVal = maxDelta > 0 ? `+${maxDelta}kg` : '—'
-  const mejorMarcaSub = maxDelta > 0 ? `en ${maxDeltaEx}` : ''
+  const mejorMarcaVal = formatDeltaKg(maxDelta) ?? '—'
+  const mejorMarcaSub = mejorMarcaVal !== '—' ? `en ${maxDeltaEx}` : ''
 
   const allFatigues = workouts.filter(w => REAL_TYPES.has(w.type) && w.fatigue != null).map(w => w.fatigue)
   const avgFatigaHistorica = allFatigues.length >= 3
@@ -440,7 +441,7 @@ export default function ProgresoPage() {
             <VictoriaCard icon="🏆" value={mejorMarcaVal} sub={mejorMarcaSub || null} color={GREEN}  label="mejor marca" />
             <VictoriaCard
               icon={avgFatigaHistorica != null ? '💪' : ''}
-              value={avgFatigaHistorica != null ? avgFatigaHistorica.toFixed(1) : '—'}
+              value={avgFatigaHistorica != null ? formatScore(avgFatigaHistorica) : '—'}
               sub={fatigaSub}
               color={fatigaColor}
               label={fatigaLabel}
@@ -472,18 +473,26 @@ export default function ProgresoPage() {
               </p>
             ) : topEx.map((ex, i) => {
               const unitLabel = ex.unit === 'secs' ? 'seg' : 'reps'   // los segundos no se rotulan "reps"
-              const delta = ex.type === 'double'
-                ? `+${ex.deltaW}kg · +${ex.deltaR} ${unitLabel}`
+              const repsDelta = ex.deltaR > 0 ? `+${formatNumber(ex.deltaR)} ${unitLabel}` : null
+              const delta = (ex.type === 'double'
+                ? [formatDeltaKg(ex.deltaW), repsDelta]
                 : ex.type === 'weight'
-                ? `+${ex.deltaW}kg`
-                : `+${ex.deltaR} ${unitLabel}`
+                ? [formatDeltaKg(ex.deltaW)]
+                : [repsDelta]
+              ).filter(Boolean).join(' · ')
               return (
                 <div key={i}
-                  className={`flex items-center gap-2 px-4 py-3${i < topEx.length - 1 ? ' border-b border-white/[0.06]' : ''}`}>
-                  <p className="text-sm font-medium text-app-text flex-1 min-w-0 truncate">{ex.name}</p>
-                  <p className="text-sm flex-shrink-0" style={{ color: '#94A3B8' }}>{ex.weight}kg × {ex.reps}{ex.unit === 'secs' ? ' seg' : ''}</p>
-                  <p className="text-xs font-semibold flex-shrink-0" style={{ color: GREEN }}>({delta})</p>
-                  <p className="text-xs flex-shrink-0" style={{ color: '#6B7280' }}>{daysAgo(ex.date)}</p>
+                  className={`px-4 py-3${i < topEx.length - 1 ? ' border-b border-white/[0.06]' : ''}`}>
+                  {/* Línea 1: nombre completo (si no entra, se corta con "…" pero nunca a una letra) */}
+                  <p className="text-sm font-medium text-app-text truncate">{ex.name}</p>
+                  {/* Línea 2: peso × reps · delta · tiempo */}
+                  <p className="mt-0.5 text-xs flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="whitespace-nowrap" style={{ color: '#94A3B8' }}>
+                      {formatKg(ex.weight)} × {formatNumber(ex.reps)}{ex.unit === 'secs' ? ' seg' : ''}
+                    </span>
+                    {delta && <span className="font-semibold whitespace-nowrap" style={{ color: GREEN }}>{delta}</span>}
+                    <span className="whitespace-nowrap" style={{ color: '#6B7280' }}>{daysAgo(ex.date)}</span>
+                  </p>
                 </div>
               )
             })}

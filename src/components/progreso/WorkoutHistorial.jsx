@@ -6,6 +6,7 @@ import { es } from 'date-fns/locale'
 import { CloudUpload } from 'lucide-react'
 import { formatDuration, formatPace, computeSpeedKmh, getEffectiveDurationSeconds, getEffectivePaceSecondsPerKm } from '../../utils/cardio'
 import Modal from '../ui/Modal'
+import { formatNumber, formatPercent, formatKm } from '../../utils/format'
 import { getExerciseUnit, formatSetText } from '../../utils/exerciseUnit'
 
 const TYPE_DOT = {
@@ -117,8 +118,8 @@ export default function WorkoutHistorial({ workouts }) {
                 <p className="text-app-muted text-xs">
                   {[
                     selectedWorkout.cinta.min         ? `${selectedWorkout.cinta.min} min`               : null,
-                    selectedWorkout.cinta.kmh         ? `${selectedWorkout.cinta.kmh} km/h`              : null,
-                    selectedWorkout.cinta.inclinacion ? `${selectedWorkout.cinta.inclinacion}% inclinación` : null,
+                    selectedWorkout.cinta.kmh         ? `${formatNumber(selectedWorkout.cinta.kmh)} km/h`  : null,
+                    selectedWorkout.cinta.inclinacion ? `${formatPercent(selectedWorkout.cinta.inclinacion)} inclinación` : null,
                   ].filter(Boolean).join(' · ')}
                 </p>
               </div>
@@ -136,7 +137,7 @@ export default function WorkoutHistorial({ workouts }) {
                   <p className="text-app-muted text-xs">
                     {[
                       durationSeconds ? formatDuration(durationSeconds) : null,
-                      selectedWorkout.distancia ? `${selectedWorkout.distancia} km` : null,
+                      selectedWorkout.distancia ? formatKm(selectedWorkout.distancia) : null,
                       paceOrSpeed,
                     ].filter(Boolean).join(' · ')}
                   </p>

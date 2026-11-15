@@ -6,7 +6,7 @@ import { getTodayLocal } from '../../utils/dates'
 import { getWeeklyGoal } from '../../utils/progressStats'
 import {
   VIEW_PERIODS, computeHistorySummary, computeMonthComparison, computeConstanciaBars,
-  computeStrengthRanking, computeBodySummary,
+  computeStrengthRanking, computeBodySummary, computePeriodSummary,
 } from '../../utils/progressView'
 import { textoGenero } from '../../utils/genero'
 import { formatNumber } from '../../utils/format'
@@ -55,6 +55,7 @@ export default function ProgresoPage() {
   const history    = useMemo(() => computeHistorySummary(workouts, today),              [workouts, today])
   const comparison = useMemo(() => computeMonthComparison(workouts, today),             [workouts, today])
   const chart      = useMemo(() => computeConstanciaBars(workouts, period, today, goal), [workouts, period, today, goal])
+  const summary    = useMemo(() => computePeriodSummary(workouts, period, today, goal), [workouts, period, today, goal])
   const ranking    = useMemo(() => computeStrengthRanking(workouts, period, today),     [workouts, period, today])
   const body       = useMemo(() => computeBodySummary(workouts, period, today),         [workouts, period, today])
 
@@ -84,7 +85,7 @@ export default function ProgresoPage() {
 
         <PeriodSelector value={period} onChange={setPeriod} />
 
-        <ConstanciaBlock comparison={comparison} streak={streak} goal={goal} chart={chart} />
+        <ConstanciaBlock comparison={comparison} streak={streak} goal={goal} chart={chart} summary={summary} />
 
         <StrengthBlock rows={ranking.rows} workouts={workouts} today={today} />
 

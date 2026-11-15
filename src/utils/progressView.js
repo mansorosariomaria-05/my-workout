@@ -8,8 +8,9 @@
 
 import { REAL_WORKOUT_TYPES } from './streak.js'
 import { getExerciseUnit } from './exerciseUnit.js'
-import { finiteFatigue, round1 } from './progressStats.js'
-import { diffKg } from './format.js'
+import { finiteFatigue, round1, percentagesSummingTo100 } from './progressStats.js'
+import { getEffectivePaceSecondsPerKm } from './cardio.js'
+import { diffKg, formatNumber } from './format.js'
 import { addDays, daysBetween, mondayOf, monthOf } from './weeks.js'
 
 const REAL = new Set(REAL_WORKOUT_TYPES)
@@ -273,4 +274,151 @@ export function computeBodySummary(workouts, periodKey, today) {
     return { weekStart: ws, label: `${Number(dd)}/${Number(mm)}`, avg: vals.length ? round1(mean(vals)) : null, count: vals.length }
   })
   return { avg, count: values.length, level: getFatigueLevel(avg), previous, trend, weekly }
+}
+
+// ─── Resumen de cierre por período (tarjeta de Constancia en "3 meses" y "Todo") ──
+
+const isRunning = (w) => w.type === 'cardio' && w.activity === 'Running'
+const sum = (arr) => arr.reduce((a, b) => a + b, 0)
+const monthLabel = (key) => MONTH_NAMES[Number(key.slice(5, 7)) - 1]
+const plural = (n, one, many) => `${formatNumber(n)} ${n === 1 ? one : many}`
+
+export const HEADLINE_STRENGTH_MIN = 3   // "Subiste peso en N ejercicios" desde 3 ejercicios
+
+// Sesiones de running con distancia y ritmo válidos, en orden cronológico: [{ date, km, pace (seg/km) }].
+function runningSessions(list) {
+  return list.filter(isRunning)
+    .map(w => ({ date: w.date, km: Number(w.distancia) || 0, pace: getEffectivePaceSecondsPerKm(w) }))
+    .filter(s => s.km > 0 && s.pace > 0)
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// Ritmo promedio ponderado por distancia (seg/km): tiempo total / km totales.
+const avgPace = (sessions) => sum(sessions.map(s => s.pace * s.km)) / sum(sessions.map(s => s.km))
+
+// Cardio del período: solo con ≥ 2 sesiones de running con distancia. null si no alcanza.
+//   '13w': ritmo promedio vs. el de los 3 meses anteriores (mode 'previous'); sin datos previos, solo el promedio (mode null).
+//   'all': promedio de las primeras vs. las últimas carreras (mode 'firstLast'): 3 y 3 si hay 6 o más; con menos,
+//          las primeras n y las últimas n con n = floor(carreras / 2) (nunca se solapan).
+// `improvement` = ritmo anterior − ritmo actual, en segundos redondeados (positivo = mejoró: el ritmo bajó).
+function summarizeCardio(workouts, periodKey, range, today, real) {
+  const sessions = runningSessions(real)
+  if (sessions.length < 2) return null
+  const km = sum(sessions.map(s => s.km))
+  const out = { sessions: sessions.length, km, avgPace: Math.round(avgPace(sessions)), mode: null, from: null, to: null, improvement: null, direction: null }
+  let from = null, to = null
+  if (periodKey === 'all') {
+    const n = Math.min(3, Math.floor(sessions.length / 2))
+    from = avgPace(sessions.slice(0, n)); to = avgPace(sessions.slice(-n))
+    out.mode = 'firstLast'
+  } else {
+    const prev = runningSessions(workoutsInRange(workouts, range.previous, today))
+    if (prev.length >= 1) { from = avgPace(prev); to = avgPace(sessions); out.mode = 'previous' }
+  }
+  if (out.mode) {
+    out.from = Math.round(from); out.to = Math.round(to)
+    out.improvement = out.from - out.to
+    out.direction = out.improvement > 0 ? 'better' : out.improvement < 0 ? 'worse' : 'same'
+  }
+  return out
+}
+
+// Titular generado por reglas (no IA), el primero que se cumple. Tono siempre positivo o neutral.
+//   a) promedio de días/semana (a 1 decimal, como se muestra) ≥ objetivo → "Sostuviste tu objetivo de N días por semana"
+//   b) subió peso en 3+ ejercicios → "Subiste peso en N ejercicios: tu fuerza está creciendo"
+//   c) el ritmo de running mejoró → "Corrés más rápido: tu ritmo mejoró N s/km"
+//   d) por defecto → "Mantuviste el hábito: N semanas activas" (semanas completas con al menos un día entrenado)
+// Si todavía no hay ninguna semana completa con entrenamientos: "Estás arrancando: cada entrenamiento suma".
+export function pickPeriodHeadline({ weeks, strengthImproved, cardio }, goal) {
+  if (weeks.avgDays != null && weeks.avgDays >= goal) {
+    return { rule: 'goal', text: `Sostuviste tu objetivo de ${plural(goal, 'día', 'días')} por semana` }
+  }
+  if (strengthImproved >= HEADLINE_STRENGTH_MIN) {
+    return { rule: 'strength', text: `Subiste peso en ${formatNumber(strengthImproved)} ejercicios: tu fuerza está creciendo` }
+  }
+  if (cardio?.direction === 'better') {
+    return { rule: 'cardio', text: `Corrés más rápido: tu ritmo mejoró ${formatNumber(cardio.improvement)} s/km` }
+  }
+  if (weeks.activeWeeks >= 1) {
+    return { rule: 'habit', text: `Mantuviste el hábito: ${plural(weeks.activeWeeks, 'semana activa', 'semanas activas')}` }
+  }
+  return { rule: 'start', text: 'Estás arrancando: cada entrenamiento suma' }
+}
+
+// Resumen del período para las vistas "3 meses" ('13w') y "Todo" ('all'); null en '4w' (esa vista es "en vivo").
+// {
+//   periodKey, label ("Últimos 3 meses" / "Desde abril"), empty,
+//   weeks:  { evaluated, met, avgDays, activeWeeks, goal }   solo semanas COMPLETAS (la semana en curso no cuenta)
+//   mix:    [{ type, count, pct }]                           % por tipo sobre workouts, suman 100, solo tipos con valor
+//   strengthImproved: N                                      ejercicios cuyo mejor peso del período supera su primer registro
+//   cardio: ver summarizeCardio (o null)
+//   bestMonth: { month, monthName, year, days } | null       solo en 'all'
+//   headline: { rule, text }
+// }
+export function computePeriodSummary(workouts, periodKey, today, goal) {
+  if (periodKey !== '13w' && periodKey !== 'all') return null
+  const range = resolveViewPeriod(periodKey, today, workouts)
+  const real = workoutsInRange(workouts, range, today)
+  const thisYear = Number(today.slice(0, 4))
+
+  let label = 'Últimos 3 meses'
+  if (periodKey === 'all') {
+    if (real.length) {
+      const first = real.reduce((min, w) => (w.date < min ? w.date : min), real[0].date)
+      const y = Number(first.slice(0, 4))
+      label = `Desde ${monthLabel(first)}${y !== thisYear ? ` de ${y}` : ''}`
+    } else label = 'Todo el historial'
+  }
+
+  const emptyWeeks = { evaluated: 0, met: 0, avgDays: null, activeWeeks: 0, goal }
+  if (!real.length) {
+    return {
+      periodKey, label, empty: true, weeks: emptyWeeks, mix: [], strengthImproved: 0, cardio: null, bestMonth: null,
+      headline: { rule: 'empty', text: 'Todavía no hay entrenamientos en este período. ¡Cuando entrenes, acá vas a ver tu resumen!' },
+    }
+  }
+
+  // Semanas completas: lunes a domingo que terminaron antes de la semana en curso. Días DISTINTOS por semana.
+  const daysByWeek = new Map()
+  real.forEach(w => {
+    const ws = mondayOf(w.date)
+    if (!daysByWeek.has(ws)) daysByWeek.set(ws, new Set())
+    daysByWeek.get(ws).add(w.date)
+  })
+  const done = weekStartsOf(range).filter(ws => ws < mondayOf(today))
+  const counts = done.map(ws => daysByWeek.get(ws)?.size ?? 0)
+  const weeks = {
+    evaluated: done.length,
+    met: counts.filter(n => n >= goal).length,
+    avgDays: done.length ? round1(sum(counts) / done.length) : null,
+    activeWeeks: counts.filter(n => n > 0).length,
+    goal,
+  }
+
+  // Qué entrenaste: % por tipo sobre la cantidad de workouts, sumando exactamente 100.
+  const entries = BAR_TYPES.map(type => ({ key: type, count: real.filter(w => w.type === type).length })).filter(e => e.count > 0)
+  const pcts = percentagesSummingTo100(entries)
+  const mix = entries.map(e => ({ type: e.key, count: e.count, pct: pcts[e.key] })).sort((a, b) => b.count - a.count)
+
+  const strengthImproved = computeStrengthRanking(workouts, periodKey, today).total
+  const cardio = summarizeCardio(workouts, periodKey, range, today, real)
+
+  // Mejor mes (solo "Todo"): el mes con más días distintos entrenados; ante empate, el más reciente.
+  let bestMonth = null
+  if (periodKey === 'all') {
+    const byMonth = new Map()
+    real.forEach(w => {
+      const m = monthOf(w.date)
+      if (!byMonth.has(m)) byMonth.set(m, new Set())
+      byMonth.get(m).add(w.date)
+    })
+    for (const [m, set] of byMonth) {
+      if (!bestMonth || set.size > bestMonth.days || (set.size === bestMonth.days && m > bestMonth.month)) {
+        bestMonth = { month: m, monthName: monthLabel(m), year: Number(m.slice(0, 4)), showYear: Number(m.slice(0, 4)) !== thisYear, days: set.size }
+      }
+    }
+  }
+
+  const summary = { periodKey, label, empty: false, weeks, mix, strengthImproved, cardio, bestMonth }
+  return { ...summary, headline: pickPeriodHeadline(summary, goal) }
 }

@@ -291,7 +291,7 @@ export function computeWeeklyStreak3Plus(workouts, today = getTodayLocal()) {
 
 // Reparte 100 entre las categorías con el método del resto mayor (los porcentajes enteros suman exactamente
 // 100). Desempate: mayor resto, luego mayor cantidad, luego el orden recibido.
-function percentagesSummingTo100(entries) {
+export function percentagesSummingTo100(entries) {
   const total = entries.reduce((a, e) => a + e.count, 0)
   const rows = entries.map((e, i) => {
     const exact = (e.count * 100) / total

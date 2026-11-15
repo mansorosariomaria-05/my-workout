@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   resolveViewPeriod, workoutsInRange, computeHistorySummary, computeMonthComparison, computeConstanciaBars,
-  computeStrengthRanking, timeAgoText, getFatigueLevel, computeBodySummary, STABLE_AFTER_DAYS,
+  computeStrengthRanking, timeAgoText, getFatigueLevel, computeBodySummary, STABLE_AFTER_DAYS, computePeriodSummary, pickPeriodHeadline,
 } from './progressView.js'
 import { addDays } from './weeks.js'
 
@@ -268,5 +268,177 @@ describe('texto relativo', () => {
     expect(timeAgoText('2026-11-05', TODAY)).toBe('hace 1 sem.')
     expect(timeAgoText('2026-10-08', TODAY)).toBe('hace 5 sem.')
     expect(timeAgoText('2026-06-12', TODAY)).toBe('hace 5 meses')
+  })
+})
+
+// ─── Resumen de cierre por período ──────────────────────────────────────────
+
+describe('resumen por período', () => {
+  const days = (monday, n, type = 'clase') => Array.from({ length: n }, (_, i) => wk(type, addDays(monday, i)))
+  const run = (date, km, seconds) => wk('cardio', date, { activity: 'Running', distancia: km, durationSeconds: seconds })
+  const press = (date, weight) => F(date, [ex('press_01', 'Press', [[8, weight]]), ex('rem_01', 'Remo', [[8, weight]]), ex('sent_01', 'Sentadilla', [[8, weight]])])
+  const GOAL = 4
+
+  it('la vista "4 semanas" es en vivo: no tiene resumen', () => {
+    expect(computePeriodSummary([wk('clase', '2026-11-10')], '4w', TODAY, GOAL)).toBeNull()
+  })
+
+  describe('constancia (semanas completas, días distintos)', () => {
+    it('3 meses: el promedio y el conteo EXCLUYEN la semana en curso incompleta', () => {
+      const base = [...days(M(1), 4), ...days(M(2), 2)]
+      const s = computePeriodSummary(base, '13w', TODAY, GOAL)
+      expect(s.weeks).toMatchObject({ evaluated: 12, met: 1, avgDays: 0.5, activeWeeks: 2 })
+      const conActual = computePeriodSummary([...base, ...days(M(0), 4)], '13w', TODAY, GOAL)   // la semana en curso no cambia nada
+      expect(conActual.weeks).toEqual(s.weeks)
+    })
+    it('semanas que cumplen el objetivo (>= meta) y promedio con un decimal', () => {
+      const ws = [...days(M(1), 4), ...days(M(2), 5), ...days(M(3), 3), ...days(M(4), 4)]
+      const s = computePeriodSummary(ws, '13w', TODAY, GOAL)
+      expect(s.weeks.met).toBe(3)
+      expect(s.weeks.avgDays).toBe(1.3)          // 16 días / 12 semanas
+    })
+    it('cuenta días distintos: dos workouts el mismo día son 1', () => {
+      const ws = [wk('fuerza', M(1)), wk('cardio', M(1)), wk('clase', addDays(M(1), 1))]
+      expect(computePeriodSummary(ws, '13w', TODAY, GOAL).weeks.activeWeeks).toBe(1)
+      expect(computePeriodSummary(ws, '13w', TODAY, 2).weeks.met).toBe(1)
+    })
+    it('"Todo" cuenta desde la semana del primer entrenamiento', () => {
+      const s = computePeriodSummary([...days(M(3), 3), ...days(M(1), 4)], 'all', TODAY, GOAL)
+      expect(s.weeks).toMatchObject({ evaluated: 3, met: 1, avgDays: 2.3, activeWeeks: 2 })
+    })
+    it('si el primer entrenamiento es de esta semana no hay semanas completas', () => {
+      const s = computePeriodSummary(days(M(0), 2), 'all', TODAY, GOAL)
+      expect(s.weeks).toMatchObject({ evaluated: 0, avgDays: null, activeWeeks: 0 })
+      expect(s.headline.rule).toBe('start')
+    })
+  })
+
+  describe('qué entrenaste', () => {
+    it('porcentajes por workouts que suman 100 (mayor resto), solo tipos con valor, de mayor a menor', () => {
+      const ws = [wk('fuerza', M(1)), wk('cardio', M(1)), wk('clase', M(1))]
+      const s = computePeriodSummary(ws, '13w', TODAY, GOAL)
+      expect(s.mix.reduce((a, m) => a + m.pct, 0)).toBe(100)
+      expect(s.mix.map(m => m.type).sort()).toEqual(['cardio', 'clase', 'fuerza'])
+      const dos = computePeriodSummary([wk('fuerza', M(1)), wk('fuerza', M(2)), wk('cardio', M(3))], '13w', TODAY, GOAL)
+      expect(dos.mix).toEqual([{ type: 'fuerza', count: 2, pct: 67 }, { type: 'cardio', count: 1, pct: 33 }])
+    })
+    it('siempre suman 100 con repartos incómodos', () => {
+      const ws = [...days(M(1), 7, 'fuerza'), ...days(M(2), 3, 'cardio'), ...days(M(3), 3, 'clase'), wk('tabata', M(4))]
+      const s = computePeriodSummary(ws, '13w', TODAY, GOAL)
+      expect(s.mix.reduce((a, m) => a + m.pct, 0)).toBe(100)
+      expect(s.mix).toHaveLength(4)
+    })
+  })
+
+  describe('fuerza', () => {
+    it('cuenta ejercicios cuyo mejor peso supera el primer registro del período', () => {
+      const ws = desc([press('2026-10-05', 20), press('2026-11-05', 25), F('2026-10-06', [ex('x1', 'Curl', [[10, 10]])]), F('2026-11-06', [ex('x1', 'Curl', [[10, 10]])])])
+      expect(computePeriodSummary(ws, '13w', TODAY, GOAL).strengthImproved).toBe(3)
+    })
+  })
+
+  describe('cardio', () => {
+    it('con menos de 2 sesiones de running con distancia no hay datos de cardio', () => {
+      expect(computePeriodSummary([run('2026-10-01', 5, 2000)], '13w', TODAY, GOAL).cardio).toBeNull()
+      const raros = [run('2026-10-01', 5, 2000), wk('cardio', '2026-10-05', { activity: 'Bici', distancia: 20, durationSeconds: 3000 }),
+        wk('cardio', '2026-10-08', { activity: 'Running' })]                  // sin distancia
+      expect(computePeriodSummary(raros, '13w', TODAY, GOAL).cardio).toBeNull()
+    })
+    it('3 meses sin datos previos: km totales y solo el promedio', () => {
+      const c = computePeriodSummary([run('2026-10-01', 5, 2000), run('2026-10-08', 3, 1200)], '13w', TODAY, GOAL).cardio
+      expect(c).toMatchObject({ sessions: 2, km: 8, avgPace: 400, mode: null, improvement: null, direction: null })
+    })
+    it('3 meses: ritmo que MEJORA contra los 3 meses anteriores', () => {
+      const ws = [run('2026-06-10', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)]
+      const c = computePeriodSummary(ws, '13w', TODAY, GOAL).cardio
+      expect(c).toMatchObject({ mode: 'previous', from: 400, to: 365, improvement: 35, direction: 'better' })
+    })
+    it('3 meses: ritmo que EMPEORA (en los datos solo queda direction: worse)', () => {
+      const ws = [run('2026-06-10', 5, 1800), run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000)]
+      const c = computePeriodSummary(ws, '13w', TODAY, GOAL).cardio
+      expect(c).toMatchObject({ from: 360, to: 400, improvement: -40, direction: 'worse' })
+    })
+    it('Todo: primeras 3 vs. últimas 3 carreras', () => {
+      const ws = [run('2026-04-01', 5, 2000), run('2026-04-08', 5, 2000), run('2026-04-15', 5, 2000),
+        run('2026-07-01', 5, 1900), run('2026-08-01', 5, 1900),
+        run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825), run('2026-10-15', 5, 1825)]
+      const c = computePeriodSummary(ws, 'all', TODAY, GOAL).cardio
+      expect(c).toMatchObject({ sessions: 8, km: 40, mode: 'firstLast', from: 400, to: 365, improvement: 35, direction: 'better' })
+    })
+    it('Todo con pocas carreras: primeras n vs. últimas n sin solaparse', () => {
+      const dos = computePeriodSummary([run('2026-04-01', 5, 2000), run('2026-10-01', 5, 1825)], 'all', TODAY, GOAL).cardio
+      expect(dos).toMatchObject({ from: 400, to: 365 })
+      const cuatro = computePeriodSummary([run('2026-04-01', 5, 2000), run('2026-04-08', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)], 'all', TODAY, GOAL).cardio
+      expect(cuatro).toMatchObject({ from: 400, to: 365 })
+    })
+  })
+
+  describe('mejor mes (solo "Todo")', () => {
+    const ws = [...days('2026-09-01', 5), ...days('2026-10-05', 3), wk('cardio', '2026-10-05')]
+    it('el mes con más días distintos', () => {
+      expect(computePeriodSummary(ws, 'all', TODAY, GOAL).bestMonth).toEqual({ month: '2026-09', monthName: 'septiembre', year: 2026, showYear: false, days: 5 })
+    })
+    it('ante un empate gana el más reciente; y no existe en "3 meses"', () => {
+      const empate = [...days('2026-09-01', 3), ...days('2026-10-05', 3)]
+      expect(computePeriodSummary(empate, 'all', TODAY, GOAL).bestMonth.month).toBe('2026-10')
+      expect(computePeriodSummary(ws, '13w', TODAY, GOAL).bestMonth).toBeNull()
+    })
+  })
+
+  describe('etiqueta', () => {
+    it('Últimos 3 meses / Desde <mes> (con año si no es el actual)', () => {
+      expect(computePeriodSummary([wk('clase', '2026-10-05')], '13w', TODAY, GOAL).label).toBe('Últimos 3 meses')
+      expect(computePeriodSummary([wk('clase', '2026-04-20')], 'all', TODAY, GOAL).label).toBe('Desde abril')
+      expect(computePeriodSummary([wk('clase', '2025-04-20')], 'all', TODAY, GOAL).label).toBe('Desde abril de 2025')
+    })
+  })
+
+  describe('titular por prioridad', () => {
+    const fuerte = desc([press('2026-10-05', 20), press('2026-11-05', 25)])   // 3 ejercicios suben
+    const corre = [run('2026-06-10', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)]
+    it('a) promedio >= objetivo: "Sostuviste tu objetivo" (gana sobre todo lo demás)', () => {
+      const sostiene = Array.from({ length: 12 }, (_, i) => days(M(i + 1), 4)).flat()
+      const h = computePeriodSummary([...sostiene, ...fuerte, ...corre], '13w', TODAY, GOAL).headline
+      expect(h).toEqual({ rule: 'goal', text: 'Sostuviste tu objetivo de 4 días por semana' })
+    })
+    it('el promedio se compara tal como se muestra', () => {
+      expect(pickPeriodHeadline({ weeks: { avgDays: 4, activeWeeks: 5 }, strengthImproved: 0, cardio: null }, 4).rule).toBe('goal')
+      expect(pickPeriodHeadline({ weeks: { avgDays: 3.9, activeWeeks: 5 }, strengthImproved: 0, cardio: null }, 4).rule).toBe('habit')
+    })
+    it('b) sube peso en 3+ ejercicios (y no cumple el objetivo)', () => {
+      const h = computePeriodSummary([...fuerte, ...corre], '13w', TODAY, GOAL).headline
+      expect(h).toEqual({ rule: 'strength', text: 'Subiste peso en 3 ejercicios: tu fuerza está creciendo' })
+    })
+    it('c) el ritmo mejoró (con menos de 3 ejercicios que suban)', () => {
+      const h = computePeriodSummary(corre, '13w', TODAY, GOAL).headline
+      expect(h).toEqual({ rule: 'cardio', text: 'Corrés más rápido: tu ritmo mejoró 35 s/km' })
+    })
+    it('c) no se elige si el ritmo empeoró o no hay comparación', () => {
+      const peor = [run('2026-06-10', 5, 1800), run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000)]
+      expect(computePeriodSummary(peor, '13w', TODAY, GOAL).headline.rule).toBe('habit')
+      expect(computePeriodSummary([run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000)], '13w', TODAY, GOAL).headline.rule).toBe('habit')
+    })
+    it('d) por defecto: semanas activas (singular y plural)', () => {
+      const dos = computePeriodSummary([...days(M(1), 2), ...days(M(3), 1)], '13w', TODAY, GOAL).headline
+      expect(dos).toEqual({ rule: 'habit', text: 'Mantuviste el hábito: 2 semanas activas' })
+      const una = computePeriodSummary(days(M(1), 2), '13w', TODAY, GOAL).headline
+      expect(una.text).toBe('Mantuviste el hábito: 1 semana activa')
+    })
+    it('2 ejercicios que suben no alcanzan para el titular de fuerza', () => {
+      expect(pickPeriodHeadline({ weeks: { avgDays: 1, activeWeeks: 3 }, strengthImproved: 2, cardio: null }, 4).rule).toBe('habit')
+    })
+  })
+
+  describe('período sin datos', () => {
+    it('estado vacío amable', () => {
+      const s = computePeriodSummary([wk('clase', '2026-01-10')], '13w', TODAY, GOAL)   // fuera de los 3 meses
+      expect(s).toMatchObject({ empty: true, mix: [], cardio: null, bestMonth: null, strengthImproved: 0 })
+      expect(s.weeks.avgDays).toBeNull()
+      expect(s.headline.rule).toBe('empty')
+      expect(s.headline.text).toMatch(/Todavía no hay entrenamientos/)
+      const todo = computePeriodSummary([], 'all', TODAY, GOAL)
+      expect(todo.empty).toBe(true)
+      expect(todo.label).toBe('Todo el historial')
+    })
   })
 })

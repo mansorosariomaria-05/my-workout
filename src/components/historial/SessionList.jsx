@@ -36,24 +36,28 @@ function SessionCard({ workout: w, hasPR }) {
   return (
     <ProgressCard className="!px-4 !py-3">
       {/* Fila 1: ícono · tipo · esfuerzo · [PR] · fecha */}
-      <div className="flex items-center gap-2">
-        <div style={{ color: iconColor, flexShrink: 0 }}>
-          <WorkoutIcon type={w.type} size={20} />
-        </div>
-        <span className="text-sm font-semibold text-app-text">{TYPE_LABEL[w.type] ?? w.type}</span>
-        {fat && (
-          <div className="flex items-center gap-1">
-            <div className={`w-[5px] h-[5px] rounded-full flex-shrink-0 ${fat.dot}`} />
-            <span className="text-xs text-app-muted">{fat.label}</span>
+      {/* Si no entra todo en una línea (pantalla angosta, fecha larga), PR y fecha bajan a la línea siguiente. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <div style={{ color: iconColor, flexShrink: 0 }}>
+            <WorkoutIcon type={w.type} size={20} />
           </div>
-        )}
-        <div className="flex-1" />
-        {hasPR && (
-          <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full mr-1 flex-shrink-0 bg-app-green-light/15 text-app-green-light">
-            🏆 PR
-          </span>
-        )}
-        <span className="text-xs flex-shrink-0 text-app-muted">{relDate}</span>
+          <span className="text-sm font-semibold text-app-text truncate">{TYPE_LABEL[w.type] ?? w.type}</span>
+          {fat && (
+            <div className="flex items-center gap-1 shrink-0">
+              <div className={`w-[5px] h-[5px] rounded-full flex-shrink-0 ${fat.dot}`} />
+              <span className="text-xs text-app-muted">{fat.label}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 ml-auto min-w-0">
+          {hasPR && (
+            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full shrink-0 bg-app-green-light/15 text-app-green-light">
+              🏆 PR
+            </span>
+          )}
+          <span className="text-xs text-app-muted whitespace-nowrap">{relDate}</span>
+        </div>
       </div>
 
       {subtitle && <p className="mt-1 text-xs truncate text-app-muted">{subtitle}</p>}

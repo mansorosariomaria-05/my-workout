@@ -249,16 +249,16 @@ function TrophyCard({ achievement, isUnlocked, unlockedAt, genero }) {
           const d = typeof unlockedAt.toDate === 'function'
             ? unlockedAt.toDate()
             : new Date(unlockedAt.seconds * 1000)
-          return format(d, "d 'de' MMMM 'de' yyyy", { locale: es })
+          return format(d, "d MMM yyyy", { locale: es })
         } catch { return null }
       })()
     : null
 
   return (
-    <div className="flip-card" style={{ height: '108px' }} onClick={() => setFlipped(f => !f)}>
-      <div className={`flip-inner${flipped ? ' flipped' : ''}`} style={{ height: '108px' }}>
+    <div className="flip-card" style={{ height: '132px' }} onClick={() => setFlipped(f => !f)}>
+      <div className={`flip-inner${flipped ? ' flipped' : ''}`} style={{ height: '132px' }}>
         <div className="flip-front flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/[0.06]"
-          style={{ height: '108px', backgroundColor: '#1a1625', opacity }}
+          style={{ height: '132px', backgroundColor: '#1a1625', opacity }}
         >
           <div className="w-12 h-12 rounded-full border border-white/10 flex items-center justify-center"
             style={{ backgroundColor: iconBg }}
@@ -269,14 +269,14 @@ function TrophyCard({ achievement, isUnlocked, unlockedAt, genero }) {
             style={{ color: isUnlocked ? '#94A3B8' : '#3a3550' }}
           >{label}</p>
         </div>
-        <div className="flip-back flex flex-col justify-center rounded-xl px-2 py-2 border"
-          style={{ height: '108px', backgroundColor: '#1a1625', borderColor: isUnlocked ? 'rgba(124,92,191,0.2)' : 'rgba(255,255,255,0.06)' }}
+        <div className="flip-back flex flex-col justify-center rounded-xl px-2 py-1.5 border"
+          style={{ height: '132px', backgroundColor: '#1a1625', borderColor: isUnlocked ? 'rgba(124,92,191,0.2)' : 'rgba(255,255,255,0.06)' }}
         >
           {isUnlocked ? (
             <>
               <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#9b7fd4' }}>{label}</p>
               <p className="text-[10px] leading-tight mt-1" style={{ color: '#94A3B8' }}>{achievement.desc}</p>
-              {dateLabel && <p className="text-[9px] mt-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Logrado el {dateLabel}</p>}
+              {dateLabel && <p className="text-[9px] mt-1.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Logrado el {dateLabel}</p>}
             </>
           ) : (
             <>

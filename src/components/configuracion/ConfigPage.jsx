@@ -26,7 +26,7 @@ function Section({ title, children }) {
 function Toggle({ label, value, onChange }) {
   return (
     <label className="flex items-center justify-between py-1 cursor-pointer">
-      <span className="text-app-text text-sm">{label}</span>
+      <span className="text-app-text text-sm text-right min-w-0 break-words">{label}</span>
       <div
         onClick={() => onChange(!value)}
         className={`w-10 h-6 rounded-full transition-all relative flex-shrink-0 ${value ? 'bg-app-purple' : 'bg-app-bg border border-white/10'}`}
@@ -132,34 +132,34 @@ export default function ConfigPage() {
         <Section title="Mi perfil">
           {!editingProfile ? (
             <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Nombre</span>
-                <span className="text-app-text text-sm">{profile?.name}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-app-muted text-sm shrink-0">Nombre</span>
+                <span className="text-app-text text-sm text-right min-w-0 break-words">{profile?.name}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Objetivo</span>
-                <span className="text-app-text text-sm">{profile?.objetivo}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-app-muted text-sm shrink-0">Objetivo</span>
+                <span className="text-app-text text-sm text-right min-w-0 break-words">{profile?.objetivo}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Nivel</span>
-                <span className="text-app-text text-sm">{profile?.nivel}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-app-muted text-sm shrink-0">Nivel</span>
+                <span className="text-app-text text-sm text-right min-w-0 break-words">{profile?.nivel}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Días / semana</span>
-                <span className="text-app-text text-sm">{profile?.diasSemana}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-app-muted text-sm shrink-0">Días / semana</span>
+                <span className="text-app-text text-sm text-right min-w-0 break-words">{profile?.diasSemana}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Sesiones fuerza</span>
-                <span className="text-app-text text-sm">{profile?.sesionesFuerzaObjetivo ?? '—'} / semana</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-app-muted text-sm shrink-0">Sesiones fuerza</span>
+                <span className="text-app-text text-sm text-right min-w-0 break-words">{profile?.sesionesFuerzaObjetivo ?? '—'} / semana</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Equipamiento</span>
-                <span className="text-app-text text-sm">{profile?.equipamiento}</span>
+              <div className="flex justify-between gap-4">
+                <span className="text-app-muted text-sm shrink-0">Equipamiento</span>
+                <span className="text-app-text text-sm text-right min-w-0 break-words">{profile?.equipamiento}</span>
               </div>
               {profile?.lesiones && profile.lesiones !== 'Ninguna' && (
-                <div className="flex justify-between">
-                  <span className="text-app-muted text-sm">Lesiones</span>
-                  <span className="text-app-coral text-sm text-right max-w-[180px]">{profile.lesiones}</span>
+                <div className="flex justify-between gap-4">
+                  <span className="text-app-muted text-sm shrink-0">Lesiones</span>
+                  <span className="text-app-coral text-sm text-right min-w-0 max-w-[180px] break-words">{profile.lesiones}</span>
                 </div>
               )}
               <Button size="sm" variant="secondary" onClick={() => { setDraft({ ...profile }); setEditingProfile(true) }}>

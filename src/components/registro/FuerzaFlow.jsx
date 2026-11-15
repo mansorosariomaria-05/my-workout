@@ -126,7 +126,7 @@ function ExerciseHistoryModal({ sessions, unit = 'reps' }) {
               const w = Number(set.weight) || 0
               return (
                 <div key={j} className="flex items-center gap-2">
-                  <span className="text-app-muted/50 text-[10px] w-5">S{j + 1}</span>
+                  <span className="text-app-muted/50 text-[10px] w-5 shrink-0">S{j + 1}</span>
                   <span className="text-app-text text-xs">{formatSetText(set, unit)}</span>
                   {w > 0 && w === globalMax && <span className="text-[9px] bg-app-gold/20 text-app-gold px-1.5 py-0.5 rounded-full">PR</span>}
                 </div>
@@ -745,13 +745,13 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
       </div>
 
       {mode === 'prearmada' && exerciseList.length > 0 && (
-        <div className="flex items-center justify-between px-1 mb-2">
-          <p className="text-app-text text-sm font-medium">
+        <div className="flex items-center justify-between gap-3 px-1 mb-2">
+          <p className="min-w-0 text-app-text text-sm font-medium break-words">
             {builtinRoutines.find(r => r.id === data.selectedRoutine)?.name ?? 'Rutina cargada'}
           </p>
           <button
             onClick={() => { onChange({ ...data, exercises: [], selectedRoutine: '' }); setExpandedRoutine(null) }}
-            className="text-app-muted text-xs underline underline-offset-2"
+            className="shrink-0 text-app-muted text-xs underline underline-offset-2"
           >
             Cambiar
           </button>
@@ -876,19 +876,19 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                       key={ex.id}
                       onClick={() => !added && addExercise(ex)}
                       disabled={added}
-                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-all ${
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 transition-all ${
                         added
                           ? 'bg-app-purple/10 text-app-purple-light border border-app-purple/20'
                           : 'bg-app-bg border border-white/8 text-app-muted active:bg-white/5'
                       }`}
                     >
-                      <span>
+                      <span className="min-w-0">
                         <span className="text-app-text font-medium">{exDisplayName(ex)}</span>
                         {ex.custom && (
                           <span className="ml-1.5 text-[9px] text-app-purple-light/60 bg-app-purple/10 px-1.5 py-0.5 rounded-full">Mío</span>
                         )}
                       </span>
-                      <span className={`text-[10px] ${added ? 'text-app-purple-light' : 'text-app-muted/60'}`}>
+                      <span className={`shrink-0 text-[10px] ${added ? 'text-app-purple-light' : 'text-app-muted/60'}`}>
                         {added ? '✓' : ex.level}
                       </span>
                     </button>
@@ -1051,13 +1051,13 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
               <p className="text-app-text font-semibold text-xs mb-2">{genGenerated.name}</p>
               <div className="space-y-1.5 mb-3">
                 {genGenerated.exercises.map((ex, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div>
+                  <div key={i} className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
                       <span className="text-app-purple-light/70 text-xs mr-1.5">{ex.level}</span>
                       <span className="text-app-text text-xs">{ex.name}</span>
                       <span className="text-app-muted/50 text-[10px] ml-1.5">{ex.muscle}</span>
                     </div>
-                    <span className="text-app-muted text-[10px]">{ex.sets}×{ex.repsScheme}</span>
+                    <span className="shrink-0 whitespace-nowrap text-app-muted text-[10px]">{ex.sets}×{ex.repsScheme}</span>
                   </div>
                 ))}
               </div>
@@ -1160,14 +1160,14 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                       return (
                         <button key={e.id}
                           onClick={() => { if (alreadyAdded) return; addExercise(e); setShowAddPanel(false); setAddMuscles([]) }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-all ${
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 transition-all ${
                             alreadyAdded ? 'bg-app-purple/10 text-app-purple-light border border-app-purple/20 cursor-default' : 'bg-app-bg border border-white/8 text-app-text active:opacity-70'
                           }`}
                         >
-                          <span>
+                          <span className="min-w-0">
                             <span className="font-medium">{exDisplayName(e)}</span>
                           </span>
-                          <span className={alreadyAdded ? 'text-app-purple-light text-[10px]' : 'text-app-muted/60 text-[10px]'}>
+                          <span className={`shrink-0 ${alreadyAdded ? 'text-app-purple-light text-[10px]' : 'text-app-muted/60 text-[10px]'}`}>
                             {alreadyAdded ? '✓' : e.level}
                           </span>
                         </button>
@@ -1277,10 +1277,10 @@ export default function FuerzaFlow({ data, onChange, profile, workoutsHook, delo
                 })
                 .map(e => (
                   <button key={e.id} onClick={() => replaceWithExercise(replacingIndex, e)}
-                    className="w-full text-left px-3 py-2.5 rounded-xl text-xs flex items-center justify-between bg-app-bg border border-white/5 text-app-text active:bg-white/5"
+                    className="w-full text-left px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-2 bg-app-bg border border-white/5 text-app-text active:bg-white/5"
                   >
-                    <span className="font-medium">{exDisplayName(e)}</span>
-                    <span className="text-app-muted/60">{e.level}</span>
+                    <span className="min-w-0 font-medium">{exDisplayName(e)}</span>
+                    <span className="shrink-0 text-app-muted/60">{e.level}</span>
                   </button>
                 ))
               }

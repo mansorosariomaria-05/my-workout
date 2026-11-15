@@ -18,14 +18,14 @@ function RoutineCard({ routine, lastDate, onUse, onDelete, onEdit, onDuplicate }
 
   return (
     <Card className="mb-3">
-      <div className="flex items-start justify-between" onClick={() => setExpanded(e => !e)}>
-        <div>
-          <p className="text-app-text font-semibold text-sm">{routine.name}</p>
+      <div className="flex items-start justify-between gap-3" onClick={() => setExpanded(e => !e)}>
+        <div className="min-w-0">
+          <p className="text-app-text font-semibold text-sm break-words">{routine.name}</p>
           {routine.subtitle && <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>{routine.subtitle}</p>}
           {lastDate && <p className="text-app-muted text-xs mt-0.5">Última vez: {lastDate}</p>}
           <p className="text-app-muted text-xs mt-0.5">{routine.exercises?.length ?? 0} ejercicios</p>
         </div>
-        <span className="text-app-muted text-sm">{expanded ? '↑' : '↓'}</span>
+        <span className="text-app-muted text-sm shrink-0">{expanded ? '↑' : '↓'}</span>
       </div>
 
       {expanded && (
@@ -33,8 +33,8 @@ function RoutineCard({ routine, lastDate, onUse, onDelete, onEdit, onDuplicate }
           <div className="space-y-2.5 mb-3">
             {exEntries.map((ex, i) => (
               <div key={i} className="flex gap-2">
-                <span className="text-app-purple-light/60 text-xs w-4 pt-0.5">{i + 1}</span>
-                <div>
+                <span className="text-app-purple-light/60 text-xs w-4 shrink-0 pt-0.5">{i + 1}</span>
+                <div className="min-w-0">
                   <p className="text-app-text text-xs font-medium">{ex.name}</p>
                   {ex.muscle && <p className="text-xs" style={{ color: '#94A3B8' }}>{ex.muscle}</p>}
                   {ex.alt && <p className="text-xs" style={{ color: '#6B7280' }}>Alt: {ex.alt}</p>}
@@ -217,14 +217,14 @@ function RoutineEditor({ routine, onSave, onCancel, uid }) {
                   <button
                     key={ex.id}
                     onClick={() => !added && addExercise(ex)}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between ${
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 ${
                       added
                         ? 'bg-app-purple/10 text-app-purple-light border border-app-purple/20'
                         : 'bg-app-elevated border border-white/5 text-app-text'
                     }`}
                   >
-                    <span className="font-medium">{ex.name}</span>
-                    <span className="text-app-muted/60 text-[10px]">{ex.muscle}</span>
+                    <span className="min-w-0 font-medium">{ex.name}</span>
+                    <span className="shrink-0 text-app-muted/60 text-[10px]">{ex.muscle}</span>
                   </button>
                 )
               })}

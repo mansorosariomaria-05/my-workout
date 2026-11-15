@@ -210,13 +210,13 @@ export default function WorkoutWizard({ initialType }) {
     <div className="min-h-screen bg-app-bg flex flex-col">
       {/* Encabezado fijo: fecha, reloj de la sesión y Cancelar quedan visibles al scrollear (sticky). */}
       <div className="sticky z-30 bg-app-bg pb-1" style={{ top: 'var(--top-offset, 0px)' }}>
-      <div className="px-4 pt-4 pb-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="px-4 pt-4 pb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
           <input
             type="date"
             value={date}
             onChange={e => setDate(e.target.value)}
-            className="bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none"
+            className="min-w-0 bg-app-surface border border-white/10 rounded-xl px-3 py-2 text-app-text text-sm focus:outline-none"
           />
           {settings?.deloadActive && (
             <span className="text-xs bg-app-gold/20 text-app-gold px-2.5 py-1 rounded-full border border-app-gold/30">
@@ -323,7 +323,7 @@ export default function WorkoutWizard({ initialType }) {
                   onChange={e => setFatigue(Number(e.target.value))}
                   className="w-full accent-app-purple"
                 />
-                <div className="flex justify-between text-app-muted text-xs mt-1">
+                <div className="flex justify-between gap-1 text-app-muted text-xs mt-1">
                   <span>Bajo (1-4)</span>
                   <span>Intermedio (5-7)</span>
                   <span>Alto (8-10)</span>

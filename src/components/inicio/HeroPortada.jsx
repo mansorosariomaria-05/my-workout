@@ -22,7 +22,7 @@ export default function HeroPortada() {
       <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
 
       <div className="relative px-4 pb-3">
-        <h2 className="text-white text-2xl font-semibold">{greeting}</h2>
+        <h2 className="text-white text-2xl font-semibold truncate">{greeting}</h2>
         <p className="text-white/60 text-xs mt-0.5">{fechaDisplay}</p>
       </div>
 

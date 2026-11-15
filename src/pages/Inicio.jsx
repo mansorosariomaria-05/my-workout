@@ -169,7 +169,7 @@ function WeeklySummaryModal({ stats, onClose, onViewProgress }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between bg-app-bg rounded-xl px-4 py-3">
+      <div className="flex items-center justify-between gap-3 bg-app-bg rounded-xl px-4 py-3">
         <div>
           <p className="text-app-text font-bold text-2xl leading-none">{daysTrained}</p>
           <p className="text-app-muted text-xs mt-0.5">días entrenados</p>
@@ -375,9 +375,9 @@ function LastAndSuggestion({ workouts }) {
             {[fuerzaW, otherW].map((w, i) => {
               const str = formatLastWorkout(w)
               return (
-                <div key={i} className="bg-black/20 rounded-lg px-2.5 py-2">
+                <div key={i} className="min-w-0 bg-black/20 rounded-lg px-2.5 py-2">
                   <div className="flex items-center gap-1">
-                    {str && <p className="text-app-text text-xs font-medium leading-snug flex-1">{str}</p>}
+                    {str && <p className="text-app-text text-xs font-medium leading-snug flex-1 min-w-0 break-words">{str}</p>}
                     {w._pendingSync && <CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />}
                   </div>
                 </div>
@@ -390,7 +390,7 @@ function LastAndSuggestion({ workouts }) {
             return (
               <div key={i} className={i > 0 ? 'mt-1.5 pt-1.5 border-t border-white/5' : ''}>
                 <div className="flex items-center gap-1">
-                  {str && <p className="text-app-text text-xs font-medium flex-1">{str}</p>}
+                  {str && <p className="text-app-text text-xs font-medium flex-1 min-w-0 break-words">{str}</p>}
                   {w._pendingSync && <CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />}
                 </div>
               </div>

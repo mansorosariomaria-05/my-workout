@@ -48,19 +48,19 @@ export default function Layout() {
         {showBanner && (
           <div
             onClick={() => navigate('/registro')}
-            className="fixed left-0 right-0 z-50 flex items-center justify-between px-4 cursor-pointer"
+            className="fixed left-0 right-0 z-50 flex items-center justify-between gap-2 px-4 cursor-pointer"
             style={{ backgroundColor: '#7C5CBF', height: '44px', top: `${offlineBarHeight}px` }}
           >
             <button
               onClick={e => { e.stopPropagation(); setShowCancelConfirm(true) }}
-              className="text-white/70 p-1 -ml-1 flex items-center justify-center"
+              className="text-white/70 p-1 -ml-1 flex items-center justify-center shrink-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            <span className="text-white text-sm font-medium">⚡ Tenés un entrenamiento en curso</span>
-            <span className="text-white text-sm font-semibold">Continuar →</span>
+            <span className="min-w-0 flex-1 truncate text-center text-white text-sm font-medium">⚡ Tenés un entrenamiento en curso</span>
+            <span className="shrink-0 whitespace-nowrap text-white text-sm font-semibold">Continuar →</span>
           </div>
         )}
 

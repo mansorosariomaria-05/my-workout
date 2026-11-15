@@ -198,13 +198,13 @@ export default function GeneradorTab({ workouts }) {
           <p className="text-app-text font-semibold text-sm mb-3">{generated.name}</p>
           <div className="space-y-2 mb-4">
             {generated.exercises.map((ex, i) => (
-              <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
-                <div>
+              <div key={i} className="flex items-center justify-between gap-3 py-1.5 border-b border-white/5 last:border-0">
+                <div className="min-w-0">
                   <span className="text-app-purple-light/70 text-xs mr-2">{ex.level}</span>
                   <span className="text-app-text text-sm">{ex.name}</span>
                   <span className="text-app-muted/50 text-xs ml-2">{ex.muscle}</span>
                 </div>
-                <span className="text-app-muted text-xs">{ex.sets}×{ex.repsScheme}</span>
+                <span className="shrink-0 whitespace-nowrap text-app-muted text-xs">{ex.sets}×{ex.repsScheme}</span>
               </div>
             ))}
           </div>
@@ -215,7 +215,7 @@ export default function GeneradorTab({ workouts }) {
               ))}
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={useRoutine} disabled={generated.exercises.length === 0} className="flex-1">
               Usar ahora
             </Button>

@@ -134,13 +134,13 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
         <div className="bg-app-surface rounded-2xl p-4 mb-3 text-left space-y-2">
           {workout.type === 'fuerza' && (
             <>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Ejercicios</span>
-                <span className="text-app-text font-semibold">{workout.exercises?.length ?? 0}</span>
+              <div className="flex justify-between gap-3">
+                <span className="text-app-muted text-sm shrink-0">Ejercicios</span>
+                <span className="text-app-text font-semibold text-right min-w-0 break-words">{workout.exercises?.length ?? 0}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-app-muted text-sm">Series totales</span>
-                <span className="text-app-text font-semibold">{totalSets}</span>
+              <div className="flex justify-between gap-3">
+                <span className="text-app-muted text-sm shrink-0">Series totales</span>
+                <span className="text-app-text font-semibold text-right min-w-0 break-words">{totalSets}</span>
               </div>
             </>
           )}
@@ -152,39 +152,39 @@ export default function WorkoutSummary({ workout, onDone, workouts = [], newAchi
               : (getEffectivePaceSecondsPerKm(workout) != null ? formatPace(getEffectivePaceSecondsPerKm(workout)) : null)
             return (
               <>
-                <div className="flex justify-between">
-                  <span className="text-app-muted text-sm">Actividad</span>
-                  <span className="text-app-text font-semibold">{workout.activity}</span>
+                <div className="flex justify-between gap-3">
+                  <span className="text-app-muted text-sm shrink-0">Actividad</span>
+                  <span className="text-app-text font-semibold text-right min-w-0 break-words">{workout.activity}</span>
                 </div>
                 {durationSeconds > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-app-muted text-sm">Tiempo</span>
-                    <span className="text-app-text font-semibold">{formatDuration(durationSeconds)}</span>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-app-muted text-sm shrink-0">Tiempo</span>
+                    <span className="text-app-text font-semibold text-right min-w-0 break-words">{formatDuration(durationSeconds)}</span>
                   </div>
                 )}
                 {workout.distancia > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-app-muted text-sm">Distancia</span>
-                    <span className="text-app-text font-semibold">{formatKm(workout.distancia)}</span>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-app-muted text-sm shrink-0">Distancia</span>
+                    <span className="text-app-text font-semibold text-right min-w-0 break-words">{formatKm(workout.distancia)}</span>
                   </div>
                 )}
                 {paceOrSpeed && (
-                  <div className="flex justify-between">
-                    <span className="text-app-muted text-sm">{isBici ? 'Velocidad' : 'Ritmo'}</span>
-                    <span className="text-app-text font-semibold">{paceOrSpeed}</span>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-app-muted text-sm shrink-0">{isBici ? 'Velocidad' : 'Ritmo'}</span>
+                    <span className="text-app-text font-semibold text-right min-w-0 break-words">{paceOrSpeed}</span>
                   </div>
                 )}
               </>
             )
           })()}
           {workout.type === 'clase' && (
-            <div className="flex justify-between">
-              <span className="text-app-muted text-sm">Clase</span>
-              <span className="text-app-text font-semibold">{workout.clase}</span>
+            <div className="flex justify-between gap-3">
+              <span className="text-app-muted text-sm shrink-0">Clase</span>
+              <span className="text-app-text font-semibold text-right min-w-0 break-words">{workout.clase}</span>
             </div>
           )}
-          <div className="flex justify-between">
-            <span className="text-app-muted text-sm">Cansancio</span>
+          <div className="flex justify-between gap-3">
+            <span className="text-app-muted text-sm shrink-0">Cansancio</span>
             <span className={`font-semibold ${
               fatigue <= 4 ? 'text-app-green-light' : fatigue <= 7 ? 'text-app-amber' : 'text-app-coral'
             }`}>{fatigue}/10</span>

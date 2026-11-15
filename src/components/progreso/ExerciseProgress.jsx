@@ -140,7 +140,7 @@ export default function ExerciseProgress({ workouts, initialExerciseId = '' }) {
         {showResults && query.trim() && !filtered.length && (
           <div className="absolute z-20 w-full top-full mt-1 border border-white/10 rounded-xl px-4 py-4"
             style={{ backgroundColor: '#1a1625' }}>
-            <p className="text-app-muted text-sm text-center">Sin resultados para "{query}"</p>
+            <p className="text-app-muted text-sm text-center break-words">Sin resultados para "{query}"</p>
           </div>
         )}
       </div>
@@ -148,7 +148,7 @@ export default function ExerciseProgress({ workouts, initialExerciseId = '' }) {
       {/* Detail panel */}
       {selected && (
         <div>
-          <div className="flex gap-6 mb-3">
+          <div className="flex flex-wrap gap-x-6 gap-y-2 mb-3">
             <div>
               <p className="text-app-muted text-[10px]">Última serie</p>
               <p className="text-app-text font-bold text-sm">

@@ -537,6 +537,7 @@ Usado en logros, mensajes y saludos para adaptar terminaciones.
 - `originalExerciseId` se setea cuando se activa el alt, se limpia cuando se vuelve al original
 - Las fechas de workouts nunca se convierten a `Date` para comparaciones — se comparan como strings `'YYYY-MM-DD'`
 - **Todo número visible pasa por `utils/format.js`** (`formatKg`, `formatDeltaKg`, `formatPct`, `formatPercent`, `formatScore`, `formatNumber`, `formatKm`). Nada de `toFixed`, `${x}kg` ni `${x}%` en la UI. Es solo presentación: lo guardado en Firestore y la lógica de cálculo no cambian
+- **Texto dinámico que no se sale de su recuadro** (se revisa a 320 px de ancho): en una fila `flex` con texto de largo variable (nombres, notas, fechas relativas), el texto lleva `min-w-0` y `truncate` (una línea) o `break-words` (varias), y los elementos de ancho fijo (chips, íconos, cifras, botones) llevan `shrink-0`. Si la fila puede quedar apretada, se usa `flex-wrap` para que baje de línea en vez de desbordar (ejemplo: tarjeta de `SessionList`, con 🏆 PR y la fecha). Los títulos de `Modal` ya hacen wrap sin empujar la ✕. Las tarjetas de alto fijo (trofeos de la vitrina, 132 px) tienen que contener el texto más largo de la metadata
 - El build siempre va a `dist/` (excluida de git), deploy con `firebase deploy --only hosting`
 
 ---

@@ -6,7 +6,7 @@ import { useDeload } from '../../hooks/useDeload'
 import { getTodayLocal } from '../../utils/dates'
 import { getWeeklyGoal } from '../../utils/progressStats'
 import {
-  VIEW_PERIODS, computeHistorySummary, computeMonthComparison, computeConstanciaBars,
+  normalizeViewPeriod, computeHistorySummary, computeMonthReport, computeConstanciaBars,
   computeStrengthRanking, computeBodySummary, computePeriodSummary,
 } from '../../utils/progressView'
 import { computeRunningSummary } from '../../utils/running'
@@ -31,14 +31,14 @@ export default function ProgresoPage() {
   const navigate = useNavigate()
   const location = useLocation()
   // Al volver desde /progreso/running llega el período que se estaba mirando.
-  const [period, setPeriod] = useState(() => (VIEW_PERIODS.some(p => p.key === location.state?.period) ? location.state.period : '4w'))
+  const [period, setPeriod] = useState(() => normalizeViewPeriod(location.state?.period))   // por defecto "Este mes"
 
   const today  = getTodayLocal()
   const goal   = getWeeklyGoal(profile)
   const streak = getWeeklyStreak3Plus() // racha semanal 3+ (memoizada en useWorkouts, la misma que Inicio)
 
   const history    = useMemo(() => computeHistorySummary(workouts, today),              [workouts, today])
-  const comparison = useMemo(() => computeMonthComparison(workouts, today),             [workouts, today])
+  const report     = useMemo(() => computeMonthReport(workouts, today),                 [workouts, today])
   const chart      = useMemo(() => computeConstanciaBars(workouts, period, today, goal), [workouts, period, today, goal])
   const summary    = useMemo(() => computePeriodSummary(workouts, period, today, goal), [workouts, period, today, goal])
   const ranking    = useMemo(() => computeStrengthRanking(workouts, period, today),     [workouts, period, today])
@@ -71,7 +71,7 @@ export default function ProgresoPage() {
 
         <PeriodSelector value={period} onChange={setPeriod} />
 
-        <ConstanciaBlock comparison={comparison} streak={streak} goal={goal} chart={chart} summary={summary} />
+        <ConstanciaBlock report={report} streak={streak} goal={goal} chart={chart} summary={summary} />
 
         <StrengthBlock rows={ranking.rows} workouts={workouts} today={today} />
 

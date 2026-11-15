@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { ChevronLeft } from 'lucide-react'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { getTodayLocal } from '../../utils/dates'
-import { VIEW_PERIODS } from '../../utils/progressView'
+import { normalizeViewPeriod } from '../../utils/progressView'
 import { computeRunningDetail, dateLabel, weekLabel } from '../../utils/running'
 import { formatKm, formatNumber } from '../../utils/format'
 import { formatPace, formatDuration } from '../../utils/cardio'
@@ -60,7 +60,7 @@ export default function RunningPage() {
   const location = useLocation()
   const { workouts, loading } = useWorkouts()
   // Arranca con el período que estaba elegido en Progreso.
-  const [period, setPeriod] = useState(() => (VIEW_PERIODS.some(p => p.key === location.state?.period) ? location.state.period : '4w'))
+  const [period, setPeriod] = useState(() => normalizeViewPeriod(location.state?.period))
   const today = getTodayLocal()
 
   useEffect(() => { window.scrollTo(0, 0) }, [])

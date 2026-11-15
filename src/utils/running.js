@@ -154,7 +154,7 @@ const shortDay = (date) => { const [, m, d] = date.split('-').map(Number); retur
 
 // ─── Distancia ───────────────────────────────────────────────────────────────
 
-// Barras de km: '4w' / '13w' → una por semana (lunes a domingo); 'all' → una por mes calendario desde la primera
+// Barras de km: 'month' / '13w' → una por semana (lunes a domingo); 'all' → una por mes calendario desde la primera
 // carrera hasta el mes en curso (meses sin correr incluidos, en cero). `current` marca la semana o el mes en curso.
 // Cada barra: { key, label, title, km (1 decimal), current }.
 export function computeKmBars(runs, range, periodKey, today) {

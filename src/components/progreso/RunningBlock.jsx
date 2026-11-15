@@ -4,7 +4,7 @@ import KmBarsChart from './KmBarsChart'
 import { formatNumber } from '../../utils/format'
 import { formatPace } from '../../utils/cardio'
 
-const PERIOD_TEXT = { '4w': 'últimas 4 semanas', '13w': 'últimos 3 meses', all: 'todo el historial' }
+const PERIOD_TEXT = { month: 'este mes', '13w': 'últimos 3 meses', all: 'todo el historial' }
 
 // "Tu running" en Progreso: km del período (número protagonista), carreras, ritmo promedio, tendencia contra el período
 // anterior (solo con ≥ 3 carreras de ritmo válido en cada uno; verde si mejora, gris si no, nunca rojo) y mini gráfico

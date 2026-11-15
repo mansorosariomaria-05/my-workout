@@ -1,6 +1,6 @@
 import { VIEW_PERIODS } from '../../utils/progressView'
 
-// Segmented control "4 semanas · 3 meses · Todo". Lo usan Progreso y la pantalla de running.
+// Segmented control "Este mes · 3 meses · Todo". Lo usan Progreso y la pantalla de running.
 export default function PeriodSelector({ value, onChange }) {
   return (
     <div role="radiogroup" aria-label="Período" className="flex rounded-xl p-1 bg-app-surface border border-white/[0.06]">

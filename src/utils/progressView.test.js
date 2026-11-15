@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  resolveViewPeriod, workoutsInRange, computeHistorySummary, computeMonthComparison, computeConstanciaBars,
+  resolveViewPeriod, workoutsInRange, computeHistorySummary, computeMonthReport, computeConstanciaBars, monthStretch, normalizeViewPeriod,
   computeStrengthRanking, timeAgoText, getFatigueLevel, computeBodySummary, STABLE_AFTER_DAYS, computePeriodSummary, pickPeriodHeadline,
 } from './progressView.js'
-import { addDays } from './weeks.js'
+import { addDays, mondayOf } from './weeks.js'
 
 // Hoy = jueves 2026-11-12. Lunes de la semana en curso = 2026-11-09.
 const TODAY = '2026-11-12'
@@ -16,12 +16,12 @@ const hip = (date, weight, reps = 10) => F(date, [ex('glut_01', 'Hip Thrust', [[
 const desc = (ws) => [...ws].sort((a, b) => b.date.localeCompare(a.date))
 
 describe('período seleccionado', () => {
-  it('4 semanas: 4 lunes a domingo, anterior de igual longitud', () => {
-    const r = resolveViewPeriod('4w', TODAY)
-    expect(r.start).toBe(M(3))
+  it('"Este mes": del día 1 hasta hoy, contra el mismo tramo del mes anterior', () => {
+    const r = resolveViewPeriod('month', TODAY)                       // hoy = 12 de noviembre
+    expect(r.start).toBe('2026-11-01')
     expect(r.end).toBe(TODAY)
-    expect(r.previous.start).toBe(M(7))
-    expect(r.previous.end).toBe('2026-10-15')
+    expect(r.previous).toEqual({ start: '2026-10-01', end: '2026-10-12' })
+    expect(r.prevFull).toEqual({ start: '2026-10-01', end: '2026-10-31' })
   })
   it('3 meses = 13 semanas', () => {
     const r = resolveViewPeriod('13w', TODAY)
@@ -34,10 +34,53 @@ describe('período seleccionado', () => {
     expect(r.start).toBe('2026-08-24')
     expect(r.previous).toBeNull()
   })
+  it('el selector: "Este mes" por defecto y se ignoran claves viejas', () => {
+    expect(normalizeViewPeriod(undefined)).toBe('month')
+    expect(normalizeViewPeriod('4w')).toBe('month')
+    expect(normalizeViewPeriod('13w')).toBe('13w')
+    expect(normalizeViewPeriod('all')).toBe('all')
+  })
   it('filtra por período y descarta tipos no reales y fechas futuras', () => {
-    const ws = [wk('clase', '2026-11-10'), wk('clase', '2026-10-01'), wk('clase', '2026-11-20'), { type: 'pausa', date: '2026-11-05' }]
-    const r = resolveViewPeriod('4w', TODAY)
+    const ws = [wk('clase', '2026-11-10'), wk('clase', '2026-10-31'), wk('clase', '2026-11-20'), { type: 'pausa', date: '2026-11-05' }]
+    const r = resolveViewPeriod('month', TODAY)
     expect(workoutsInRange(ws, r, TODAY).map(w => w.date)).toEqual(['2026-11-10'])
+  })
+})
+
+describe('"Este mes": el tramo equivalente del mes anterior', () => {
+  it('del 1 al mismo día', () => {
+    const s = monthStretch('2026-11-12')
+    expect(s).toMatchObject({ month: '2026-11', prevMonth: '2026-10', monthName: 'noviembre', prevMonthName: 'octubre', day: 12, cutoff: 12, prevLength: 31, prevIsFull: false })
+    expect(s.previous).toEqual({ start: '2026-10-01', end: '2026-10-12' })
+  })
+  it('el día 1 compara solo el día 1', () => {
+    const s = monthStretch('2026-11-01')
+    expect([s.start, s.end]).toEqual(['2026-11-01', '2026-11-01'])
+    expect(s.previous).toEqual({ start: '2026-10-01', end: '2026-10-01' })
+  })
+  it('31 de marzo: el mes anterior (febrero) corta en su último día, 28 en un año común', () => {
+    const s = monthStretch('2027-03-31')
+    expect(s).toMatchObject({ cutoff: 28, prevLength: 28, prevIsFull: true })
+    expect(s.previous).toEqual({ start: '2027-02-01', end: '2027-02-28' })
+  })
+  it('31 de marzo en un año bisiesto: hasta el 29 de febrero', () => {
+    const s = monthStretch('2028-03-31')
+    expect(s).toMatchObject({ cutoff: 29, prevLength: 29, prevIsFull: true })
+    expect(s.previous.end).toBe('2028-02-29')
+  })
+  it('justo en el último día del mes anterior y un día antes', () => {
+    expect(monthStretch('2027-03-28')).toMatchObject({ cutoff: 28, prevIsFull: true })
+    expect(monthStretch('2027-03-29')).toMatchObject({ cutoff: 28, prevIsFull: true })     // marzo tiene más días que febrero
+    expect(monthStretch('2027-03-27')).toMatchObject({ cutoff: 27, prevIsFull: false })
+  })
+  it('31 contra un mes de 30 días (diciembre vs. noviembre, octubre vs. septiembre)', () => {
+    expect(monthStretch('2026-12-31')).toMatchObject({ prevMonth: '2026-11', cutoff: 30, prevIsFull: true })
+    expect(monthStretch('2026-10-31')).toMatchObject({ prevMonth: '2026-09', cutoff: 30 })
+  })
+  it('enero compara con diciembre del año anterior', () => {
+    const s = monthStretch('2026-01-15')
+    expect(s).toMatchObject({ prevMonth: '2025-12', prevMonthName: 'diciembre', cutoff: 15 })
+    expect(s.previous).toEqual({ start: '2025-12-01', end: '2025-12-15' })
   })
 })
 
@@ -50,37 +93,151 @@ describe('encabezado histórico', () => {
   })
 })
 
-describe('comparación mensual a la misma altura del mes', () => {
-  it('compara hasta el mismo día del mes anterior (los días posteriores no cuentan)', () => {
-    const ws = [
-      // noviembre: 3 hasta el 12
-      wk('clase', '2026-11-02'), wk('fuerza', '2026-11-05'), wk('cardio', '2026-11-10'),
-      // octubre: 1 hasta el 12, y 4 después (no cuentan)
-      wk('clase', '2026-10-08'), wk('clase', '2026-10-13'), wk('clase', '2026-10-20'), wk('clase', '2026-10-25'), wk('clase', '2026-10-30'),
-    ]
-    const c = computeMonthComparison(ws, TODAY)
-    expect(c).toMatchObject({ month: '2026-11', monthName: 'noviembre', prevMonthName: 'octubre', current: 3, previous: 1, diff: 2, tone: 'up' })
-    expect(c.text).toBe('2 más que en octubre')
+describe('"Este mes": comparación con el mismo tramo del mes anterior', () => {
+  const NB = '\u00A0'
+  const run = (date, km, seconds, extra = {}) => wk('cardio', date, { activity: 'Running', distancia: km, durationSeconds: seconds, ...extra })
+  const lift = (date, id, weight) => F(date, [ex(id, id, [[8, weight]])])
+  const row = (report, key) => report.rows.find(r => r.key === key)
+
+  it('etiqueta y número protagonista: días DISTINTOS entrenados en el mes', () => {
+    const ws = [wk('fuerza', '2026-11-02'), wk('cardio', '2026-11-02'), wk('clase', '2026-11-05'), { type: 'pausa', date: '2026-11-06' }, wk('clase', '2026-11-20')]
+    const r = computeMonthReport(ws, TODAY)
+    expect(r.label).toBe('noviembre vs octubre · del 1 al 12')
+    expect(r.days).toEqual({ current: 2, previous: 0 })              // 3 workouts reales, 2 días; la pausa y el futuro no cuentan
+    expect(r).toMatchObject({ monthName: 'noviembre', prevMonthName: 'octubre', monthShort: 'nov', prevMonthShort: 'oct' })
   })
-  it('igual y menos (tono down, texto sin dramatismo)', () => {
-    const base = [wk('clase', '2026-11-02'), wk('clase', '2026-10-05')]
-    expect(computeMonthComparison(base, TODAY)).toMatchObject({ diff: 0, tone: 'same', text: 'igual que en octubre' })
-    const menos = [wk('clase', '2026-11-02'), wk('clase', '2026-10-02'), wk('clase', '2026-10-05'), wk('clase', '2026-10-09'), wk('clase', '2026-10-12')]
-    expect(computeMonthComparison(menos, TODAY)).toMatchObject({ diff: -3, tone: 'down', text: '3 menos que en octubre' })
+  it('si el mes anterior es más corto, la etiqueta lo aclara', () => {
+    expect(computeMonthReport([], '2027-03-31').label).toBe('marzo vs febrero · del 1 al 31 (febrero: del 1 al 28)')
   })
-  it('un día 31 contra un mes de 30 días llega hasta el último día del anterior', () => {
-    const c = computeMonthComparison([wk('clase', '2026-10-30'), wk('clase', '2026-12-31')], '2026-12-31')
-    expect(c.prevMonth).toBe('2026-11')
-    const c2 = computeMonthComparison([wk('clase', '2026-09-30'), wk('clase', '2026-10-31')], '2026-10-31')
-    expect(c2).toMatchObject({ prevMonth: '2026-09', cutoff: 30, previous: 1, current: 1 })
+
+  describe('fila "Días entrenados"', () => {
+    it('mejora en verde con flecha hacia arriba; los días del mes anterior posteriores al corte no cuentan', () => {
+      const ws = [wk('clase', '2026-11-02'), wk('clase', '2026-11-05'), wk('clase', '2026-11-09'),
+        wk('clase', '2026-10-08'), wk('clase', '2026-10-13'), wk('clase', '2026-10-20')]          // 13 y 20 de octubre: después del 12
+      expect(row(computeMonthReport(ws, TODAY), 'days')).toMatchObject({ current: 3, previous: 1, currentText: '3', previousText: '1', diff: 2, dir: 'up', tone: 'better', diffText: '↑ 2' })
+    })
+    it('empeora en gris (nunca rojo) con flecha hacia abajo', () => {
+      const ws = [wk('clase', '2026-11-02'), wk('clase', '2026-10-02'), wk('clase', '2026-10-05'), wk('clase', '2026-10-09')]
+      expect(row(computeMonthReport(ws, TODAY), 'days')).toMatchObject({ diff: -2, dir: 'down', tone: 'worse', diffText: '↓ 2' })
+    })
+    it('igual', () => {
+      const ws = [wk('clase', '2026-11-02'), wk('clase', '2026-10-05')]
+      expect(row(computeMonthReport(ws, TODAY), 'days')).toMatchObject({ diff: 0, dir: 'same', tone: 'same', diffText: '= igual' })
+    })
   })
-  it('enero compara con diciembre del año anterior', () => {
-    const c = computeMonthComparison([wk('clase', '2025-12-03'), wk('clase', '2026-01-02')], '2026-01-15')
-    expect(c).toMatchObject({ prevMonth: '2025-12', prevMonthName: 'diciembre', current: 1, previous: 1 })
+
+  describe('fila "Km corridos" (lógica de running.js)', () => {
+    it('suma las carreras válidas de cada tramo y muestra la diferencia en km', () => {
+      const ws = [run('2026-11-03', 5, 1500), run('2026-11-10', 3.25, 1000), run('2026-10-04', 5, 1600), run('2026-10-25', 20, 7000)]
+      expect(row(computeMonthReport(ws, TODAY), 'km')).toMatchObject({
+        current: 8.25, previous: 5, currentText: `8,3${NB}km`, previousText: `5${NB}km`, diffText: `↑ 3,3${NB}km`, tone: 'better',
+      })                                                                                         // la carrera del 25/10 queda fuera del tramo
+    })
+    it('no cuenta cinta, caminatas ni sesiones sin distancia; una carrera con ritmo imposible igual suma km', () => {
+      const ws = [run('2026-11-03', 5, 1500), run('2026-11-04', 5, 1500, { cinta: { min: 20 } }), wk('cardio', '2026-11-05', { activity: 'Caminata', distancia: 4, durationSeconds: 2400 }),
+        run('2026-11-06', 5, 0), run('2026-11-07', 10, 300)]                                    // la última: 0:30 /km, imposible, pero suma
+      expect(row(computeMonthReport(ws, TODAY), 'km').current).toBe(15)
+    })
+    it('menos km: gris con flecha hacia abajo', () => {
+      const ws = [run('2026-11-03', 3, 1000), run('2026-10-04', 5, 1600)]
+      expect(row(computeMonthReport(ws, TODAY), 'km')).toMatchObject({ diffText: `↓ 2${NB}km`, tone: 'worse' })
+    })
+    it('diferencias menores a 0,05 km se muestran como igual', () => {
+      const ws = [run('2026-11-03', 5.02, 1600), run('2026-10-04', 5, 1600)]
+      expect(row(computeMonthReport(ws, TODAY), 'km')).toMatchObject({ dir: 'same', diffText: '= igual' })
+    })
   })
-  it('solo cuenta entrenamientos reales y no los futuros', () => {
-    const ws = [wk('clase', '2026-11-02'), { type: 'pausa', date: '2026-11-03' }, wk('clase', '2026-11-20')]
-    expect(computeMonthComparison(ws, TODAY).current).toBe(1)
+
+  describe('fila "Récords de peso"', () => {
+    it('ejercicios cuyo mejor peso del tramo supera su máximo histórico ANTERIOR al tramo', () => {
+      const ws = [
+        lift('2026-09-10', 'sq', 50), lift('2026-10-05', 'sq', 60), lift('2026-11-03', 'sq', 65),   // octubre: récord; noviembre: récord
+        lift('2026-09-12', 'dl', 80), lift('2026-11-04', 'dl', 80),                                  // igual al máximo: no es récord
+        lift('2026-11-05', 'bp', 40),                                                                // primera vez que se hace: no hay máximo previo
+        lift('2026-10-03', 'rw', 30), lift('2026-11-06', 'rw', 35),                                 // récord solo en noviembre
+      ]
+      expect(row(computeMonthReport(ws, TODAY), 'records')).toMatchObject({ current: 2, previous: 1, diff: 1, tone: 'better', diffText: '↑ 1' })
+    })
+    it('el máximo histórico incluye TODO lo anterior al tramo, no solo el mes previo', () => {
+      const ws = [lift('2026-03-01', 'sq', 70), lift('2026-10-05', 'sq', 60), lift('2026-11-03', 'sq', 65)]
+      expect(row(computeMonthReport(ws, TODAY), 'records')).toBeUndefined()      // ni 60 ni 65 superan 70: 0 y 0, fila oculta
+    })
+    it('lo hecho dentro del mismo tramo no cuenta como máximo previo', () => {
+      const ws = [lift('2026-09-01', 'sq', 40), lift('2026-11-02', 'sq', 50), lift('2026-11-09', 'sq', 60)]
+      expect(row(computeMonthReport(ws, TODAY), 'records').current).toBe(1)      // un ejercicio, un récord (mejor 60 > 40)
+    })
+    it('ignora los pesos 0 y los entrenamientos futuros', () => {
+      const ws = [lift('2026-09-01', 'sq', 40), lift('2026-11-02', 'sq', 0), lift('2026-11-20', 'sq', 90)]
+      expect(row(computeMonthReport(ws, TODAY), 'records')).toBeUndefined()
+    })
+  })
+
+  describe('fila "Esfuerzo promedio"', () => {
+    const fat = (date, fatigue) => wk('clase', date, { fatigue })
+    it('siempre neutral (muted), también cuando sube o baja', () => {
+      const sube = computeMonthReport([fat('2026-11-02', 8), fat('2026-11-05', 6), fat('2026-10-03', 6)], TODAY)
+      expect(row(sube, 'effort')).toMatchObject({ current: 7, previous: 6, currentText: '7,0', previousText: '6,0', dir: 'up', tone: 'neutral', diffText: '↑ 1,0' })
+      const baja = computeMonthReport([fat('2026-11-02', 5), fat('2026-10-03', 8)], TODAY)
+      expect(row(baja, 'effort')).toMatchObject({ dir: 'down', tone: 'neutral', diffText: '↓ 3,0' })
+    })
+    it('promedio con 1 decimal; ignora vacíos y no usa el resto del mes anterior', () => {
+      const ws = [fat('2026-11-02', 7), fat('2026-11-05', 8), fat('2026-11-06', null), fat('2026-11-07', ''), fat('2026-10-03', 6), fat('2026-10-20', 10)]
+      expect(row(computeMonthReport(ws, TODAY), 'effort')).toMatchObject({ current: 7.5, previous: 6 })
+    })
+    it('con dato en un solo mes se muestra, sin diferencia', () => {
+      const r = row(computeMonthReport([fat('2026-11-02', 7)], TODAY), 'effort')
+      expect(r).toMatchObject({ currentText: '7,0', previousText: '—', diff: null, diffText: '', tone: 'neutral' })
+    })
+  })
+
+  describe('filas ocultas', () => {
+    it('sin nada en ningún mes: sin filas', () => {
+      expect(computeMonthReport([], TODAY).rows).toEqual([])
+    })
+    it('una fila se oculta si vale 0 en ambos meses', () => {
+      const r = computeMonthReport([wk('clase', '2026-11-02', { fatigue: 6 }), wk('clase', '2026-10-02')], TODAY)
+      expect(r.rows.map(x => x.key)).toEqual(['days', 'effort'])           // sin km ni récords
+    })
+    it('se muestra si solo uno de los dos meses es distinto de 0', () => {
+      const r = computeMonthReport([run('2026-10-04', 5, 1600)], TODAY)
+      expect(row(r, 'km')).toMatchObject({ current: 0, previous: 5, currentText: `0${NB}km`, diffText: `↓ 5${NB}km`, tone: 'worse' })
+      expect(row(r, 'days')).toMatchObject({ current: 0, previous: 1 })
+    })
+    it('el esfuerzo se oculta si falta en ambos meses', () => {
+      expect(row(computeMonthReport([wk('clase', '2026-11-02'), wk('clase', '2026-10-02')], TODAY), 'effort')).toBeUndefined()
+    })
+    it('ningún tono es rojo', () => {
+      const ws = [wk('clase', '2026-11-02', { fatigue: 9 }), wk('clase', '2026-10-02', { fatigue: 3 }), wk('clase', '2026-10-03'), run('2026-10-04', 5, 1600)]
+      const tones = computeMonthReport(ws, TODAY).rows.map(r => r.tone)
+      tones.forEach(tone => expect(['better', 'worse', 'same', 'neutral']).toContain(tone))
+    })
+  })
+
+  describe('línea de referencia del mes anterior completo', () => {
+    it('"Octubre completo: 12 días · 25,3 km"', () => {
+      const dias = Array.from({ length: 12 }, (_, i) => wk('clase', addDays('2026-10-01', i * 2)))      // 12 días entre el 1 y el 23 de octubre
+      const ws = [...dias, run('2026-10-03', 20, 6000), run('2026-10-28', 5.3, 1700), wk('clase', '2026-11-02')]
+      const r = computeMonthReport(ws, TODAY)
+      expect(r.fullPrev).toMatchObject({ days: 13, km: 25.3 })
+      expect(r.fullPrev.text).toBe(`Octubre completo: 13 días · 25,3${NB}km`)
+    })
+    it('cuenta los días del mes anterior completo, incluso los posteriores al corte', () => {
+      const r = computeMonthReport([wk('clase', '2026-10-02'), wk('clase', '2026-10-28')], TODAY)
+      expect(r.fullPrev.text).toBe('Octubre completo: 2 días')                                          // sin km, no se muestra el km
+      expect(r.days.previous).toBe(1)                                                                    // pero la comparación sigue hasta el día 12
+    })
+    it('singular', () => {
+      expect(computeMonthReport([wk('clase', '2026-10-28')], TODAY).fullPrev.text).toBe('Octubre completo: 1 día')
+    })
+    it('sin entrenamientos el mes anterior: no hay línea', () => {
+      expect(computeMonthReport([wk('clase', '2026-11-02')], TODAY).fullPrev).toBeNull()
+    })
+    it('si el tramo ya es el mes completo (31/3 vs. febrero) no se repite', () => {
+      expect(computeMonthReport([wk('clase', '2027-02-10'), wk('clase', '2027-03-02')], '2027-03-31').fullPrev).toBeNull()
+    })
+    it('enero: "Diciembre completo"', () => {
+      expect(computeMonthReport([wk('clase', '2025-12-28')], '2026-01-15').fullPrev.text).toBe('Diciembre completo: 1 día')
+    })
   })
 })
 
@@ -89,15 +246,70 @@ describe('barras de constancia (días distintos)', () => {
     wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-11'), wk('clase', '2026-11-03'),
     wk('fuerza', '2026-10-27'), wk('tabata', '2026-08-26'), { type: 'pausa', date: '2026-11-05' },
   ]
-  it('4 semanas: 4 barras apiladas por tipo, la última (en curso) marcada, con objetivo', () => {
-    const { kind, bars, goal } = computeConstanciaBars(ws, '4w', TODAY, 4)
-    expect(kind).toBe('week')
-    expect(bars.map(b => b.key)).toEqual([M(3), M(2), M(1), M(0)])
-    expect(bars.map(b => b.total)).toEqual([0, 1, 1, 2])
-    expect(bars[3]).toMatchObject({ fuerza: 1, cardio: 1, clase: 0, current: true })
-    expect(bars[0].current).toBe(false)
-    expect(goal).toBe(4)
+  const last = (arr) => arr[arr.length - 1]
+
+  describe('"Este mes": semanas que tocan el mes anterior y el actual', () => {
+    it('una barra por semana desde la que toca el día 1 del mes anterior hasta la semana en curso', () => {
+      const { kind, bars, goal } = computeConstanciaBars(ws, 'month', TODAY, 4)
+      expect(kind).toBe('week')
+      expect(bars.map(b => b.key)).toEqual([M(6), M(5), M(4), M(3), M(2), M(1), M(0)])    // 28/9 (toca el 1/10) … 9/11
+      expect(bars.map(b => b.total)).toEqual([0, 0, 0, 0, 1, 1, 2])
+      expect(last(bars)).toMatchObject({ fuerza: 1, cardio: 1, clase: 0, current: true, label: '9', title: 'Semana del 9/11' })
+      expect(bars[0].current).toBe(false)
+      expect(goal).toBe(4)
+    })
+    it('agrupa por mes: cada semana va al mes donde cae su jueves; la primera al anterior y la de hoy al actual', () => {
+      const { bars, groups } = computeConstanciaBars(ws, 'month', TODAY, 4)
+      expect(groups).toEqual([{ key: '2026-10', label: 'Octubre', start: 0, count: 5 }, { key: '2026-11', label: 'Noviembre', start: 5, count: 2 }])
+      expect(bars.map(b => b.group)).toEqual(['2026-10', '2026-10', '2026-10', '2026-10', '2026-10', '2026-11', '2026-11'])
+    })
+    it('cuenta los días de toda la semana, también los de fuera de los dos meses', () => {
+      const { bars } = computeConstanciaBars([wk('clase', '2026-09-29'), wk('clase', '2026-09-30')], 'month', TODAY, 4)
+      expect(bars[0].total).toBe(2)                                                            // semana del 28/9, que toca el 1/10
+    })
+    it('el día 1 (domingo): la semana de hoy es del mes actual aunque casi toda caiga en el anterior', () => {
+      const { bars, groups } = computeConstanciaBars([wk('clase', '2026-11-01')], 'month', '2026-11-01', 4)
+      expect(last(bars)).toMatchObject({ key: '2026-10-26', group: '2026-11', current: true, total: 1 })
+      expect(groups.map(g => [g.label, g.count])).toEqual([['Octubre', 4], ['Noviembre', 1]])
+    })
+    it('siempre hay dos meses, hasta 12 semanas, la primera toca el mes anterior y la última es la de hoy (todo un año)', () => {
+      let d = '2026-01-01'
+      for (let i = 0; i < 365; i++, d = addDays(d, 1)) {
+        const { bars, groups } = computeConstanciaBars([], 'month', d, 4)
+        const st = monthStretch(d)
+        expect(bars.length).toBeLessThanOrEqual(12)
+        expect(groups).toHaveLength(2)
+        expect(groups[0].key).toBe(st.prevMonth)
+        expect(groups[1].key).toBe(st.month)
+        expect(bars[0].key <= st.prevFull.start && addDays(bars[0].key, 6) >= st.prevFull.start).toBe(true)
+        expect(last(bars).key).toBe(mondayOf(d))
+      }
+    })
+    it('día doble: fuerza + cardio el mismo día cuenta 1 día, pintado como fuerza', () => {
+      const doble = [wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-10')]
+      expect(last(computeConstanciaBars(doble, 'month', TODAY, 4).bars)).toMatchObject({ total: 1, fuerza: 1, cardio: 0 })
+    })
+    it('prioridad de tipos en un día: fuerza > clase > tabata > cardio', () => {
+      const tipo = (...types) => {
+        const { bars } = computeConstanciaBars(types.map(t => wk(t, '2026-11-10')), 'month', TODAY, 4)
+        return BAR_TYPES.find(t => last(bars)[t] === 1)
+      }
+      const BAR_TYPES = ['fuerza', 'clase', 'tabata', 'cardio']
+      expect(tipo('cardio', 'fuerza', 'clase')).toBe('fuerza')
+      expect(tipo('cardio', 'clase')).toBe('clase')
+      expect(tipo('cardio', 'tabata')).toBe('tabata')
+      expect(tipo('tabata', 'clase')).toBe('clase')
+      expect(tipo('cardio', 'cardio')).toBe('cardio')
+    })
+    it('una semana de 3 días con un día doble tiene 3 y NO alcanza una meta de 4', () => {
+      const semana = [wk('fuerza', '2026-11-09'), wk('cardio', '2026-11-09'), wk('clase', '2026-11-10'), wk('cardio', '2026-11-11')]
+      const { bars, goal } = computeConstanciaBars(semana, 'month', TODAY, 4)
+      expect(last(bars).total).toBe(3)             // 4 workouts, 3 días
+      expect(last(bars).total >= goal).toBe(false)
+      expect(last(bars)).toMatchObject({ fuerza: 1, clase: 1, cardio: 1 })
+    })
   })
+
   it('3 meses: 13 barras', () => {
     const { bars } = computeConstanciaBars(ws, '13w', TODAY, 3)
     expect(bars).toHaveLength(13)
@@ -112,39 +324,11 @@ describe('barras de constancia (días distintos)', () => {
     expect(bars[3].current).toBe(true)
     expect(goal).toBeNull()
   })
-  it('día doble: fuerza + cardio el mismo día cuenta 1 día, pintado como fuerza', () => {
-    const doble = [wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-10')]
-    const { bars } = computeConstanciaBars(doble, '4w', TODAY, 4)
-    expect(bars[3]).toMatchObject({ total: 1, fuerza: 1, cardio: 0 })
-  })
-  it('prioridad de tipos en un día: fuerza > clase > tabata > cardio', () => {
-    const tipo = (...types) => {
-      const { bars } = computeConstanciaBars(types.map(t => wk(t, '2026-11-10')), '4w', TODAY, 4)
-      return BAR_TYPES.find(t => bars[3][t] === 1)
-    }
-    const BAR_TYPES = ['fuerza', 'clase', 'tabata', 'cardio']
-    expect(tipo('cardio', 'fuerza', 'clase')).toBe('fuerza')
-    expect(tipo('cardio', 'clase')).toBe('clase')
-    expect(tipo('cardio', 'tabata')).toBe('tabata')
-    expect(tipo('tabata', 'clase')).toBe('clase')
-    expect(tipo('cardio', 'cardio')).toBe('cardio')
-  })
-  it('una semana de 3 días con un día doble tiene 3 y NO alcanza una meta de 4', () => {
-    const semana = [wk('fuerza', '2026-11-09'), wk('cardio', '2026-11-09'), wk('clase', '2026-11-10'), wk('cardio', '2026-11-11')]
-    const { bars, goal } = computeConstanciaBars(semana, '4w', TODAY, 4)
-    expect(bars[3].total).toBe(3)             // 4 workouts, 3 días
-    expect(bars[3].total >= goal).toBe(false)
-    expect(bars[3]).toMatchObject({ fuerza: 1, clase: 1, cardio: 1 })
-  })
   it('vista mensual (todo): días distintos por mes, no workouts', () => {
-    const ws = [wk('fuerza', '2026-10-05'), wk('cardio', '2026-10-05'), wk('clase', '2026-10-07'), wk('cardio', '2026-11-03')]
-    const { bars } = computeConstanciaBars(ws, 'all', TODAY, 4)
+    const w2 = [wk('fuerza', '2026-10-05'), wk('cardio', '2026-10-05'), wk('clase', '2026-10-07'), wk('cardio', '2026-11-03')]
+    const { bars } = computeConstanciaBars(w2, 'all', TODAY, 4)
     expect(bars.map(b => [b.key, b.total])).toEqual([['2026-10', 2], ['2026-11', 1]])
     expect(bars[0]).toMatchObject({ fuerza: 1, clase: 1, cardio: 0 })
-  })
-  it('el título mensual sigue contando workouts (no días)', () => {
-    const ws = [wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-10')]
-    expect(computeMonthComparison(ws, TODAY).current).toBe(2)
   })
   it('todo sin entrenamientos: sin barras', () => {
     expect(computeConstanciaBars([], 'all', TODAY, 3).bars).toEqual([])
@@ -157,26 +341,31 @@ describe('ranking de progreso por período', () => {
       hip('2026-10-20', 40, 10), hip('2026-10-28', 42.5, 8), hip('2026-11-05', 46.5, 14), hip('2026-11-10', 46.5, 12),
       F('2026-10-21', [ex('press_01', 'Press de Banca', [[8, 20]])]), F('2026-11-04', [ex('press_01', 'Press de Banca', [[8, 21.25]])]),
     ])
-    const { rows } = computeStrengthRanking(ws, '4w', TODAY)
+    const { rows } = computeStrengthRanking(ws, '13w', TODAY)
     expect(rows.map(r => r.name)).toEqual(['Hip Thrust', 'Press de Banca'])
     expect(rows[0]).toMatchObject({ firstWeight: 40, bestWeight: 46.5, bestReps: 14, delta: 6.5, lastImprovementDate: '2026-11-05', stable: false })
     expect(rows[1].delta).toBe(1.25)
   })
+  it('"Este mes" solo mira las sesiones del 1 al día de hoy', () => {
+    const ws = desc([hip('2026-10-22', 40), hip('2026-11-03', 44), hip('2026-11-10', 48)])
+    expect(computeStrengthRanking(ws, 'month', TODAY).rows[0]).toMatchObject({ firstWeight: 44, bestWeight: 48, delta: 4 })
+    expect(computeStrengthRanking(desc([hip('2026-10-22', 40), hip('2026-11-10', 48)]), 'month', TODAY).rows).toEqual([])   // una sola sesión en el mes
+  })
   it('el período recorta: lo anterior al inicio no cuenta como base', () => {
     const ws = desc([hip('2026-08-01', 20), hip('2026-10-22', 40), hip('2026-11-05', 45)])
-    expect(computeStrengthRanking(ws, '4w', TODAY).rows[0]).toMatchObject({ firstWeight: 40, delta: 5 })
+    expect(computeStrengthRanking(ws, '13w', TODAY).rows[0]).toMatchObject({ firstWeight: 40, delta: 5 })
     expect(computeStrengthRanking(ws, 'all', TODAY).rows[0]).toMatchObject({ firstWeight: 20, delta: 25 })
   })
   it('sin mejora, con una sola sesión o con peso 0 no entra (estado vacío)', () => {
-    expect(computeStrengthRanking(desc([hip('2026-11-05', 40), hip('2026-11-10', 40)]), '4w', TODAY).rows).toEqual([])
-    expect(computeStrengthRanking([hip('2026-11-05', 40)], '4w', TODAY).rows).toEqual([])
-    expect(computeStrengthRanking(desc([hip('2026-11-05', 0), hip('2026-11-10', 0)]), '4w', TODAY).rows).toEqual([])
-    expect(computeStrengthRanking(desc([hip('2026-11-05', 40), hip('2026-11-10', 30)]), '4w', TODAY).rows).toEqual([])
+    expect(computeStrengthRanking(desc([hip('2026-11-05', 40), hip('2026-11-10', 40)]), '13w', TODAY).rows).toEqual([])
+    expect(computeStrengthRanking([hip('2026-11-05', 40)], '13w', TODAY).rows).toEqual([])
+    expect(computeStrengthRanking(desc([hip('2026-11-05', 0), hip('2026-11-10', 0)]), '13w', TODAY).rows).toEqual([])
+    expect(computeStrengthRanking(desc([hip('2026-11-05', 40), hip('2026-11-10', 30)]), '13w', TODAY).rows).toEqual([])
   })
   it('máximo 5 filas y total real', () => {
     const ws = []
     for (let i = 1; i <= 7; i++) ws.push(F('2026-11-03', [ex(`e${i}`, `Ejercicio ${i}`, [[10, 10]])]), F('2026-11-10', [ex(`e${i}`, `Ejercicio ${i}`, [[10, 10 + i]])]))
-    const r = computeStrengthRanking(desc(ws), '4w', TODAY)
+    const r = computeStrengthRanking(desc(ws), '13w', TODAY)
     expect(r.rows).toHaveLength(5)
     expect(r.total).toBe(7)
     expect(r.rows[0].name).toBe('Ejercicio 7')
@@ -196,7 +385,7 @@ describe('ranking de progreso por período', () => {
       F('2026-11-03', [{ exerciseId: 'p1', name: 'Plancha lastrada', unit: 'secs', sets: [{ reps: 30, weight: 22.2 }] }]),
       F('2026-11-10', [{ exerciseId: 'p1', name: 'Plancha lastrada', unit: 'secs', sets: [{ reps: 45, weight: 24.4 }] }]),
     ])
-    const r = computeStrengthRanking(ws, '4w', TODAY).rows[0]
+    const r = computeStrengthRanking(ws, '13w', TODAY).rows[0]
     expect(r.unit).toBe('secs')
     expect(r.bestReps).toBe(45)
     expect(r.delta).toBe(2.2)
@@ -219,44 +408,49 @@ describe('esfuerzo percibido: umbrales', () => {
 describe('esfuerzo percibido: resumen y tendencia', () => {
   const f = (date, fatigue) => wk('clase', date, { fatigue })
   it('promedio del período con 1 decimal y nivel; ignora vacíos', () => {
-    const ws = [f('2026-11-10', 8), f('2026-11-04', 7), f('2026-10-28', 6), f('2026-10-27', null), f('2026-10-26', '')]
-    const b = computeBodySummary(ws, '4w', TODAY)
+    const ws = [f('2026-11-10', 8), f('2026-11-04', 7), f('2026-11-02', 6), f('2026-11-03', null), f('2026-11-05', '')]
+    const b = computeBodySummary(ws, 'month', TODAY)
     expect(b.avg).toBe(7)
     expect(b.count).toBe(3)
     expect(b.level).toBe('alto')
   })
   it('menos de 3 registros: sin promedio ni nivel', () => {
-    const b = computeBodySummary([f('2026-11-10', 9), f('2026-11-04', 9)], '4w', TODAY)
+    const b = computeBodySummary([f('2026-11-10', 9), f('2026-11-04', 9)], 'month', TODAY)
     expect(b).toMatchObject({ avg: null, level: null, trend: null, count: 2 })
   })
-  it('tendencia contra el período anterior equivalente', () => {
-    const actual = [f('2026-11-10', 8), f('2026-11-04', 7), f('2026-10-28', 7)]
-    const prevSube = [f('2026-10-02', 6), f('2026-10-08', 6), f('2026-10-12', 6.5)]       // dentro del anterior (09-21 → 10-15)
-    const b = computeBodySummary([...actual, ...prevSube], '4w', TODAY)
+  it('tendencia contra el MISMO tramo del mes anterior (del 1 al 12 de octubre)', () => {
+    const actual = [f('2026-11-02', 8), f('2026-11-06', 7), f('2026-11-10', 7)]
+    const prevSube = [f('2026-10-02', 6), f('2026-10-08', 6), f('2026-10-12', 6.5)]
+    const b = computeBodySummary([...actual, ...prevSube], 'month', TODAY)
     expect(b.previous).toBe(6.2)
     expect(b.trend).toBe('up')
     const prevAlto = [f('2026-10-02', 9), f('2026-10-08', 8), f('2026-10-12', 8)]
-    const b2 = computeBodySummary([...actual, ...prevAlto], '4w', TODAY)
+    const b2 = computeBodySummary([...actual, ...prevAlto], 'month', TODAY)
     expect(b2.previous).toBe(8.3)
     expect(b2.trend).toBe('down')
     const prevIgual = [f('2026-10-02', 7), f('2026-10-08', 8), f('2026-10-12', 7)]
-    expect(computeBodySummary([...actual, ...prevIgual], '4w', TODAY).trend).toBe('same')
+    expect(computeBodySummary([...actual, ...prevIgual], 'month', TODAY).trend).toBe('same')
+  })
+  it('lo que el mes anterior registró después del mismo día no entra en la comparación', () => {
+    const actual = [f('2026-11-02', 8), f('2026-11-06', 7), f('2026-11-10', 7)]
+    const prev = [f('2026-10-02', 6), f('2026-10-08', 6), f('2026-10-13', 6), f('2026-10-20', 6)]     // solo 2 hasta el 12/10
+    expect(computeBodySummary([...actual, ...prev], 'month', TODAY).trend).toBeNull()
   })
   it('sin período anterior (todo) o con pocos registros previos: sin tendencia', () => {
-    const actual = [f('2026-11-10', 8), f('2026-11-04', 7), f('2026-10-28', 7)]
+    const actual = [f('2026-11-02', 8), f('2026-11-06', 7), f('2026-11-10', 7)]
     expect(computeBodySummary(actual, 'all', TODAY).trend).toBeNull()
-    expect(computeBodySummary([...actual, f('2026-10-02', 3)], '4w', TODAY).trend).toBeNull()
+    expect(computeBodySummary([...actual, f('2026-10-02', 3)], 'month', TODAY).trend).toBeNull()
   })
   it('el período recorta los registros', () => {
-    const ws = [f('2026-11-10', 8), f('2026-11-04', 8), f('2026-10-28', 8), f('2026-08-18', 2), f('2026-08-19', 2), f('2026-08-20', 2)]
-    expect(computeBodySummary(ws, '4w', TODAY).avg).toBe(8)
+    const ws = [f('2026-11-10', 8), f('2026-11-04', 8), f('2026-11-02', 8), f('2026-08-18', 2), f('2026-08-19', 2), f('2026-08-20', 2)]
+    expect(computeBodySummary(ws, 'month', TODAY).avg).toBe(8)
     expect(computeBodySummary(ws, '13w', TODAY).avg).toBe(5)
   })
-  it('promedio semanal para el gráfico: una entrada por semana, null sin registros', () => {
+  it('promedio semanal para el gráfico: una entrada por semana que toca el período, null sin registros', () => {
     const ws = [f('2026-11-10', 8), f('2026-11-11', 6), f('2026-11-03', 5)]
-    const { weekly } = computeBodySummary(ws, '4w', TODAY)
-    expect(weekly.map(w => w.weekStart)).toEqual([M(3), M(2), M(1), M(0)])
-    expect(weekly.map(w => w.avg)).toEqual([null, null, 5, 7])
+    const { weekly } = computeBodySummary(ws, 'month', TODAY)
+    expect(weekly.map(w => w.weekStart)).toEqual([M(2), M(1), M(0)])
+    expect(weekly.map(w => w.avg)).toEqual([null, 5, 7])
   })
 })
 
@@ -279,8 +473,8 @@ describe('resumen por período', () => {
   const press = (date, weight) => F(date, [ex('press_01', 'Press', [[8, weight]]), ex('rem_01', 'Remo', [[8, weight]]), ex('sent_01', 'Sentadilla', [[8, weight]])])
   const GOAL = 4
 
-  it('la vista "4 semanas" es en vivo: no tiene resumen', () => {
-    expect(computePeriodSummary([wk('clase', '2026-11-10')], '4w', TODAY, GOAL)).toBeNull()
+  it('la vista "Este mes" es en vivo: no tiene resumen', () => {
+    expect(computePeriodSummary([wk('clase', '2026-11-10')], 'month', TODAY, GOAL)).toBeNull()
   })
 
   describe('constancia (semanas completas, días distintos)', () => {

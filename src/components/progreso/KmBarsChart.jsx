@@ -15,7 +15,7 @@ function KmTooltip({ active, payload }) {
   )
 }
 
-// Barras de km por semana (4 semanas / 3 meses) o por mes (Todo). bars: computeKmBars().bars
+// Barras de km por semana (este mes / 3 meses) o por mes (Todo). bars: computeKmBars().bars
 // [{ key, label, title, km, current }]. La semana o el mes en curso va con menos opacidad.
 // compact: versión mini del bloque de Progreso (sin eje Y, más baja).
 export default function KmBarsChart({ bars, compact = false }) {

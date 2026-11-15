@@ -8,13 +8,16 @@
 
 import { getExerciseUnit } from './exerciseUnit.js'
 import { finiteFatigue, round1, percentagesSummingTo100 } from './progressStats.js'
-import { diffKg, formatNumber } from './format.js'
+import { diffKg, formatNumber, formatKm, formatScore } from './format.js'
 import { addDays, daysBetween, mondayOf, monthOf } from './weeks.js'
-import { MONTH_NAMES, MONTH_SHORT, realWorkouts, VIEW_PERIODS, resolveViewPeriod, workoutsInRange, weekStartsOf } from './viewPeriod.js'
-import { isValidRun, runsInWindow, paceOf, comparePace, firstLastPace, SUMMARY_MIN_RUNS, validRuns } from './running.js'
+import {
+  MONTH_NAMES, MONTH_SHORT, realWorkouts, VIEW_PERIODS, DEFAULT_VIEW_PERIOD, normalizeViewPeriod, monthStretch,
+  resolveViewPeriod, workoutsInRange, weekStartsOf,
+} from './viewPeriod.js'
+import { runsInWindow, paceOf, comparePace, firstLastPace, SUMMARY_MIN_RUNS, validRuns } from './running.js'
 
 // El período seleccionado vive en viewPeriod.js; se reexporta desde acá para no cambiar a los consumidores.
-export { VIEW_PERIODS, resolveViewPeriod, workoutsInRange, MONTH_NAMES }
+export { VIEW_PERIODS, DEFAULT_VIEW_PERIOD, normalizeViewPeriod, monthStretch, resolveViewPeriod, workoutsInRange, MONTH_NAMES }
 
 export const STABLE_AFTER_DAYS = 28      // más de 4 semanas sin mejorar el peso → "estable"
 export const RANKING_LIMIT = 5
@@ -38,30 +41,87 @@ export function computeHistorySummary(workouts, today) {
 
 // ─── Constancia ──────────────────────────────────────────────────────────────
 
-const daysInMonth = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate() // m = 1..12
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1)
+const distinctDayCount = (list) => new Set(list.map(w => w.date)).size
 
-// Entrenamientos del mes en curso vs. el mes anterior A LA MISMA ALTURA del mes (hasta el mismo día; si el mes
-// anterior es más corto, hasta su último día). Un entrenamiento = un workout real.
-//   tone: 'up' (más) · 'same' (igual) · 'down' (menos)
-export function computeMonthComparison(workouts, today) {
-  const [y, m, day] = today.split('-').map(Number)
-  const py = m === 1 ? y - 1 : y
-  const pm = m === 1 ? 12 : m - 1
-  const month = monthOf(today)
-  const prevMonth = `${py}-${String(pm).padStart(2, '0')}`
-  const cutoff = Math.min(day, daysInMonth(py, pm))
+// Récords de peso de un tramo: ejercicios cuyo mejor peso DENTRO del tramo supera su máximo histórico ANTERIOR al tramo.
+// Hace falta que existiera un máximo previo (> 0): la primera vez que se hace un ejercicio no es un récord.
+function countWeightRecords(sessionsByExercise, range) {
+  let n = 0
+  for (const g of sessionsByExercise.values()) {
+    let best = 0, prior = 0
+    for (const s of g.sessions) {
+      if (s.date < range.start) prior = Math.max(prior, s.weight)
+      else if (s.date <= range.end) best = Math.max(best, s.weight)
+    }
+    if (best > 0 && prior > 0 && best > prior) n++
+  }
+  return n
+}
 
+// Una fila de la comparación. cur / prev: números (o null si no hay dato). fmt: formateador del valor.
+//   diff = cur − prev (limpio de punto flotante); dir 'up' | 'down' | 'same' | null (falta un dato).
+//   tone: 'better' (verde: mejora) · 'worse' (gris muted: empeora) · 'same' · 'neutral' (siempre muted, sin juicio).
+//   Nunca hay un tono rojo.
+function buildRow(key, label, cur, prev, fmt, { neutral = false } = {}) {
+  const missing = cur == null || prev == null
+  const diff = missing ? null : round1(cur - prev)
+  const dir = diff == null ? null : diff > 0 ? 'up' : diff < 0 ? 'down' : 'same'
+  const tone = neutral || dir == null ? 'neutral' : dir === 'up' ? 'better' : dir === 'down' ? 'worse' : 'same'
+  const diffText = dir === 'up' ? `↑ ${fmt(diff)}` : dir === 'down' ? `↓ ${fmt(-diff)}` : dir === 'same' ? '= igual' : ''
+  return {
+    key, label, current: cur, previous: prev, diff, dir, tone, diffText,
+    currentText: cur == null ? '—' : fmt(cur), previousText: prev == null ? '—' : fmt(prev),
+  }
+}
+
+// Vista "Este mes" de Constancia: del día 1 al día de hoy contra el MISMO tramo del mes anterior (del 1 al mismo día;
+// si el mes anterior tiene menos días, hasta su último día).
+// {
+//   month, monthName, prevMonthName, monthShort, prevMonthShort, day, cutoff,
+//   label        "noviembre vs octubre · del 1 al 15" (en mayúsculas se muestra con CSS)
+//   days         { current, previous } días DISTINTOS entrenados (REAL_WORKOUT_TYPES): el número protagonista
+//   rows         filas visibles de la comparación (ver buildRow): días entrenados · km corridos · récords de peso · esfuerzo promedio
+//   fullPrev     { days, km, text } del mes anterior COMPLETO ("Octubre completo: 12 días · 25,3 km"), o null
+// }
+// Reglas de las filas: días = días distintos; km = suma de las carreras válidas de utils/running.js; récords de peso = ejercicios
+// cuyo mejor peso del tramo supera su máximo histórico anterior al tramo; esfuerzo = promedio del campo fatigue (1 decimal,
+// siempre neutral). Mejor = más (verde), menos = gris. Una fila se oculta si vale 0 en ambos meses (esfuerzo: si falta en ambos).
+export function computeMonthReport(workouts, today) {
+  const st = monthStretch(today)
   const real = realWorkouts(workouts, today)
-  const current = real.filter(w => monthOf(w.date) === month).length
-  const previous = real.filter(w => monthOf(w.date) === prevMonth && Number(w.date.slice(8, 10)) <= cutoff).length
-  const diff = current - previous
-  const monthName = MONTH_NAMES[m - 1]
-  const prevMonthName = MONTH_NAMES[pm - 1]
-  const tone = diff > 0 ? 'up' : diff < 0 ? 'down' : 'same'
-  const text = diff > 0 ? `${diff} más que en ${prevMonthName}`
-    : diff < 0 ? `${-diff} menos que en ${prevMonthName}`
-    : `igual que en ${prevMonthName}`
-  return { month, monthName, prevMonth, prevMonthName, day, cutoff, current, previous, diff, tone, text }
+  const within = (list, r) => list.filter(w => w.date >= r.start && w.date <= r.end)
+  const curRange = { start: st.start, end: st.end }
+  const cur = within(real, curRange)
+  const prev = within(real, st.previous)
+
+  const runs = validRuns(workouts, today)
+  const kmIn = (r) => sum(runsInWindow(runs, r.start, r.end).map(x => x.km))
+  const sessions = strengthSessions(workouts, today)
+  const effortOf = (list) => { const v = fatigueValues(list); return v.length ? round1(mean(v)) : null }
+
+  const days = { current: distinctDayCount(cur), previous: distinctDayCount(prev) }
+  const all = [
+    buildRow('days', 'Días entrenados', days.current, days.previous, formatNumber),
+    buildRow('km', 'Km corridos', kmIn(curRange), kmIn(st.previous), formatKm),
+    buildRow('records', 'Récords de peso', countWeightRecords(sessions, curRange), countWeightRecords(sessions, st.previous), formatNumber),
+    buildRow('effort', 'Esfuerzo promedio', effortOf(cur), effortOf(prev), formatScore, { neutral: true }),
+  ]
+  const rows = all.filter(r => !(r.current == null && r.previous == null) && !(r.current === 0 && r.previous === 0))
+
+  const fullDays = distinctDayCount(within(real, st.prevFull))
+  const fullKm = kmIn(st.prevFull)
+  const fullPrev = st.prevIsFull || fullDays === 0 ? null : {
+    days: fullDays, km: fullKm,
+    text: `${capitalize(st.prevMonthName)} completo: ${formatNumber(fullDays)} ${fullDays === 1 ? 'día' : 'días'}${fullKm > 0 ? ` · ${formatKm(fullKm)}` : ''}`,
+  }
+
+  const label = `${st.monthName} vs ${st.prevMonthName} · del 1 al ${st.day}` + (st.cutoff < st.day ? ` (${st.prevMonthName}: del 1 al ${st.cutoff})` : '')
+  return {
+    month: st.month, monthName: st.monthName, prevMonthName: st.prevMonthName,
+    monthShort: MONTH_SHORT[st.monthIndex - 1], prevMonthShort: MONTH_SHORT[st.prevMonthIndex - 1],
+    day: st.day, cutoff: st.cutoff, label, days, rows, fullPrev,
+  }
 }
 
 const BAR_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
@@ -81,13 +141,45 @@ function distinctDays(real) {
   return [...byDate.entries()]
 }
 
+// Barras de la vista "Este mes": semanas que tocan el mes anterior y el actual, agrupadas por mes.
+function computeMonthBars(workouts, today, goal) {
+  const st = monthStretch(today)
+  const first = mondayOf(st.prevFull.start)
+  const thisMonday = mondayOf(today)
+  const real = realWorkouts(workouts, today).filter(w => w.date >= first)
+  const groupOf = (ws) => {
+    if (ws === thisMonday) return st.month
+    const g = monthOf(addDays(ws, 3))                 // el mes donde cae el jueves
+    return g < st.prevMonth ? st.prevMonth : g > st.month ? st.month : g
+  }
+  const bars = []
+  for (let ws = first; ws <= thisMonday; ws = addDays(ws, 7)) {
+    const [, mm, dd] = ws.split('-')
+    bars.push({ key: ws, label: String(Number(dd)), title: `Semana del ${Number(dd)}/${Number(mm)}`, ...emptyCounts(), current: ws === thisMonday, group: groupOf(ws) })
+  }
+  const byKey = new Map(bars.map(b => [b.key, b]))
+  distinctDays(real).forEach(([date, type]) => { const b = byKey.get(mondayOf(date)); if (b) addTo(b, type) })
+  const groups = []
+  bars.forEach((b, i) => {
+    const last = groups[groups.length - 1]
+    if (last && last.key === b.group) last.count += 1
+    else groups.push({ key: b.group, label: capitalize(MONTH_NAMES[Number(b.group.slice(5, 7)) - 1]), start: i, count: 1 })
+  })
+  return { kind: 'week', bars, goal, groups }
+}
+
 // Barras de "días entrenados" según el período (días DISTINTOS, no workouts: misma unidad que el objetivo semanal y la racha).
-//   '4w' / '13w' → una barra por semana (lunes a domingo), `current` marca la semana en curso.
+//   'month'      → una barra por semana (lunes a domingo) de TODAS las semanas que tocan el mes anterior y el actual
+//                  (hasta 12), con `group` (mes al que se asigna cada semana) y `groups` para rotular cada mes. Cada semana va al
+//                  mes donde cae su jueves (la mayoría de sus días); la primera queda en el mes anterior y la semana en
+//                  curso, siempre en el actual. `current` marca la semana en curso.
+//   '13w'        → una barra por semana, `current` marca la semana en curso.
 //   'all'        → una barra por mes calendario, desde el primer entrenamiento hasta el mes en curso (meses sin
 //                  entrenar incluidos, en cero); `current` marca el mes en curso. Sin línea de objetivo.
 // Cada día cuenta una sola vez y se pinta con un único tipo (DAY_TYPE_PRIORITY: fuerza > clase > tabata > cardio).
 // Cada barra: { key, label, title, total (días), fuerza, cardio, clase, tabata, current }. `goal` solo en vista semanal.
 export function computeConstanciaBars(workouts, periodKey, today, goal = null) {
+  if (periodKey === 'month') return computeMonthBars(workouts, today, goal)
   const range = resolveViewPeriod(periodKey, today, workouts)
   const real = workoutsInRange(workouts, range, today)
 
@@ -285,7 +377,7 @@ export function pickPeriodHeadline({ weeks, strengthImproved, cardio }, goal) {
   return { rule: 'start', text: 'Estás arrancando: cada entrenamiento suma' }
 }
 
-// Resumen del período para las vistas "3 meses" ('13w') y "Todo" ('all'); null en '4w' (esa vista es "en vivo").
+// Resumen del período para las vistas "3 meses" ('13w') y "Todo" ('all'); null en 'month' ("Este mes" es la vista "en vivo").
 // {
 //   periodKey, label ("Últimos 3 meses" / "Desde abril"), empty,
 //   weeks:  { evaluated, met, avgDays, activeWeeks, goal }   solo semanas COMPLETAS (la semana en curso no cuenta)

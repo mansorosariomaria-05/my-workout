@@ -9,7 +9,7 @@ const LEVELS = {
   alto:     { label: 'Alto',     text: 'text-app-amber',        chip: 'bg-app-amber/15 text-app-amber' },
 }
 
-const PERIOD_TEXT = { '4w': 'últimas 4 semanas', '13w': 'últimos 3 meses', all: 'todo el historial' }
+const PERIOD_TEXT = { month: 'este mes', '13w': 'últimos 3 meses', all: 'todo el historial' }
 
 // "Cómo está tu cuerpo": esfuerzo percibido promedio del período, nivel, tendencia contra el período anterior
 // equivalente y gráfico semanal. body: computeBodySummary() · suggestDeload: useDeload().shouldSuggestDeload() y sin descarga activa.

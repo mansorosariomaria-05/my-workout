@@ -71,7 +71,7 @@ describe('ritmo', () => {
     expect(paceOf([])).toBeNull()
   })
   it('las carreras fuera de rango sí suman km en el resumen del período', () => {
-    const s = computeRunningSummary([run('2026-11-02', 5, 1500), run('2026-11-03', 5, 600)], '4w', TODAY)
+    const s = computeRunningSummary([run('2026-11-02', 5, 1500), run('2026-11-03', 5, 600)], 'month', TODAY)
     expect(s).toMatchObject({ count: 2, km: 10, paceRuns: 1, pace: 300 })
   })
 
@@ -136,15 +136,15 @@ describe('eje del gráfico de ritmo', () => {
 })
 
 describe('barras de km', () => {
-  it('4 semanas: una barra por semana (lunes a domingo) con los km, 1 decimal; la semana en curso marcada', () => {
-    const range = resolveViewPeriod('4w', TODAY)
-    const rs = runsOf([run('2026-10-19', 5.25, 1800), run('2026-10-25', 4, 1500), run('2026-11-10', 8, 2400), run('2026-11-12', 2, 700)])
-    const { kind, bars } = computeKmBars(rs, range, '4w', TODAY)
+  it('este mes: una barra por semana (lunes a domingo) que toca el mes, con los km a 1 decimal; la semana en curso marcada', () => {
+    const range = resolveViewPeriod('month', TODAY)                      // 1 al 12 de noviembre
+    const rs = runsOf([run('2026-11-01', 5.25, 1800), run('2026-11-02', 4, 1500), run('2026-11-10', 8, 2400), run('2026-11-12', 2, 700)])
+    const { kind, bars } = computeKmBars(rs, range, 'month', TODAY)
     expect(kind).toBe('week')
-    expect(bars.map(b => b.key)).toEqual(['2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09'])
-    expect(bars.map(b => b.km)).toEqual([9.3, 0, 0, 10])      // 5,25 + 4 = 9,25 → 9,3
-    expect(bars.map(b => b.current)).toEqual([false, false, false, true])
-    expect(bars[0]).toMatchObject({ label: '19/10', title: 'Semana del 19/10' })
+    expect(bars.map(b => b.key)).toEqual(['2026-10-26', '2026-11-02', '2026-11-09'])   // la semana del 26/10 toca el 1/11
+    expect(bars.map(b => b.km)).toEqual([5.3, 4, 10])                                  // 5,25 → 5,3
+    expect(bars.map(b => b.current)).toEqual([false, false, true])
+    expect(bars[0]).toMatchObject({ label: '26/10', title: 'Semana del 26/10' })
   })
   it('3 meses: 13 barras', () => {
     expect(computeKmBars([], resolveViewPeriod('13w', TODAY), '13w', TODAY).bars).toHaveLength(13)
@@ -252,17 +252,29 @@ describe('récords', () => {
 })
 
 describe('resumen del bloque "Tu running"', () => {
-  it('4 semanas: km, cantidad, ritmo y comparación con el período anterior (3 y 3)', () => {
-    const actual = [at('2026-10-20', 360), at('2026-10-27', 360), at('2026-11-03', 360)]
-    const anterior = [at('2026-09-22', 400), at('2026-09-29', 400), at('2026-10-06', 400)]
-    const s = computeRunningSummary([...actual, ...anterior], '4w', TODAY)
+  it('este mes: km, cantidad, ritmo y comparación con el MISMO tramo del mes anterior (3 y 3)', () => {
+    const actual = [at('2026-11-02', 360), at('2026-11-05', 360), at('2026-11-09', 360)]            // 1 al 12 de noviembre
+    const anterior = [at('2026-10-02', 400), at('2026-10-06', 400), at('2026-10-10', 400)]          // 1 al 12 de octubre
+    const s = computeRunningSummary([...actual, ...anterior], 'month', TODAY)
     expect(s).toMatchObject({ count: 3, km: 15, pace: 360, paceRuns: 3, empty: false })
     expect(s.comparison).toMatchObject({ from: 400, to: 360, improvement: 40, direction: 'better' })
   })
+  it('este mes: lo que el mes anterior corrió DESPUÉS del mismo día no entra en la comparación', () => {
+    const actual = [at('2026-11-02', 360), at('2026-11-05', 360), at('2026-11-09', 360)]
+    const anterior = [at('2026-10-02', 400), at('2026-10-06', 400), at('2026-10-13', 300), at('2026-10-20', 300)]   // solo 2 hasta el 12/10
+    expect(computeRunningSummary([...actual, ...anterior], 'month', TODAY).comparison).toBeNull()
+    const tres = [...actual, ...anterior, at('2026-10-12', 400)]                                                    // el 12/10 sí entra
+    expect(computeRunningSummary(tres, 'month', TODAY).comparison).toMatchObject({ from: 400, to: 360 })
+  })
   it('con menos de 3 carreras en el período anterior: solo el ritmo actual', () => {
-    const s = computeRunningSummary([at('2026-10-20', 360), at('2026-10-27', 360), at('2026-11-03', 360), at('2026-09-22', 400), at('2026-09-29', 400)], '4w', TODAY)
+    const s = computeRunningSummary([at('2026-11-02', 360), at('2026-11-05', 360), at('2026-11-09', 360), at('2026-10-02', 400), at('2026-10-09', 400)], 'month', TODAY)
     expect(s.comparison).toBeNull()
     expect(s.pace).toBe(360)
+  })
+  it('3 meses: contra los 3 meses anteriores (3 y 3)', () => {
+    const actual = [at('2026-10-20', 360), at('2026-10-27', 360), at('2026-11-03', 360)]
+    const anterior = [at('2026-06-22', 400), at('2026-06-29', 400), at('2026-07-06', 400)]
+    expect(computeRunningSummary([...actual, ...anterior], '13w', TODAY).comparison).toMatchObject({ from: 400, to: 360 })
   })
   it('"Todo" no tiene período anterior: sin comparación', () => {
     const s = computeRunningSummary([at('2026-04-20', 400), at('2026-05-20', 400), at('2026-06-20', 400), at('2026-10-20', 360)], 'all', TODAY)
@@ -270,16 +282,16 @@ describe('resumen del bloque "Tu running"', () => {
     expect(s.count).toBe(4)
   })
   it('estado vacío con menos de 2 carreras en el período', () => {
-    expect(computeRunningSummary([], '4w', TODAY)).toMatchObject({ count: 0, km: 0, pace: null, empty: true })
-    expect(computeRunningSummary([at('2026-11-03', 360)], '4w', TODAY)).toMatchObject({ count: 1, empty: true })
-    expect(computeRunningSummary([at('2026-11-03', 360), at('2026-11-04', 360)], '4w', TODAY).empty).toBe(false)
+    expect(computeRunningSummary([], 'month', TODAY)).toMatchObject({ count: 0, km: 0, pace: null, empty: true })
+    expect(computeRunningSummary([at('2026-11-03', 360)], 'month', TODAY)).toMatchObject({ count: 1, empty: true })
+    expect(computeRunningSummary([at('2026-11-03', 360), at('2026-11-04', 360)], 'month', TODAY).empty).toBe(false)
   })
   it('una carrera fuera del período no cuenta', () => {
-    expect(computeRunningSummary([at('2026-11-03', 360), at('2026-09-04', 360)], '4w', TODAY).count).toBe(1)
+    expect(computeRunningSummary([at('2026-11-03', 360), at('2026-10-31', 360)], 'month', TODAY).count).toBe(1)     // el 31/10 es del mes anterior
   })
   it('cinta y otras actividades no cuentan', () => {
     const ws = [at('2026-11-03', 360), at('2026-11-04', 360, { cinta: { min: 20 } }), at('2026-11-05', 360, { activity: 'Caminata' })]
-    expect(computeRunningSummary(ws, '4w', TODAY).count).toBe(1)
+    expect(computeRunningSummary(ws, 'month', TODAY).count).toBe(1)
   })
 })
 
@@ -292,7 +304,7 @@ describe('detalle /progreso/running', () => {
     at('2026-10-22', 370, { fatigue: 7 }),
   ]
   it('series: una entrada por carrera, en orden cronológico, para los dos gráficos', () => {
-    const d = computeRunningDetail(ws, '4w', TODAY)
+    const d = computeRunningDetail(ws, '13w', TODAY)
     expect(d.series.map(s => s.date)).toEqual(['2026-10-22', '2026-10-28', '2026-11-03', '2026-11-05', '2026-11-10'])
     expect(d.series.map(s => s.pace)).toEqual([370, 360, null, 350, 340])
     expect(d.series.map(s => s.fatigue)).toEqual([7, 7, 5, null, 6])
@@ -301,22 +313,30 @@ describe('detalle /progreso/running', () => {
     expect(d.effortCount).toBe(4)
   })
   it('distancia: total y carrera más larga del período', () => {
-    const d = computeRunningDetail([run('2026-11-03', 5, 1500), run('2026-11-05', 12, 4000), run('2026-09-01', 30, 9000)], '4w', TODAY)
+    const d = computeRunningDetail([run('2026-11-03', 5, 1500), run('2026-11-05', 12, 4000), run('2026-09-01', 30, 9000)], 'month', TODAY)
     expect(d.distance).toEqual({ total: 17, longest: { km: 12, date: '2026-11-05' } })
   })
   it('los récords son de todo el historial, no del período', () => {
-    const d = computeRunningDetail([run('2026-11-03', 5, 1500), run('2026-05-01', 21, 6300)], '4w', TODAY)
+    const d = computeRunningDetail([run('2026-11-03', 5, 1500), run('2026-05-01', 21, 6300)], 'month', TODAY)
     expect(d.records.longest).toEqual({ km: 21, date: '2026-05-01' })
   })
   it('la lista del período va de la más reciente a la más antigua, con fecha legible', () => {
-    const d = computeRunningDetail(ws, '4w', TODAY)
+    const d = computeRunningDetail(ws, '13w', TODAY)
     expect(d.list.map(r => r.date)).toEqual(['2026-11-10', '2026-11-05', '2026-11-03', '2026-10-28', '2026-10-22'])
     expect(d.list[0]).toMatchObject({ dateLabel: '10 nov', km: 5, notes: 'bien' })
   })
   it('la conclusión aparece solo con 6 o más carreras en el período', () => {
-    expect(computeRunningDetail(ws, '4w', TODAY).conclusion).toBeNull()
+    expect(computeRunningDetail(ws, '13w', TODAY).conclusion).toBeNull()
     const seis = [...ws, at('2026-10-20', 380, { fatigue: 7 })]
-    expect(computeRunningDetail(seis, '4w', TODAY).conclusion).not.toBeNull()
+    expect(computeRunningDetail(seis, '13w', TODAY).conclusion).not.toBeNull()
+  })
+  it('"Este mes" recorta el detalle al tramo del 1 al día de hoy (series, lista y barras)', () => {
+    const d = computeRunningDetail(ws, 'month', TODAY)
+    expect(d.series.map(s => s.date)).toEqual(['2026-11-03', '2026-11-05', '2026-11-10'])
+    expect(d.list.map(r => r.date)).toEqual(['2026-11-10', '2026-11-05', '2026-11-03'])
+    expect(d.count).toBe(3)
+    expect(d.bars.bars.map(b => b.key)).toEqual(['2026-10-26', '2026-11-02', '2026-11-09'])
+    expect(d.records.longest).not.toBeNull()                   // los récords siguen siendo de todo el historial
   })
   it('período sin datos: todo vacío y sin romper', () => {
     const d = computeRunningDetail([], '13w', TODAY)

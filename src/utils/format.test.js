@@ -67,9 +67,14 @@ describe('formatScore / formatNumber / formatKm', () => {
     expect(formatNumber(12)).toBe('12')
     expect(formatNumber(8.5)).toBe('8,5')
   })
-  it('formatKm: hasta 2 decimales con unidad no separable', () => {
+  it('formatKm: hasta 1 decimal con unidad no separable', () => {
     expect(formatKm(5)).toBe(`5${NB}km`)
-    expect(formatKm(5.25)).toBe(`5,25${NB}km`)
+    expect(formatKm(58.1)).toBe(`58,1${NB}km`)
+    expect(formatKm(5.25)).toBe(`5,3${NB}km`)                 // antes "5,25 km"
+    expect(formatKm(58.14999)).toBe(`58,1${NB}km`)
+    expect(formatKm(0.04)).toBe(`0${NB}km`)
+    expect(formatKm(1234.5)).toBe(`1.234,5${NB}km`)
+    expect(formatKm(null)).toBe('—')
   })
 })
 

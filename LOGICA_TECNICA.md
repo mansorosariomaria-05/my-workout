@@ -2138,7 +2138,7 @@ Todas las funciones redondean internamente (mitad hacia afuera, absorbiendo el e
 | `formatPercent(n)` | Porcentaje entero sin signo (proporciones, inclinación, reducción de regreso) | `25` → "25 %" |
 | `formatScore(n)` | 1 decimal fijo (fatiga, días por semana, km/h calculados) | `7.1` → "7,1" · `7` → "7,0" |
 | `formatNumber(n)` | Reps, segundos, km/h cargados: máx. 1 decimal | `12` → "12" · `8.5` → "8,5" |
-| `formatKm(n)` | Distancia, máx. 2 decimales, con unidad | `5.25` → "5,25 km" |
+| `formatKm(n)` | Distancia, **máx. 1 decimal** (desde noviembre 2026; antes 2), sin ceros sobrantes, con unidad | `58.1` → "58,1 km" · `5` → "5 km" · `5.25` → "5,3 km" |
 | `diffKg(a, b)` | Resta de pesos ya redondeada a 2 decimales (número, no texto) | `diffKg(22.2, 20)` → `2.2` |
 
 Valores nulos o no numéricos devuelven `"—"` (`formatDeltaKg` devuelve `null`). Los formateadores con unidad (`kg`, `%`, `km`) usan U+00A0, por eso no hace falta `whitespace-nowrap`. Al comparar textos en tests hay que escribir ese espacio como `\u00A0`.
@@ -2151,7 +2151,7 @@ Pruebas: `src/utils/format.test.js`.
 
 ## 29. PANTALLA PROGRESO (rediseño, noviembre 2026)
 
-Cálculos puros en `src/utils/progressView.js` (pruebas: `progressView.test.js`). Convenciones: solo `REAL_WORKOUT_TYPES`, nunca fechas futuras, semanas de lunes a domingo, fechas `YYYY-MM-DD`, y "sin dato" (fatiga ausente / null / '') nunca cuenta como 0.
+Cálculos puros en `src/utils/progressView.js` (pruebas: `progressView.test.js`). El período seleccionado (`VIEW_PERIODS`, `resolveViewPeriod`, `workoutsInRange`, `weekStartsOf`) vive en `src/utils/viewPeriod.js` y se reexporta desde `progressView.js` (así también lo usa `running.js` sin dependencia circular). Convenciones: solo `REAL_WORKOUT_TYPES`, nunca fechas futuras, semanas de lunes a domingo, fechas `YYYY-MM-DD`, y "sin dato" (fatiga ausente / null / '') nunca cuenta como 0.
 
 ### Período seleccionado (`resolveViewPeriod`)
 Selector "4 semanas" (`4w`) · "3 meses" (`13w`) · "Todo" (`all`), por defecto `4w`. N semanas = las N semanas lunes-domingo que terminan en la semana en curso (la última es parcial y llega hasta hoy). El **período anterior** empieza N semanas antes y dura lo mismo en días (la comparación es pareja aunque la semana en curso esté a medias). `all` = desde el lunes del primer entrenamiento real hasta hoy, sin período anterior. El período afecta la tarjeta de Constancia (su contenido y el gráfico), "Más fuerte que antes" y "Cómo está tu cuerpo"; **no** el calendario ni la lista de sesiones, que viven en la pestaña Historial (sección 30). (`progressStats.resolvePeriod` con `4w/12w` sigue existiendo para su propio módulo; la pantalla usa `13w`.)
@@ -2169,7 +2169,7 @@ Devuelve `null` en "4 semanas". En las otras vistas calcula (la lógica vive en 
 - **Constancia (semanas completas)**: solo cuentan las semanas lunes-domingo **completas**, es decir las anteriores a la semana en curso (la semana en curso queda afuera del promedio y del conteo aunque ya tenga entrenamientos). Ventana: las 13 semanas del período en "3 meses" (12 completas) y desde la semana del primer entrenamiento en "Todo". Cada semana vale sus **días distintos** entrenados (REAL_WORKOUT_TYPES). `avgDays` = suma de días / semanas completas, con 1 decimal; `met` = semanas con días ≥ `profile.diasSemana`; `activeWeeks` = semanas completas con al menos 1 día. Se muestra "3,2 días por semana en promedio · objetivo cumplido en 6 de 12 semanas"; si todavía no hay semanas completas, la fila se oculta.
 - **Qué entrenaste**: porcentaje por tipo sobre la cantidad de **workouts** del período (incluida la semana en curso), solo tipos con valor > 0, de mayor a menor, repartidos con el método del mayor resto (`percentagesSummingTo100`) para que sumen exactamente 100. Se muestra con `formatPercent` y `TYPE_COLORS`.
 - **Fuerza**: cantidad de ejercicios cuyo mejor peso del período supera su primer registro del período (`computeStrengthRanking(...).total`, mismos criterios que "Más fuerte que antes": ≥ 2 sesiones con peso y delta > 0). Fila oculta con 0.
-- **Cardio (running)**: solo con **≥ 2 sesiones** de `type: 'cardio'` y `activity: 'Running'` con distancia y ritmo válidos (`getEffectivePaceSecondsPerKm`); si no, la fila no aparece. Muestra km totales (`formatKm`) y el ritmo (`formatPace`). Ritmo promedio = tiempo total / km totales (ponderado por distancia). "3 meses": compara con el ritmo promedio de los 3 meses anteriores (período anterior equivalente); sin carreras previas muestra solo el promedio. "Todo": promedio de las primeras 3 carreras vs. las últimas 3 ("6:40 → 6:05 /km"); con menos de 6 carreras, primeras n vs. últimas n con n = floor(carreras / 2), para que nunca se solapen. `improvement` = ritmo anterior − ritmo actual en segundos redondeados: **un ritmo que baja es mejora** (verde); si sube o queda igual se muestra neutral, sin juicio.
+- **Cardio (running)**: usa las **mismas reglas que "Tu running"** (`utils/running.js`, sección 31). Solo con **≥ 2 carreras válidas** en el período (si no, la fila no aparece). Muestra km totales (`formatKm`, suman todas las carreras válidas) y el ritmo (`formatPace`: tiempo total / km totales de las carreras con ritmo entre 3:00 y 12:00 /km; si ninguna lo tiene, solo los km). **Comparación solo con ≥ 3 carreras de ritmo válido en cada lado**: "3 meses" contra los 3 meses anteriores; "Todo", primeras 3 vs. últimas 3 (necesita ≥ 6 carreras). Sin ese mínimo se muestra solo el ritmo promedio del período (ya no aparecen comparaciones tipo "10:00 → 6:21 /km" con 1 o 2 carreras). `improvement` = ritmo anterior − ritmo actual en segundos redondeados: **un ritmo que baja es mejora** (verde); si sube o queda igual se muestra neutral, sin juicio.
 - **Mejor mes** (solo "Todo"): el mes calendario con más días distintos entrenados ("Septiembre (17 días)"); ante un empate, el más reciente; con año si no es el actual.
 - **Titular** (`pickPeriodHeadline`, reglas, no IA; tono positivo o neutral): el primer criterio que se cumple:
   1. `avgDays` (a 1 decimal, como se muestra) ≥ objetivo → "Sostuviste tu objetivo de N días por semana"
@@ -2231,6 +2231,45 @@ Se conserva en `REAL_WORKOUT_TYPES` (`utils/streak.js`), `BAR_TYPES` y `DAY_TYPE
 - **`computeSessionList(workouts)`**: solo `REAL_WORKOUT_TYPES` con `date` (incluye tabata histórico), de la más reciente a la más antigua; a igual fecha respeta el orden de entrada (no hay filtro de fechas futuras, igual que antes). Devuelve `[{ workout, hasPR }]`.
 - **`groupSessionsByMonth(workouts)`**: agrupa por mes calendario (`YYYY-MM`) del más reciente al más antiguo: `{ key, label: 'Noviembre 2026', count, sessions }`. El mismo mes de años distintos son grupos distintos. Sin sesiones reales no hay grupos y la lista muestra "Sin sesiones registradas aún".
 - **`findPRWorkouts(workouts)`**: marca de 🏆 PR. **Misma regla que `detectPRs`** (sección 4): una sesión de fuerza es PR si en algún ejercicio superó el máximo de las sesiones de fuerza con fecha **estrictamente anterior**, y solo si ese máximo previo era > 0 (la primera vez no es PR); dos sesiones del mismo día no se comparan entre sí. Se calcula en **una sola pasada cronológica** (O(n)) en vez de volver a filtrar todo el historial por cada sesión (necesario ahora que se renderiza la lista completa). Una prueba compara el resultado con `detectPRs` sobre un historial inventado de 80 sesiones.
+
+
+---
+
+## 31. RUNNING (`src/utils/running.js`, noviembre 2026)
+
+Seguimiento de carreras: bloque "Tu running" en Progreso (`computeRunningSummary`), pantalla `/progreso/running` (`computeRunningDetail`) y la fila "Cardio" del resumen de Constancia (`progressView.js`, sección 29). Funciones puras con pruebas en `running.test.js`; el JSX no calcula nada. El período es el de Progreso (`4w`, `13w`, `all`; sección 29) con el mismo período anterior de igual longitud.
+
+### Carreras válidas (`isValidRun`, `validRuns`)
+- `type: 'cardio'`, `activity: 'Running'` **sin distinguir mayúsculas** (ni espacios de más), **sin `cinta`**, `distancia > 0` y duración efectiva `> 0` (`getEffectiveDurationSeconds`: `durationSeconds` o, en workouts viejos, `tiempo` × 60). Caminata, Trekking, Bici, Rollers, Tenis y "otra" no son carreras. Nunca fechas futuras. Orden cronológico.
+- Cada carrera tiene `pace = tiempo / km` (`computePace`, calculado, no el campo guardado) y `fatigue` solo si es un número de 1 a 10 (sin dato = `null`, nunca 0).
+
+### Ritmo
+- **El ritmo de un conjunto de carreras es tiempo total ÷ km totales** (`paceOf`), no el promedio de los ritmos: una carrera de 1 km a 6:40 y otra de 5 km a 5:00 dan 5:17 (1900 s / 6 km), no 5:50.
+- **Rango válido**: se **excluyen de las estadísticas de ritmo** las carreras con ritmo **< 3:00** o **> 12:00 /km** (datos imposibles o mal cargados); justo 3:00 y 12:00 entran. Esas carreras **sí suman km** (total, barras, récord de semana, carrera más larga) y aparecen en la lista; no tienen punto en el gráfico de ritmo. Sin ninguna carrera de ritmo válido, el ritmo es `null` (se muestran solo los km).
+- **Comparación entre dos períodos** (`comparePace`): solo con **≥ 3 carreras de ritmo válido en CADA uno**; si no, se muestra solo el ritmo del período actual. Una carrera fuera de rango no cuenta para el mínimo. Resultado: `{ from, to, improvement, direction, text }` con segundos redondeados; `improvement = from − to` (positivo = más rápido = mejora). Texto: "35 s/km más rápido que antes" · "40 s/km más lento que antes" · "mismo ritmo que antes". **Verde si mejora, gris si no, nunca rojo ni lenguaje de culpa.** "Todo" no tiene período anterior: en el bloque no hay comparación y en Constancia se usa `firstLastPace` (primeras 3 vs. últimas 3 carreras de ritmo válido, mínimo 6).
+- **Media móvil** (`movingAverage`): promedio simple de las últimas 3 carreras de ritmo válido; la línea empieza en la tercera carrera (no hay línea con menos de 3). Las carreras fuera de rango no entran ni tienen valor.
+- **Eje Y del gráfico de ritmo** (`computePaceAxis`): dominio y marcas redondeados a 30 s (a 60 s si serían más de 6 marcas); el eje va **invertido** (más rápido arriba) y las etiquetas son mm:ss sin unidad (la unidad está en la leyenda "↑ más rápido (min/km)").
+
+### Bloque "Tu running" (`computeRunningSummary`)
+`{ periodKey, count, km, paceRuns, pace, comparison, bars, empty }`. **Estado vacío con menos de 2 carreras** en el período (con 0 no se puede abrir; con 1 sí). Número protagonista = km del período (`formatNumber`); debajo "N carreras · últimas 4 semanas"; ritmo promedio y tendencia solo si hay datos. **Barras de km** (`computeKmBars`): una por semana de lunes a domingo en "4 semanas" y "3 meses" y **una por mes en "Todo"** (desde la primera carrera hasta el mes en curso, meses sin correr en cero); la semana o el mes en curso con menos opacidad; los km de cada barra a 1 decimal.
+
+### Pantalla `/progreso/running` (`computeRunningDetail`)
+- **Series** (`series`): una entrada por carrera del período, en orden cronológico, **compartida por los dos gráficos** (por eso comparten eje X: cada carrera ocupa la misma columna; ambos usan las mismas márgenes y el mismo ancho de eje Y). `pace` es `null` si el ritmo está fuera de rango; `fatigue` es `null` sin esfuerzo (esa carrera no tiene punto en el gráfico de esfuerzo y la línea la salta); `paceAvg` es la media móvil.
+- **Distancia**: total del período y carrera más larga del período (empate: la más reciente).
+- **Conclusión** (`computeConclusion`): necesita **≥ 6 carreras** en el período; con menos devuelve `null` y no se muestra. Compara las primeras y las últimas `floor(n / 3)` carreras. El ritmo de cada tercio es tiempo total / km totales de sus carreras de ritmo válido; el esfuerzo es el promedio (1 decimal) de las que tienen `fatigue`. `paceDiff = ritmo del primer tercio − ritmo del último` en segundos redondeados (positivo = ahora más rápido) y `effortDiff = esfuerzo del último − esfuerzo del primero` (negativo = ahora menos esfuerzo). "Más rápido" = `paceDiff > 5`; "ritmo parecido" = `|paceDiff| ≤ 5`; "menos esfuerzo" = `effortDiff < −0,5`; "esfuerzo parecido" = `|effortDiff| ≤ 0,5`. Primera regla que se cumple:
+  1. más rápido y menos esfuerzo → "Corrés más rápido y con menos esfuerzo: tu estado físico mejora"
+  2. más rápido y esfuerzo parecido → "Corrés N s/km más rápido con un esfuerzo parecido"
+  3. ritmo parecido y menos esfuerzo → "Mismo ritmo, menos esfuerzo: estás más en forma"
+  4. otros casos → frase **neutral con el dato más positivo disponible**: más rápido ("Tu ritmo mejoró N s/km en este período"), si no menos esfuerzo ("Tus carreras te exigen menos esfuerzo que al principio"), si no los km del período ("Sumaste X km corriendo en este período"). Sin datos de esfuerzo las reglas 1 a 3 no pueden cumplirse. Nunca tono de culpa.
+- **Récords** (`computeRecords`): se calculan sobre **todo el historial de carreras válidas, no sobre el período** (por eso se rotulan "todo tu historial"), cada uno con fecha y con empate a favor del más reciente: **carrera más larga**; **mejor ritmo, solo carreras de 3 km o más** (`RECORD_MIN_KM`) y de ritmo válido; **semana con más km** (lunes a domingo, suma todas las carreras válidas, incluso las de ritmo fuera de rango). Cada uno es `null` si no hay datos.
+- **Lista**: carreras del período, la más reciente primero, con fecha corta ("12 nov", con año si no es el actual), km, tiempo, ritmo (el real, aunque esté fuera de rango), esfuerzo y notas (`line-clamp-2`).
+- **Período sin datos**: todo en cero/`null`, sin barras en "Todo" y 4 o 13 barras vacías en las otras vistas; la pantalla muestra un estado vacío amable y los récords.
+
+### Navegación
+`/progreso/running` es una ruta anidada del mismo `Layout`. El bloque navega con `state: { period }` y la pantalla arranca con ese período; el botón volver regresa a `/progreso` con el mismo `state`, así Progreso no se reinicia a "4 semanas". La pantalla sube al tope al abrirse.
+
+### Cambio de `formatKm`
+`formatKm` pasó de **hasta 2 decimales a hasta 1** ("58,1 km"; 5,25 km ahora se ve "5,3 km"). Afecta todo lo que muestra una distancia: resumen post-guardado, calendarios, detalle de un cardio, logros nuevos (`cinco5km`, `veinte20km`) y las pantallas de running. No cambia lo guardado en Firestore. Los detalles de logros ya guardados no se reescriben.
 
 ---
 

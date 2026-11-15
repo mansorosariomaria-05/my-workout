@@ -11,6 +11,7 @@ import Registro from './pages/Registro'
 import Rutinas from './pages/Rutinas'
 import Historial from './pages/Historial'
 import Progreso from './pages/Progreso'
+import ProgresoRunning from './pages/ProgresoRunning'
 import ConfigPage from './components/configuracion/ConfigPage'
 import SplashScreen from './components/SplashScreen'
 import { screenFor } from './utils/profileLoad'
@@ -60,6 +61,7 @@ function AppRoutes() {
         <Route path="rutinas"  element={<Rutinas />} />
         <Route path="historial" element={<Historial />} />
         <Route path="progreso" element={<Progreso />} />
+        <Route path="progreso/running" element={<ProgresoRunning />} />
         <Route path="configuracion" element={<ConfigPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

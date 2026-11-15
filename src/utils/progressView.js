@@ -6,14 +6,15 @@
 //   · Semanas de lunes a domingo. Fechas 'YYYY-MM-DD' sin zona horaria.
 //   · "Sin dato" (fatiga ausente, null o '') NUNCA cuenta como 0.
 
-import { REAL_WORKOUT_TYPES } from './streak.js'
 import { getExerciseUnit } from './exerciseUnit.js'
 import { finiteFatigue, round1, percentagesSummingTo100 } from './progressStats.js'
-import { getEffectivePaceSecondsPerKm } from './cardio.js'
 import { diffKg, formatNumber } from './format.js'
 import { addDays, daysBetween, mondayOf, monthOf } from './weeks.js'
+import { MONTH_NAMES, MONTH_SHORT, realWorkouts, VIEW_PERIODS, resolveViewPeriod, workoutsInRange, weekStartsOf } from './viewPeriod.js'
+import { isValidRun, runsInWindow, paceOf, comparePace, firstLastPace, SUMMARY_MIN_RUNS, validRuns } from './running.js'
 
-const REAL = new Set(REAL_WORKOUT_TYPES)
+// El período seleccionado vive en viewPeriod.js; se reexporta desde acá para no cambiar a los consumidores.
+export { VIEW_PERIODS, resolveViewPeriod, workoutsInRange, MONTH_NAMES }
 
 export const STABLE_AFTER_DAYS = 28      // más de 4 semanas sin mejorar el peso → "estable"
 export const RANKING_LIMIT = 5
@@ -21,48 +22,7 @@ export const BODY_MIN_RECORDS = 3        // registros de esfuerzo mínimos en el
 export const FATIGUE_LIGHT_BELOW = 5     // promedio < 5 → liviano
 export const FATIGUE_HIGH_FROM = 7       // promedio ≥ 7 → alto (misma regla que getFatigueStatus)
 
-export const MONTH_NAMES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-const MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
-
-const realWorkouts = (workouts, today) =>
-  (workouts ?? []).filter(w => w && w.date && REAL.has(w.type) && w.date <= today)
-
 const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length
-
-// ─── Período seleccionado ────────────────────────────────────────────────────
-
-export const VIEW_PERIODS = [
-  { key: '4w',  label: '4 semanas', weeks: 4 },
-  { key: '13w', label: '3 meses',   weeks: 13 },
-  { key: 'all', label: 'Todo',      weeks: null },
-]
-
-// '4w' / '13w': las N semanas que terminan en la semana en curso (la última es parcial, llega hasta hoy).
-// El período anterior termina el día anterior al inicio y dura LO MISMO en días (comparación pareja aunque
-// la semana en curso esté a medias). 'all': desde el lunes del primer entrenamiento hasta hoy, sin comparación.
-export function resolveViewPeriod(key, today, workouts = []) {
-  const n = VIEW_PERIODS.find(p => p.key === key)?.weeks
-  if (!n) {
-    const real = realWorkouts(workouts, today)
-    const first = real.length ? real.reduce((min, w) => (w.date < min ? w.date : min), real[0].date) : today
-    return { key: 'all', weeks: null, start: mondayOf(first), end: today, previous: null }
-  }
-  const start = addDays(mondayOf(today), -7 * (n - 1))
-  const length = daysBetween(start, today) + 1
-  const prevStart = addDays(start, -7 * n)
-  return { key, weeks: n, start, end: today, previous: { start: prevStart, end: addDays(prevStart, length - 1) } }
-}
-
-// Filtra los entrenamientos reales de una ventana [start, end].
-export const workoutsInRange = (workouts, range, today) =>
-  realWorkouts(workouts, today).filter(w => w.date >= range.start && w.date <= range.end)
-
-// Semanas (lunes) que toca la ventana, en orden cronológico.
-function weekStartsOf(range) {
-  const out = []
-  for (let ws = mondayOf(range.start); ws <= range.end; ws = addDays(ws, 7)) out.push(ws)
-  return out
-}
 
 // ─── Encabezado: histórico ───────────────────────────────────────────────────
 
@@ -278,48 +238,28 @@ export function computeBodySummary(workouts, periodKey, today) {
 
 // ─── Resumen de cierre por período (tarjeta de Constancia en "3 meses" y "Todo") ──
 
-const isRunning = (w) => w.type === 'cardio' && w.activity === 'Running'
 const sum = (arr) => arr.reduce((a, b) => a + b, 0)
 const monthLabel = (key) => MONTH_NAMES[Number(key.slice(5, 7)) - 1]
 const plural = (n, one, many) => `${formatNumber(n)} ${n === 1 ? one : many}`
 
 export const HEADLINE_STRENGTH_MIN = 3   // "Subiste peso en N ejercicios" desde 3 ejercicios
 
-// Sesiones de running con distancia y ritmo válidos, en orden cronológico: [{ date, km, pace (seg/km) }].
-function runningSessions(list) {
-  return list.filter(isRunning)
-    .map(w => ({ date: w.date, km: Number(w.distancia) || 0, pace: getEffectivePaceSecondsPerKm(w) }))
-    .filter(s => s.km > 0 && s.pace > 0)
-    .sort((a, b) => a.date.localeCompare(b.date))
-}
-
-// Ritmo promedio ponderado por distancia (seg/km): tiempo total / km totales.
-const avgPace = (sessions) => sum(sessions.map(s => s.pace * s.km)) / sum(sessions.map(s => s.km))
-
-// Cardio del período: solo con ≥ 2 sesiones de running con distancia. null si no alcanza.
-//   '13w': ritmo promedio vs. el de los 3 meses anteriores (mode 'previous'); sin datos previos, solo el promedio (mode null).
-//   'all': promedio de las primeras vs. las últimas carreras (mode 'firstLast'): 3 y 3 si hay 6 o más; con menos,
-//          las primeras n y las últimas n con n = floor(carreras / 2) (nunca se solapan).
+// Cardio del período (solo carreras válidas, reglas de utils/running.js): null con menos de 2 carreras.
+//   km = suma de TODAS las carreras válidas; avgPace = tiempo total / km totales de las carreras con ritmo entre 3:00 y 12:00
+//   (null si ninguna lo tiene). La comparación necesita ≥ 3 carreras con ritmo válido en cada lado:
+//   '13w': contra los 3 meses anteriores (mode 'previous'). 'all': primeras 3 vs. últimas 3, con ≥ 6 carreras (mode 'firstLast').
+//   Sin comparación: mode null y solo el promedio.
 // `improvement` = ritmo anterior − ritmo actual, en segundos redondeados (positivo = mejoró: el ritmo bajó).
-function summarizeCardio(workouts, periodKey, range, today, real) {
-  const sessions = runningSessions(real)
-  if (sessions.length < 2) return null
-  const km = sum(sessions.map(s => s.km))
-  const out = { sessions: sessions.length, km, avgPace: Math.round(avgPace(sessions)), mode: null, from: null, to: null, improvement: null, direction: null }
-  let from = null, to = null
-  if (periodKey === 'all') {
-    const n = Math.min(3, Math.floor(sessions.length / 2))
-    from = avgPace(sessions.slice(0, n)); to = avgPace(sessions.slice(-n))
-    out.mode = 'firstLast'
-  } else {
-    const prev = runningSessions(workoutsInRange(workouts, range.previous, today))
-    if (prev.length >= 1) { from = avgPace(prev); to = avgPace(sessions); out.mode = 'previous' }
-  }
-  if (out.mode) {
-    out.from = Math.round(from); out.to = Math.round(to)
-    out.improvement = out.from - out.to
-    out.direction = out.improvement > 0 ? 'better' : out.improvement < 0 ? 'worse' : 'same'
-  }
+function summarizeCardio(workouts, periodKey, range, today) {
+  const all = validRuns(workouts, today)
+  const runs = runsInWindow(all, range.start, range.end)
+  if (runs.length < SUMMARY_MIN_RUNS) return null
+  const pace = paceOf(runs)
+  const out = { sessions: runs.length, km: sum(runs.map(r => r.km)), avgPace: pace == null ? null : Math.round(pace), mode: null, from: null, to: null, improvement: null, direction: null }
+  const cmp = periodKey === 'all'
+    ? firstLastPace(runs)
+    : comparePace(runs, runsInWindow(all, range.previous.start, range.previous.end))
+  if (cmp) Object.assign(out, { mode: periodKey === 'all' ? 'firstLast' : 'previous', from: cmp.from, to: cmp.to, improvement: cmp.improvement, direction: cmp.direction })
   return out
 }
 
@@ -401,7 +341,7 @@ export function computePeriodSummary(workouts, periodKey, today, goal) {
   const mix = entries.map(e => ({ type: e.key, count: e.count, pct: pcts[e.key] })).sort((a, b) => b.count - a.count)
 
   const strengthImproved = computeStrengthRanking(workouts, periodKey, today).total
-  const cardio = summarizeCardio(workouts, periodKey, range, today, real)
+  const cardio = summarizeCardio(workouts, periodKey, range, today)
 
   // Mejor mes (solo "Todo"): el mes con más días distintos entrenados; ante empate, el más reciente.
   let bestMonth = null

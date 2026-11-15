@@ -90,10 +90,10 @@ function CardioRow({ cardio }) {
         {paceClock(cardio.from)} → {formatPace(cardio.to)}
       </span>
     )
-  } else {
+  } else if (cardio.avgPace != null) {
     pace = <span className="text-app-muted">promedio {formatPace(cardio.avgPace)}</span>
   }
-  return <>{formatKm(cardio.km)} corridos · ritmo {pace}</>
+  return <>{formatKm(cardio.km)} corridos{pace && <> · ritmo {pace}</>}</>
 }
 
 // Resumen de cierre de "3 meses" y "Todo": etiqueta, titular generado por reglas y datos de apoyo, un dato por fila.

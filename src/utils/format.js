@@ -73,8 +73,8 @@ export function formatScore(n) {
   return nfFix1.format(roundTo(n, 1) || 0)
 }
 
-// Distancia: hasta 2 decimales, con unidad. 5 → "5 km", 5.25 → "5,25 km".
+// Distancia: hasta 1 decimal, con unidad. 5 → "5 km", 58.1 → "58,1 km", 5.25 → "5,3 km".
 export function formatKm(n) {
   if (!isNum(n)) return DASH
-  return `${nfMax2.format(roundTo(n, 2) || 0)}${NBSP}km`
+  return `${nfMax1.format(roundTo(n, 1) || 0)}${NBSP}km`
 }

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthContext } from '../../context/AuthContext'
 import { useWorkouts } from '../../hooks/useWorkouts'
 import { useDeload } from '../../hooks/useDeload'
@@ -8,43 +9,29 @@ import {
   VIEW_PERIODS, computeHistorySummary, computeMonthComparison, computeConstanciaBars,
   computeStrengthRanking, computeBodySummary, computePeriodSummary,
 } from '../../utils/progressView'
+import { computeRunningSummary } from '../../utils/running'
 import { textoGenero } from '../../utils/genero'
 import { formatNumber } from '../../utils/format'
+import PeriodSelector from './PeriodSelector'
 import ConstanciaBlock from './ConstanciaBlock'
 import StrengthBlock from './StrengthBlock'
+import RunningBlock from './RunningBlock'
 import BodyBlock from './BodyBlock'
-
-// ─── Selector de período ──────────────────────────────────────────────────────
-
-// Segmented control. Afecta Constancia (tarjeta y gráfico), Más fuerte que antes y Cómo está tu cuerpo.
-function PeriodSelector({ value, onChange }) {
-  return (
-    <div role="radiogroup" aria-label="Período" className="flex rounded-xl p-1 bg-app-surface border border-white/[0.06]">
-      {VIEW_PERIODS.map(p => {
-        const active = p.key === value
-        return (
-          <button key={p.key} type="button" role="radio" aria-checked={active} onClick={() => onChange(p.key)}
-            className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-colors ${
-              active ? 'bg-app-purple/25 text-app-purple-light' : 'text-app-muted'
-            }`}>
-            {p.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 // ─── ProgresoPage ─────────────────────────────────────────────────────────────
 // Una sola pantalla con scroll, enfocada en el análisis: encabezado · período · Constancia · Más fuerte que antes ·
-// Cómo está tu cuerpo. El calendario y la lista de sesiones viven en la pestaña Historial (/historial).
-// Los cálculos viven en utils/progressView.js.
+// Tu running · Cómo está tu cuerpo. El período afecta a todos los bloques. El calendario y la lista de sesiones viven
+// en la pestaña Historial (/historial) y el detalle de running en /progreso/running. Los cálculos viven en
+// utils/progressView.js y utils/running.js.
 
 export default function ProgresoPage() {
   const { profile, settings } = useAuthContext()
   const { workouts, loading, getWeeklyStreak3Plus } = useWorkouts()
   const { shouldSuggestDeload } = useDeload(settings, workouts)
-  const [period, setPeriod] = useState('4w')
+  const navigate = useNavigate()
+  const location = useLocation()
+  // Al volver desde /progreso/running llega el período que se estaba mirando.
+  const [period, setPeriod] = useState(() => (VIEW_PERIODS.some(p => p.key === location.state?.period) ? location.state.period : '4w'))
 
   const today  = getTodayLocal()
   const goal   = getWeeklyGoal(profile)
@@ -55,6 +42,7 @@ export default function ProgresoPage() {
   const chart      = useMemo(() => computeConstanciaBars(workouts, period, today, goal), [workouts, period, today, goal])
   const summary    = useMemo(() => computePeriodSummary(workouts, period, today, goal), [workouts, period, today, goal])
   const ranking    = useMemo(() => computeStrengthRanking(workouts, period, today),     [workouts, period, today])
+  const running    = useMemo(() => computeRunningSummary(workouts, period, today),      [workouts, period, today])
   const body       = useMemo(() => computeBodySummary(workouts, period, today),         [workouts, period, today])
 
   if (loading) return (
@@ -86,6 +74,8 @@ export default function ProgresoPage() {
         <ConstanciaBlock comparison={comparison} streak={streak} goal={goal} chart={chart} summary={summary} />
 
         <StrengthBlock rows={ranking.rows} workouts={workouts} today={today} />
+
+        <RunningBlock summary={running} onOpen={() => navigate('/progreso/running', { state: { period } })} />
 
         <BodyBlock body={body} period={period} suggestDeload={shouldSuggestDeload() && !settings?.deloadActive} />
 

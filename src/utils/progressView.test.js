@@ -337,39 +337,65 @@ describe('resumen por período', () => {
     })
   })
 
-  describe('cardio', () => {
-    it('con menos de 2 sesiones de running con distancia no hay datos de cardio', () => {
+  describe('cardio (reglas de utils/running.js)', () => {
+    it('con menos de 2 carreras válidas no hay datos de cardio', () => {
       expect(computePeriodSummary([run('2026-10-01', 5, 2000)], '13w', TODAY, GOAL).cardio).toBeNull()
       const raros = [run('2026-10-01', 5, 2000), wk('cardio', '2026-10-05', { activity: 'Bici', distancia: 20, durationSeconds: 3000 }),
         wk('cardio', '2026-10-08', { activity: 'Running' })]                  // sin distancia
       expect(computePeriodSummary(raros, '13w', TODAY, GOAL).cardio).toBeNull()
     })
+    it('"running" en minúsculas cuenta; una cinta o una caminata no', () => {
+      const ws = [wk('cardio', '2026-10-01', { activity: 'running', distancia: 5, durationSeconds: 2000 }),
+        wk('cardio', '2026-10-08', { activity: ' Running ', distancia: 3, durationSeconds: 1200 }),
+        wk('cardio', '2026-10-09', { activity: 'Running', cinta: { min: 20 }, distancia: 2, durationSeconds: 900 }),
+        wk('cardio', '2026-10-10', { activity: 'Caminata', distancia: 4, durationSeconds: 2400 })]
+      expect(computePeriodSummary(ws, '13w', TODAY, GOAL).cardio).toMatchObject({ sessions: 2, km: 8 })
+    })
     it('3 meses sin datos previos: km totales y solo el promedio', () => {
       const c = computePeriodSummary([run('2026-10-01', 5, 2000), run('2026-10-08', 3, 1200)], '13w', TODAY, GOAL).cardio
       expect(c).toMatchObject({ sessions: 2, km: 8, avgPace: 400, mode: null, improvement: null, direction: null })
     })
-    it('3 meses: ritmo que MEJORA contra los 3 meses anteriores', () => {
-      const ws = [run('2026-06-10', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)]
+    it('3 meses: con menos de 3 carreras en el período anterior NO se compara (solo el promedio actual)', () => {
+      const ws = [run('2026-06-10', 5, 3000), run('2026-06-17', 5, 3000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825), run('2026-10-15', 5, 1825)]
+      expect(computePeriodSummary(ws, '13w', TODAY, GOAL).cardio).toMatchObject({ avgPace: 365, mode: null, from: null, direction: null })
+    })
+    it('3 meses: con menos de 3 carreras en el período actual NO se compara', () => {
+      const ws = [run('2026-06-10', 5, 2000), run('2026-06-17', 5, 2000), run('2026-06-24', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)]
+      expect(computePeriodSummary(ws, '13w', TODAY, GOAL).cardio).toMatchObject({ avgPace: 365, mode: null })
+    })
+    it('3 meses: ritmo que MEJORA contra los 3 meses anteriores (3 carreras en cada uno)', () => {
+      const ws = [run('2026-06-10', 5, 2000), run('2026-06-17', 5, 2000), run('2026-06-24', 5, 2000),
+        run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825), run('2026-10-15', 5, 1825)]
       const c = computePeriodSummary(ws, '13w', TODAY, GOAL).cardio
       expect(c).toMatchObject({ mode: 'previous', from: 400, to: 365, improvement: 35, direction: 'better' })
     })
     it('3 meses: ritmo que EMPEORA (en los datos solo queda direction: worse)', () => {
-      const ws = [run('2026-06-10', 5, 1800), run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000)]
+      const ws = [run('2026-06-10', 5, 1800), run('2026-06-17', 5, 1800), run('2026-06-24', 5, 1800),
+        run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000), run('2026-10-15', 5, 2000)]
       const c = computePeriodSummary(ws, '13w', TODAY, GOAL).cardio
       expect(c).toMatchObject({ from: 360, to: 400, improvement: -40, direction: 'worse' })
     })
-    it('Todo: primeras 3 vs. últimas 3 carreras', () => {
+    it('una carrera con ritmo imposible suma km pero no entra en el ritmo', () => {
+      const ws = [run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000), run('2026-10-15', 5, 600)]   // la última: 2:00 /km
+      const c = computePeriodSummary(ws, '13w', TODAY, GOAL).cardio
+      expect(c).toMatchObject({ sessions: 3, km: 15, avgPace: 400 })
+    })
+    it('si ninguna carrera tiene ritmo válido, avgPace es null pero los km se muestran', () => {
+      const c = computePeriodSummary([run('2026-10-01', 5, 600), run('2026-10-08', 5, 600)], '13w', TODAY, GOAL).cardio
+      expect(c).toMatchObject({ sessions: 2, km: 10, avgPace: null, mode: null })
+    })
+    it('Todo: primeras 3 vs. últimas 3 carreras (con 6 o más)', () => {
       const ws = [run('2026-04-01', 5, 2000), run('2026-04-08', 5, 2000), run('2026-04-15', 5, 2000),
         run('2026-07-01', 5, 1900), run('2026-08-01', 5, 1900),
         run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825), run('2026-10-15', 5, 1825)]
       const c = computePeriodSummary(ws, 'all', TODAY, GOAL).cardio
       expect(c).toMatchObject({ sessions: 8, km: 40, mode: 'firstLast', from: 400, to: 365, improvement: 35, direction: 'better' })
     })
-    it('Todo con pocas carreras: primeras n vs. últimas n sin solaparse', () => {
+    it('Todo con menos de 6 carreras: no se compara, solo el promedio', () => {
+      const cinco = [run('2026-04-01', 5, 2000), run('2026-04-08', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825), run('2026-10-15', 5, 1825)]
+      expect(computePeriodSummary(cinco, 'all', TODAY, GOAL).cardio).toMatchObject({ sessions: 5, mode: null, from: null })
       const dos = computePeriodSummary([run('2026-04-01', 5, 2000), run('2026-10-01', 5, 1825)], 'all', TODAY, GOAL).cardio
-      expect(dos).toMatchObject({ from: 400, to: 365 })
-      const cuatro = computePeriodSummary([run('2026-04-01', 5, 2000), run('2026-04-08', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)], 'all', TODAY, GOAL).cardio
-      expect(cuatro).toMatchObject({ from: 400, to: 365 })
+      expect(dos).toMatchObject({ sessions: 2, mode: null, avgPace: 383 })
     })
   })
 
@@ -395,7 +421,7 @@ describe('resumen por período', () => {
 
   describe('titular por prioridad', () => {
     const fuerte = desc([press('2026-10-05', 20), press('2026-11-05', 25)])   // 3 ejercicios suben
-    const corre = [run('2026-06-10', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825)]
+    const corre = [run('2026-06-10', 5, 2000), run('2026-06-17', 5, 2000), run('2026-06-24', 5, 2000), run('2026-10-01', 5, 1825), run('2026-10-08', 5, 1825), run('2026-10-15', 5, 1825)]
     it('a) promedio >= objetivo: "Sostuviste tu objetivo" (gana sobre todo lo demás)', () => {
       const sostiene = Array.from({ length: 12 }, (_, i) => days(M(i + 1), 4)).flat()
       const h = computePeriodSummary([...sostiene, ...fuerte, ...corre], '13w', TODAY, GOAL).headline
@@ -414,7 +440,7 @@ describe('resumen por período', () => {
       expect(h).toEqual({ rule: 'cardio', text: 'Corrés más rápido: tu ritmo mejoró 35 s/km' })
     })
     it('c) no se elige si el ritmo empeoró o no hay comparación', () => {
-      const peor = [run('2026-06-10', 5, 1800), run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000)]
+      const peor = [run('2026-06-10', 5, 1800), run('2026-06-17', 5, 1800), run('2026-06-24', 5, 1800), run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000), run('2026-10-15', 5, 2000)]
       expect(computePeriodSummary(peor, '13w', TODAY, GOAL).headline.rule).toBe('habit')
       expect(computePeriodSummary([run('2026-10-01', 5, 2000), run('2026-10-08', 5, 2000)], '13w', TODAY, GOAL).headline.rule).toBe('habit')
     })

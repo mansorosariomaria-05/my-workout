@@ -31,6 +31,7 @@ src/
     Rutinas.jsx                # Página de rutinas (tabs: Pre-armadas, Generador, Biblioteca)
     Historial.jsx              # Pestaña Historial: wrapper de components/historial/HistorialPage.jsx
     Progreso.jsx               # Página de progreso (análisis)
+    ProgresoRunning.jsx        # Pantalla /progreso/running: wrapper de components/progreso/RunningPage.jsx
 
   components/
     registro/
@@ -55,6 +56,11 @@ src/
       ProgressUI.jsx           # ProgressCard (Card + borde) y SectionTitle compartidos por todos los bloques (también los usa Historial)
       ConstanciaBlock.jsx      # Bloque protagonista: mes vs. mes anterior, racha, gráfico de barras por período
       StrengthBlock.jsx        # "Más fuerte que antes": ranking de progreso de peso; abre ExerciseProgress en un Modal
+      RunningBlock.jsx         # "Tu running": km del período, carreras, ritmo, tendencia y mini gráfico; abre /progreso/running
+      RunningPage.jsx          # Pantalla de detalle de running (RunningPage = contenedor, RunningView = presentación)
+      RunningCharts.jsx        # Gráficos de ritmo (eje Y invertido + media móvil) y de esfuerzo, con el mismo eje X
+      KmBarsChart.jsx          # Barras de km por semana o por mes (versión compacta para el bloque)
+      PeriodSelector.jsx       # Segmented control "4 semanas · 3 meses · Todo" (Progreso y running)
       BodyBlock.jsx            # "Cómo está tu cuerpo": esfuerzo percibido promedio, nivel y tendencia
       FatigueChart.jsx         # Gráfico de línea del promedio semanal de esfuerzo (lo usa BodyBlock)
       ExerciseProgress.jsx     # Progresión de peso por ejercicio (buscador + gráfico); acepta initialExerciseId
@@ -106,6 +112,8 @@ src/
     streak.js                  # Tipos reales (REAL_WORKOUT_TYPES) y umbral de la "Racha semanal 3+" (STREAK_MIN_DAYS = 3)
     weeks.js                   # Aritmética pura de fechas YYYY-MM-DD y semanas lunes-domingo (addDays, mondayOf, ...)
     historyView.js             # Cálculos de la pestaña Historial: lista de sesiones, agrupación por mes y marca de PR. Puro; con pruebas en historyView.test.js
+    viewPeriod.js              # Período de Progreso (4w / 13w / all): VIEW_PERIODS, resolveViewPeriod, workoutsInRange, weekStartsOf. Lo comparten progressView.js y running.js
+    running.js                 # Seguimiento de running: carreras válidas, ritmo por total, rangos, comparaciones, media móvil, conclusión, récords, resumen y detalle. Puro; con pruebas en running.test.js
     progressView.js            # Cálculos de la pantalla Progreso: período seleccionado, comparación mensual, barras de constancia, ranking de progreso de peso, esfuerzo percibido. Puro; con pruebas en progressView.test.js
     format.js                  # Formato de números (es-AR): formatKg, formatDeltaKg, formatPct, formatPercent, formatScore, formatNumber, formatKm, diffKg. Todo número visible pasa por acá
     progressStats.js           # MÓDULO ÚNICO de cálculos de Progreso (períodos 4w/12w/all, indicadores, récords, mayor progreso, más trabajado, totales, cansancio, dato clave). Puro; con pruebas en progressStats.test.js
@@ -438,10 +446,11 @@ Una sola pantalla con scroll (`pages/Progreso.jsx` → `components/progreso/Prog
 
 Orden de arriba hacia abajo:
 1. **Encabezado**: "Tu progreso", línea muted con el histórico ("77 entrenamientos · 7 meses entrenando") y la frase motivacional (solo si es corta).
-2. **Selector de período** (segmented control): "4 semanas" · "3 meses" · "Todo" (por defecto 4 semanas). Afecta la tarjeta de Constancia (contenido y gráfico) y los bloques "Más fuerte que antes" y "Cómo está tu cuerpo".
+2. **Selector de período** (segmented control): "4 semanas" · "3 meses" · "Todo" (por defecto 4 semanas). Afecta la tarjeta de Constancia (contenido y gráfico) y los bloques "Más fuerte que antes", "Tu running" y "Cómo está tu cuerpo".
 3. **Constancia** (`ConstanciaBlock`, la tarjeta grande) **responde al período**. **4 semanas = en vivo**: número grande con los entrenamientos del mes ("6" / "entrenamientos en noviembre"), comparación con el mes anterior a la misma altura del mes, chip 🔥 con la racha semanal 3+ y "N de 4 días esta semana". **3 meses y Todo = resumen de cierre** (`computePeriodSummary`): etiqueta ("ÚLTIMOS 3 MESES" / "DESDE ABRIL"), titular generado por reglas (objetivo sostenido > subió peso en 3+ ejercicios > mejoró el ritmo > hábito mantenido) y filas de apoyo: constancia (días por semana promedio y semanas que cumplen el objetivo), qué entrenaste (barra segmentada con %), fuerza, cardio (running) y, solo en Todo, mejor mes. Sin chip de racha ni estado de la semana (es info del presente). Debajo, en todas las vistas, el gráfico de barras de **días distintos** entrenados apilados por tipo con línea punteada en `profile.diasSemana`.
 4. **Más fuerte que antes** (`StrengthBlock`): hasta 5 ejercicios con mayor progreso de peso en el período; tocar una fila abre `ExerciseProgress` en un Modal; "Ver todos los ejercicios" abre el buscador.
-5. **Cómo está tu cuerpo** (`BodyBlock` + `FatigueChart`): esfuerzo percibido promedio (campo `fatigue`), nivel (Liviano / Moderado / Alto), tendencia vs. el período anterior y gráfico semanal. Nunca rojo ni 🔥.
+5. **Tu running** (`RunningBlock`, debajo de "Más fuerte que antes", respeta el período): km del período como número protagonista, cantidad de carreras, ritmo promedio y tendencia contra el período anterior (solo con ≥ 3 carreras de ritmo válido en cada uno; verde si mejora, gris si no, nunca rojo) y un mini gráfico de km por semana (por mes en "Todo"). Con menos de 2 carreras en el período muestra un estado vacío amable. **Tocarlo abre `/progreso/running`** (con el período elegido). Reglas en `utils/running.js` (`LOGICA_TECNICA.md`, sección 31).
+6. **Cómo está tu cuerpo** (`BodyBlock` + `FatigueChart`): esfuerzo percibido promedio (campo `fatigue`), nivel (Liviano / Moderado / Alto), tendencia vs. el período anterior y gráfico semanal. Nunca rojo ni 🔥.
 
 El calendario mensual y la lista de sesiones **ya no están en Progreso**: se movieron a la pestaña Historial. Ningún texto de Progreso apunta a un historial interno.
 
@@ -449,6 +458,17 @@ Reglas visuales de la pantalla: todas las tarjetas son `Card` (`ProgressCard`) c
 
 Eliminados en este rediseño: las tarjetas "Tu camino" y "Tus victorias" (`CaminoCard`, `VictoriaCard`), "Esta semana" (`WeekRow`), "Principales progresiones", y los indicadores de días únicos, % de mayor progreso, ejercicio más trabajado, PRs históricos y fatiga como "victoria". `WorkoutHistorial.jsx` (calendario + historial) pasó a llamarse `MonthCalendar.jsx` y, junto con la lista de sesiones (antes `UltimasSesiones.jsx`, hoy `SessionList.jsx`), se mudó a `components/historial/`.
 
+
+
+### Pantalla de running (`/progreso/running`)
+
+Ruta anidada en el mismo `Layout` (`pages/ProgresoRunning.jsx` → `components/progreso/RunningPage.jsx`); la barra inferior sigue marcando Progreso. Encabezado con botón volver (vuelve a `/progreso` conservando el período), título "Running" y el mismo selector de período, que arranca con el que estaba elegido en Progreso. Todo el cálculo está en `computeRunningDetail` (`utils/running.js`). Secciones de arriba hacia abajo, con las mismas tarjetas y títulos que Progreso y el verde de cardio de `TYPE_COLORS` para running:
+1. **Distancia**: barras de km por semana (4 semanas / 3 meses) o por mes (Todo); debajo, total del período y carrera más larga.
+2. **Ritmo**: un punto por carrera, eje Y invertido (más rápido arriba) con etiquetas mm:ss y una línea suave de media móvil de 3 carreras; leyenda "↑ más rápido".
+3. **Esfuerzo**: línea del campo `fatigue` de cada carrera (1 a 10), con el mismo eje X que el de ritmo y alineado justo debajo; las carreras sin esfuerzo no tienen punto.
+4. **Conclusión**: una frase por reglas (primer tercio vs. último tercio, mínimo 6 carreras; si hay menos no se muestra).
+5. **Récords** (de todo el historial): carrera más larga, mejor ritmo (solo carreras de 3 km o más) y semana con más km, con fecha.
+6. **Carreras**: lista del período, la más reciente primero (fecha, km, tiempo, ritmo, esfuerzo y notas con `line-clamp-2`).
 
 ---
 

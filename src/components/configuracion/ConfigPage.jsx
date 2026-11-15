@@ -275,7 +275,7 @@ export default function ConfigPage() {
             <div className="mt-3 pt-3 border-t border-white/5 space-y-1">
               <p className="text-app-muted text-xs">· Fuerza: 65% del peso habitual, 2 series</p>
               <p className="text-app-muted text-xs">· Cardio: 20-40 min, ritmo suave</p>
-              <p className="text-app-muted text-xs">· HIIT/Tabata: aviso antes de empezar</p>
+              <p className="text-app-muted text-xs">· HIIT: aviso antes de empezar</p>
             </div>
           )}
         </Section>

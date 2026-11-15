@@ -10,11 +10,10 @@ PWA de registro de entrenamientos personales para uso móvil. El usuario puede:
 - Registrar sesiones de **Fuerza** (ejercicios, series, reps, peso), **Cardio** y **Clase**
 - Seguir un sistema de **progresión de carga** adaptado a su objetivo
 - Ver **sugerencias diarias** de qué entrenar
-- Consultar su **historial** y gráficos de progreso
+- Consultar su **historial** (pestaña Historial: calendario mensual y sesiones por mes) y sus gráficos de **progreso**
 - Desbloquear **logros** automáticamente
 - Usar una **biblioteca de ejercicios** y **rutinas pre-armadas**
 - Crear rutinas personalizadas y ejercicios propios
-- Ejecutar **protocolos Tabata**
 
 ---
 
@@ -30,8 +29,8 @@ src/
     Inicio.jsx                 # Home: hero, sugerencia diaria, últimos entrenamientos, logros, frase
     Registro.jsx               # Wrapper de WorkoutWizard (lee location.state)
     Rutinas.jsx                # Página de rutinas (tabs: Pre-armadas, Generador, Biblioteca)
-    Progreso.jsx               # Página de progreso
-    Tabata.jsx                 # Página de Tabata
+    Historial.jsx              # Pestaña Historial: wrapper de components/historial/HistorialPage.jsx
+    Progreso.jsx               # Página de progreso (análisis)
 
   components/
     registro/
@@ -51,27 +50,27 @@ src/
       Logros.jsx               # Sistema de logros (compact en home, vitrina completa)
       WeekCalendar.jsx         # Calendario semanal — tocar un día con check abre el detalle (solo lectura) de ese día
 
-    progreso/                  # Pantalla Progreso (ver sección "Pantalla Progreso")
+    progreso/                  # Pantalla Progreso: solo análisis (ver sección "Pantalla Progreso")
       ProgresoPage.jsx         # Una sola pantalla con scroll: encabezado, selector de período y los bloques
-      ProgressUI.jsx           # ProgressCard (Card + borde) y SectionTitle compartidos por todos los bloques
+      ProgressUI.jsx           # ProgressCard (Card + borde) y SectionTitle compartidos por todos los bloques (también los usa Historial)
       ConstanciaBlock.jsx      # Bloque protagonista: mes vs. mes anterior, racha, gráfico de barras por período
       StrengthBlock.jsx        # "Más fuerte que antes": ranking de progreso de peso; abre ExerciseProgress en un Modal
       BodyBlock.jsx            # "Cómo está tu cuerpo": esfuerzo percibido promedio, nivel y tendencia
       FatigueChart.jsx         # Gráfico de línea del promedio semanal de esfuerzo (lo usa BodyBlock)
-      MonthCalendar.jsx        # Calendario mensual por tipo de entrenamiento + detalle del día (modal)
-      UltimasSesiones.jsx      # Últimas 5 sesiones (o todas con "Ver todo el historial"); notas hasta 2 líneas
       ExerciseProgress.jsx     # Progresión de peso por ejercicio (buscador + gráfico); acepta initialExerciseId
       WeeklyStreakCard.jsx     # Tarjeta "Racha semanal 3+" con dorso: SOLO la usa Inicio
 
-    tabata/                    # Solo referencia (protocolos): no tiene temporizador
-      TabataPage.jsx / TabataCard.jsx / TabataDetail.jsx
+    historial/                 # Pestaña Historial (ver sección "Pestaña Historial")
+      HistorialPage.jsx        # Título, calendario mensual y lista de sesiones agrupada por mes
+      MonthCalendar.jsx        # Calendario mensual por tipo de entrenamiento + detalle del día (modal)
+      SessionList.jsx          # Lista completa de sesiones con un encabezado por mes ("Noviembre 2026"); notas hasta 2 líneas
 
     ui/
       Button.jsx / Card.jsx / Modal.jsx / RestTimer.jsx / FlipCard.jsx
 
     layout/
       Layout.jsx               # Shell con BottomNav
-      BottomNav.jsx            # Barra de navegación inferior
+      BottomNav.jsx            # Barra inferior: Inicio · Biblioteca · [+] · Historial · Progreso (2 + 2)
 
     auth/AuthScreen.jsx        # Login con Google
     onboarding/Onboarding.jsx  # Configuración inicial (10 pasos)
@@ -97,7 +96,6 @@ src/
     exercises.js               # Catálogo de ~75 ejercicios + MUSCLE_GROUPS
     routines.js                # 5 rutinas pre-armadas
     frases.js                  # Frases motivacionales pre/post entrenamiento
-    tabatas.js                 # Protocolos Tabata predefinidos
 
   utils/
     progression.js             # Doble progresión, Epley, bono de reps por salto
@@ -107,6 +105,7 @@ src/
     cardio.js                  # Tiempo/ritmo de cardio: toSeconds, formatDuration, computePace, etc.
     streak.js                  # Tipos reales (REAL_WORKOUT_TYPES) y umbral de la "Racha semanal 3+" (STREAK_MIN_DAYS = 3)
     weeks.js                   # Aritmética pura de fechas YYYY-MM-DD y semanas lunes-domingo (addDays, mondayOf, ...)
+    historyView.js             # Cálculos de la pestaña Historial: lista de sesiones, agrupación por mes y marca de PR. Puro; con pruebas en historyView.test.js
     progressView.js            # Cálculos de la pantalla Progreso: período seleccionado, comparación mensual, barras de constancia, ranking de progreso de peso, esfuerzo percibido. Puro; con pruebas en progressView.test.js
     format.js                  # Formato de números (es-AR): formatKg, formatDeltaKg, formatPct, formatPercent, formatScore, formatNumber, formatKm, diffKg. Todo número visible pasa por acá
     progressStats.js           # MÓDULO ÚNICO de cálculos de Progreso (períodos 4w/12w/all, indicadores, récords, mayor progreso, más trabajado, totales, cansancio, dato clave). Puro; con pruebas en progressStats.test.js
@@ -139,8 +138,8 @@ users/{uid}/
   customRoutines/{id} → rutinas creadas por el usuario
   customExercises/{id}→ ejercicios creados por el usuario
   intentions/{weekKey}→ LEGACY: intención semanal (clave: 'YYYY-MM-DD' del lunes). Sin UI ni código que la lea o escriba desde noviembre 2026; los documentos existentes no se tocaron
-  tabataRecords/{id}  → { tabataId, tabataName, date }
-  tabataSettings/{tabataId} → ajustes de tabata por protocolo
+  tabataRecords/{id}  → LEGACY, sin uso: la pestaña Tabata se eliminó (noviembre 2026). Los documentos existentes NO se borraron y ningún código los lee ni escribe
+  tabataSettings/{tabataId} → LEGACY, sin uso (ajustes de la antigua pestaña Tabata). Se dejan en Firestore
 ```
 
 ### Estructura de un workout (Fuerza)
@@ -339,7 +338,7 @@ Ver `LOGICA_TECNICA.md` sección 16 para el algoritmo completo y la fundamentaci
 - Se activa al completar una serie
 - Tiempo configurable desde settings o sobreescrito por usuario
 
-**Unidad por ejercicio** (campo `unit`: `'reps'` o `'secs'`, resuelto con `getExerciseUnit` en `utils/exerciseUnit.js`; ver `LOGICA_TECNICA.md` sección 24): los ejercicios en `'secs'` (Sentadilla isométrica, La Plancha, Plancha lateral, Hollow Body Hold) rotulan la columna "Seg", el peso es opcional y los segundos se guardan en `sets[].reps`. **No hay temporizador ▶ por serie** (se eliminó; `TIME_EXERCISES` ya no existe): solo queda el timer de descanso entre series. La sección **Tabata es solo de referencia y no tiene temporizador**.
+**Unidad por ejercicio** (campo `unit`: `'reps'` o `'secs'`, resuelto con `getExerciseUnit` en `utils/exerciseUnit.js`; ver `LOGICA_TECNICA.md` sección 24): los ejercicios en `'secs'` (Sentadilla isométrica, La Plancha, Plancha lateral, Hollow Body Hold) rotulan la columna "Seg", el peso es opcional y los segundos se guardan en `sets[].reps`. **No hay temporizador ▶ por serie** (se eliminó; `TIME_EXERCISES` ya no existe): solo queda el timer de descanso entre series. La pestaña Tabata (solo de referencia, sin temporizador) **se eliminó** en noviembre 2026; `'tabata'` queda únicamente como tipo de lectura histórica (ver sección "Pestaña Historial").
 
 ---
 
@@ -415,7 +414,7 @@ Ver `LOGICA_TECNICA.md` sección 17 para el algoritmo completo.
 
 ## Sistema de logros (Logros.jsx)
 
-35 logros permanentes (`ACHIEVEMENTS_META`) agrupados en: Consistencia, Fuerza, Cardio, Balance, Especiales; además hay 4 medallas semanales de un pool de 12.
+34 logros permanentes (`ACHIEVEMENTS_META`; `tabataMaster` se eliminó junto con la pestaña Tabata y la vitrina ignora cualquier clave guardada en Firestore que ya no esté en la metadata) agrupados en: Consistencia, Fuerza, Cardio, Balance, Especiales; además hay 4 medallas semanales de un pool de 12.
 
 Se computan **en el cliente** al cargar la home, comparando el array `workouts` con los logros ya desbloqueados en Firestore. Solo se graba si el logro no estaba desbloqueado.
 
@@ -423,7 +422,7 @@ Guardado en Firestore: `users/{uid}/data/achievements → { [key]: { unlocked: t
 
 Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con grid 3 columnas, flip card frente/reverso).
 
-**Racha semanal 3+** (`utils/progressStats.js` → `computeWeeklyStreak3Plus`, desde noviembre 2026): la cantidad **TOTAL** de semanas (lunes a domingo) de todo el historial con **3 o más días distintos** de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`). **No requiere semanas consecutivas y nunca baja**; la semana en curso suma apenas llega a 3 días. Reemplaza a la racha de semanas consecutivas (se eliminaron `computeStreak`, `computeStreakStats` y `getCurrentStreak`; ya no hay "récord de racha"). Inicio y Progreso usan la misma tarjeta (`WeeklyStreakCard`) y las mismas funciones de `useWorkouts` (`getWeeklyStreak3Plus()`, `getMonthSummary()`, memoizadas). Los logros `rachaFuego` y `rachaElite` ("semanas seguidas") ahora leen `computeMaxStreak(workouts, 3)` de `achievements.js` (mismo resultado que antes). Ver `LOGICA_TECNICA.md` secciones 1 y 26.
+**Racha semanal 3+** (`utils/progressStats.js` → `computeWeeklyStreak3Plus`, desde noviembre 2026): la cantidad **TOTAL** de semanas (lunes a domingo) de todo el historial con **3 o más días distintos** de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`; `tabata` se mantiene solo para leer workouts históricos). **No requiere semanas consecutivas y nunca baja**; la semana en curso suma apenas llega a 3 días. Reemplaza a la racha de semanas consecutivas (se eliminaron `computeStreak`, `computeStreakStats` y `getCurrentStreak`; ya no hay "récord de racha"). Inicio y Progreso usan la misma tarjeta (`WeeklyStreakCard`) y las mismas funciones de `useWorkouts` (`getWeeklyStreak3Plus()`, `getMonthSummary()`, memoizadas). Los logros `rachaFuego` y `rachaElite` ("semanas seguidas") ahora leen `computeMaxStreak(workouts, 3)` de `achievements.js` (mismo resultado que antes). Ver `LOGICA_TECNICA.md` secciones 1 y 26.
 
 **Módulo de cálculos de Progreso** (`utils/progressStats.js`, `LOGICA_TECNICA.md` sección 26): fuente única de la racha, de los **récords** (métrica principal por ejercicio: kg, seg o reps; los usa el logro "Superaste 3 PRs") y del **estado de cansancio** (`getFatigueStatus`: promedio de las últimas 2 semanas completas ≥ 7 con ≥ 3 registros; lo usa la sugerencia de descarga). Los ejercicios se agrupan por id del catálogo o por nombre normalizado (las alternativas `alt-…` no fragmentan el historial). Las pruebas automáticas (`npm test`, vitest) cubren el módulo.
 
@@ -435,20 +434,34 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 
 ## Pantalla Progreso
 
-Una sola pantalla con scroll (`pages/Progreso.jsx` → `components/progreso/ProgresoPage.jsx`), sin tabs. Los cálculos viven en `utils/progressView.js` (puro) y todo número pasa por `utils/format.js`. Detalle de cada fórmula en `LOGICA_TECNICA.md`, sección 29.
+Una sola pantalla con scroll (`pages/Progreso.jsx` → `components/progreso/ProgresoPage.jsx`), sin tabs, enfocada en el **análisis**. El calendario y la lista de sesiones viven en la pestaña **Historial** (`/historial`). Los cálculos viven en `utils/progressView.js` (puro) y todo número pasa por `utils/format.js`. Detalle de cada fórmula en `LOGICA_TECNICA.md`, sección 29.
 
 Orden de arriba hacia abajo:
 1. **Encabezado**: "Tu progreso", línea muted con el histórico ("77 entrenamientos · 7 meses entrenando") y la frase motivacional (solo si es corta).
-2. **Selector de período** (segmented control): "4 semanas" · "3 meses" · "Todo" (por defecto 4 semanas). Afecta la tarjeta de Constancia (contenido y gráfico) y los bloques "Más fuerte que antes" y "Cómo está tu cuerpo". No afecta el calendario ni las sesiones.
+2. **Selector de período** (segmented control): "4 semanas" · "3 meses" · "Todo" (por defecto 4 semanas). Afecta la tarjeta de Constancia (contenido y gráfico) y los bloques "Más fuerte que antes" y "Cómo está tu cuerpo".
 3. **Constancia** (`ConstanciaBlock`, la tarjeta grande) **responde al período**. **4 semanas = en vivo**: número grande con los entrenamientos del mes ("6" / "entrenamientos en noviembre"), comparación con el mes anterior a la misma altura del mes, chip 🔥 con la racha semanal 3+ y "N de 4 días esta semana". **3 meses y Todo = resumen de cierre** (`computePeriodSummary`): etiqueta ("ÚLTIMOS 3 MESES" / "DESDE ABRIL"), titular generado por reglas (objetivo sostenido > subió peso en 3+ ejercicios > mejoró el ritmo > hábito mantenido) y filas de apoyo: constancia (días por semana promedio y semanas que cumplen el objetivo), qué entrenaste (barra segmentada con %), fuerza, cardio (running) y, solo en Todo, mejor mes. Sin chip de racha ni estado de la semana (es info del presente). Debajo, en todas las vistas, el gráfico de barras de **días distintos** entrenados apilados por tipo con línea punteada en `profile.diasSemana`.
 4. **Más fuerte que antes** (`StrengthBlock`): hasta 5 ejercicios con mayor progreso de peso en el período; tocar una fila abre `ExerciseProgress` en un Modal; "Ver todos los ejercicios" abre el buscador.
 5. **Cómo está tu cuerpo** (`BodyBlock` + `FatigueChart`): esfuerzo percibido promedio (campo `fatigue`), nivel (Liviano / Moderado / Alto), tendencia vs. el período anterior y gráfico semanal. Nunca rojo ni 🔥.
-6. **Calendario** (`MonthCalendar`): mes navegable con color por tipo; tocar un día abre el detalle.
-7. **Últimas sesiones** (`UltimasSesiones`): las 5 más recientes; "Ver todo el historial" las muestra todas.
+
+El calendario mensual y la lista de sesiones **ya no están en Progreso**: se movieron a la pestaña Historial. Ningún texto de Progreso apunta a un historial interno.
 
 Reglas visuales de la pantalla: todas las tarjetas son `Card` (`ProgressCard`) con fondo surface, mismo borde y radio (la de Constancia es más grande, `p-5`); títulos de sección en mayúsculas pequeñas muted; un solo número protagonista por bloque; verde-light = mejora, ámbar = alerta, violeta = acento; sin coral; emojis solo 🔥 (racha) y 🏆 (récords).
 
-Eliminados en este rediseño: las tarjetas "Tu camino" y "Tus victorias" (`CaminoCard`, `VictoriaCard`), "Esta semana" (`WeekRow`), "Principales progresiones", y los indicadores de días únicos, % de mayor progreso, ejercicio más trabajado, PRs históricos y fatiga como "victoria". `WorkoutHistorial.jsx` (calendario + historial) pasó a llamarse `MonthCalendar.jsx`.
+Eliminados en este rediseño: las tarjetas "Tu camino" y "Tus victorias" (`CaminoCard`, `VictoriaCard`), "Esta semana" (`WeekRow`), "Principales progresiones", y los indicadores de días únicos, % de mayor progreso, ejercicio más trabajado, PRs históricos y fatiga como "victoria". `WorkoutHistorial.jsx` (calendario + historial) pasó a llamarse `MonthCalendar.jsx` y, junto con la lista de sesiones (antes `UltimasSesiones.jsx`, hoy `SessionList.jsx`), se mudó a `components/historial/`.
+
+
+---
+
+## Pestaña Historial
+
+Ruta `/historial` (`pages/Historial.jsx` → `components/historial/HistorialPage.jsx`), cuarto ítem de la barra inferior (ícono de calendario) entre Biblioteca/[+] y Progreso: **Inicio · Biblioteca · [+] · Historial · Progreso** (2 + 2, el botón "+" sigue centrado). Mismo estilo que Progreso (`ProgressCard`, `SectionTitle`, espaciados). Los cálculos viven en `utils/historyView.js` (puro). Detalle en `LOGICA_TECNICA.md`, sección 30.
+
+De arriba hacia abajo:
+1. **Título** "Historial" y una línea muted con el total de sesiones.
+2. **Calendario** (`MonthCalendar`): mes navegable con color por tipo; tocar un día abre el detalle.
+3. **Sesiones** (`SessionList`): **todas** las sesiones, de la más reciente a la más antigua, agrupadas por mes con un encabezado por mes ("Noviembre 2026" y la cantidad). Cada tarjeta: tipo, esfuerzo, 🏆 PR, hace cuánto, detalle y notas (hasta 2 líneas).
+
+**Tabata (noviembre 2026):** la pestaña, `pages/Tabata.jsx`, `components/tabata/`, `data/tabatas.js`, las funciones de `db.js` de `tabataSettings`/`tabataRecords` y el logro `tabataMaster` se eliminaron. **No se borró ningún dato de Firestore.** `'tabata'` se mantiene **solo como tipo de lectura**: sigue en `REAL_WORKOUT_TYPES`, `BAR_TYPES` y la prioridad de colores de `progressView.js`, `workoutTypes.js` (color y etiqueta), `TabataIcon` (lo usa `WorkoutIcon`), los calendarios, `SessionList`, `WeekCalendar` e Inicio; así cualquier workout `type: 'tabata'` histórico sigue visible y sumando a racha y constancia. La app ya no puede crear workouts tabata.
 
 ---
 

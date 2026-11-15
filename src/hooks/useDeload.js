@@ -1,6 +1,6 @@
 // Semana de descarga: activación 100% manual (Configuración). Ya no reduce peso/series
 // automáticamente en ningún lado — ver LOGICA_TECNICA.md. isActive solo se usa para mostrar la
-// línea de referencia en ExerciseCard (FuerzaFlow.jsx) y avisos en Cardio/Clase/Tabata.
+// línea de referencia en ExerciseCard (FuerzaFlow.jsx) y avisos en Cardio/Clase.
 import { getFatigueStatus } from '../utils/progressStats'
 
 export function useDeload(settings, workouts) {

@@ -189,25 +189,3 @@ export const deleteCustomExercise = async (uid, exerciseId) => {
   await deleteDoc(doc(db, 'users', uid, 'customExercises', exerciseId))
 }
 
-// ─── Tabata Records ───────────────────────────────────────────────────────────
-export const saveTabataRecord = async (uid, tabataId, tabataName) => {
-  await addDoc(collection(db, 'users', uid, 'tabataRecords'), {
-    tabataId, tabataName,
-    date: getTodayLocal(),
-    createdAt: serverTimestamp(),
-  })
-}
-
-export const getTabataRecordCount = async (uid) => {
-  const snap = await getDocs(collection(db, 'users', uid, 'tabataRecords'))
-  return snap.size
-}
-
-export const getTabataSettings = async (uid, tabataId) => {
-  const snap = await getDoc(doc(db, 'users', uid, 'tabataSettings', tabataId))
-  return snap.exists() ? snap.data() : null
-}
-
-export const saveTabataSettings = async (uid, tabataId, settings) => {
-  await setDoc(doc(db, 'users', uid, 'tabataSettings', tabataId), settings)
-}

@@ -9,7 +9,7 @@ import Layout from './components/layout/Layout'
 import Inicio from './pages/Inicio'
 import Registro from './pages/Registro'
 import Rutinas from './pages/Rutinas'
-import Tabata from './pages/Tabata'
+import Historial from './pages/Historial'
 import Progreso from './pages/Progreso'
 import ConfigPage from './components/configuracion/ConfigPage'
 import SplashScreen from './components/SplashScreen'
@@ -58,7 +58,7 @@ function AppRoutes() {
         <Route index element={<Inicio />} />
         <Route path="registro" element={<Registro />} />
         <Route path="rutinas"  element={<Rutinas />} />
-        <Route path="tabata"   element={<Tabata />} />
+        <Route path="historial" element={<Historial />} />
         <Route path="progreso" element={<Progreso />} />
         <Route path="configuracion" element={<ConfigPage />} />
       </Route>

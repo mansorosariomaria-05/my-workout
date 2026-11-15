@@ -11,7 +11,7 @@ import { es } from 'date-fns/locale'
 import {
   Footprints, CalendarCheck, CalendarCheck2, Sunrise, Sun, Flame, Star, Gem,
   TrendingUp, Medal, Trophy, ChevronsUp, Dumbbell, Smile, Zap,
-  User, Globe, Activity, Circle, Play, Shuffle, Scale, BarChart2,
+  User, Globe, Activity, Circle, Shuffle, Scale, BarChart2,
   Moon, RefreshCw, Cake, AlarmClock, CloudMoon, Award,
   ArrowUp, Sparkles, CalendarRange, ListChecks, PenLine,
   X, ChevronRight, Lock, Shield, Heart,
@@ -43,7 +43,6 @@ const ICON_MAP = {
   veinte20km:           Globe,
   ritmoSolido:          Activity,
   dobleRueda:           Circle,
-  tabataMaster:         Play,
   semanaMixta:          Shuffle,
   balancePerfecto:      Scale,
   energiaAlza:          BarChart2,

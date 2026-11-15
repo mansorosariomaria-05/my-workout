@@ -10,16 +10,13 @@ import {
 } from '../../utils/progressView'
 import { textoGenero } from '../../utils/genero'
 import { formatNumber } from '../../utils/format'
-import { ProgressCard, SectionTitle } from './ProgressUI'
 import ConstanciaBlock from './ConstanciaBlock'
 import StrengthBlock from './StrengthBlock'
 import BodyBlock from './BodyBlock'
-import MonthCalendar from './MonthCalendar'
-import UltimasSesiones from './UltimasSesiones'
 
 // ─── Selector de período ──────────────────────────────────────────────────────
 
-// Segmented control. Afecta Constancia (gráfico), Más fuerte que antes y Cómo está tu cuerpo; no el calendario ni las sesiones.
+// Segmented control. Afecta Constancia (tarjeta y gráfico), Más fuerte que antes y Cómo está tu cuerpo.
 function PeriodSelector({ value, onChange }) {
   return (
     <div role="radiogroup" aria-label="Período" className="flex rounded-xl p-1 bg-app-surface border border-white/[0.06]">
@@ -39,8 +36,9 @@ function PeriodSelector({ value, onChange }) {
 }
 
 // ─── ProgresoPage ─────────────────────────────────────────────────────────────
-// Una sola pantalla con scroll: encabezado · período · Constancia · Más fuerte que antes · Cómo está tu cuerpo ·
-// calendario mensual · últimas sesiones. Los cálculos viven en utils/progressView.js.
+// Una sola pantalla con scroll, enfocada en el análisis: encabezado · período · Constancia · Más fuerte que antes ·
+// Cómo está tu cuerpo. El calendario y la lista de sesiones viven en la pestaña Historial (/historial).
+// Los cálculos viven en utils/progressView.js.
 
 export default function ProgresoPage() {
   const { profile, settings } = useAuthContext()
@@ -90,18 +88,6 @@ export default function ProgresoPage() {
         <StrengthBlock rows={ranking.rows} workouts={workouts} today={today} />
 
         <BodyBlock body={body} period={period} suggestDeload={shouldSuggestDeload() && !settings?.deloadActive} />
-
-        <div>
-          <SectionTitle>Calendario</SectionTitle>
-          <ProgressCard>
-            <MonthCalendar workouts={workouts} />
-          </ProgressCard>
-        </div>
-
-        <div>
-          <SectionTitle>Últimas sesiones</SectionTitle>
-          <UltimasSesiones workouts={workouts} />
-        </div>
 
       </div>
     </div>

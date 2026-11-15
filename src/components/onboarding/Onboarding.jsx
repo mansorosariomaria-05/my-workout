@@ -38,7 +38,7 @@ const STEPS = [
 
 const OPTIONS = {
   diasSemana:      [2, 3, 4, 5, 6],
-  tiposPreferidos: ['Fuerza', 'Cardio', 'Clases', 'Tabata', 'Mixto'],
+  tiposPreferidos: ['Fuerza', 'Cardio', 'Clases', 'Mixto'],
   equipamiento:    ['Gym completo', 'Solo mancuernas y bandas', 'Sin equipamiento'],
 }
 

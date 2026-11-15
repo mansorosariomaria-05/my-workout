@@ -1,4 +1,4 @@
-import { getAchievements, unlockAchievement, getTabataRecordCount } from '../services/db'
+import { getAchievements, unlockAchievement } from '../services/db'
 import { dateToLocal } from './dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -35,7 +35,6 @@ export const ACHIEVEMENTS_META = [
   { key: 'veinte20km',            label: '20km acumulados',          desc: 'Acumulaste 20km corriendo en total' },
   { key: 'ritmoSolido',           label: 'Ritmo sólido',             desc: 'Promedio menor a 6:00 min/km en 3 sesiones' },
   { key: 'dobleRueda',            label: 'Doble rueda',              desc: '20km en rollers en una sola sesión' },
-  { key: 'tabataMaster',          label: 'Tabata master',            desc: 'Completaste 10 sesiones de Tabata' },
   // BALANCE
   { key: 'semanaMixta',           label: 'Primera semana mixta',     desc: 'Una semana con fuerza + cardio o clase' },
   { key: 'balancePerfecto',       label: 'Balance perfecto',         desc: '4 semanas seguidas con cardio o clase incluido' },
@@ -396,13 +395,6 @@ export async function runAchievementCheck(uid, workouts, profile, settings) {
   if (!a.dobleRueda?.unlocked) {
     if (workouts.some(w => w.type === 'cardio' && w.activity?.toLowerCase().includes('roller') && Number(w.distancia) >= 20))
       push('dobleRueda', '20km en rollers en una sesión')
-  }
-
-  if (!a.tabataMaster?.unlocked) {
-    try {
-      const count = await getTabataRecordCount(uid)
-      if (count >= 10) push('tabataMaster', `${count} sesiones de Tabata completadas`)
-    } catch {}
   }
 
   if (!a.semanaMixta?.unlocked) {

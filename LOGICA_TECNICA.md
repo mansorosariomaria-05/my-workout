@@ -518,7 +518,7 @@ Reescrito en noviembre 2026: ver **sección 22** (IDs fijos con `setDoc`, guarda
 { type: 'descanso', date: 'YYYY-MM-DD', createdAt: serverTimestamp() }
 ```
 
-**Tipo `tabata`** (registrado desde `TabataPage`, vía `saveTabataRecord`):
+**Tipo `tabata`** (LEGACY, solo lectura: la pestaña Tabata y `saveTabataRecord` se eliminaron en noviembre 2026, sección 30; los documentos que existan se siguen mostrando y contando):
 ```js
 { type: 'tabata', date: 'YYYY-MM-DD', tabataId: string, tabataName: string, createdAt: serverTimestamp() }
 ```
@@ -548,7 +548,8 @@ Reescrito en noviembre 2026: ver **sección 22** (IDs fijos con `setDoc`, guarda
     detail: 'Primer entrenamiento registrado',
   },
   semanaActiva: { unlocked: true, at: Timestamp, detail: 'Semana del 1 jun al 7 jun' },
-  // ... un entry por key de ACHIEVEMENTS_META (35 logros permanentes/recurrentes definidos)
+  // ... un entry por key de ACHIEVEMENTS_META (34 logros permanentes/recurrentes definidos).
+  // Puede haber keys guardadas que ya no existen en la metadata (p. ej. tabataMaster): la vitrina las ignora.
   // Los logros NO desbloqueados simplemente no tienen entry en el documento — no existen
   // como { unlocked: false }, su ausencia ES el estado "no desbloqueado".
 }
@@ -694,7 +695,7 @@ Nota: `WorkoutIcon` no expone una prop de color propia — el color se controla 
 | `fuerza` | `#9B7FD4` | `ProgresoPage.jsx` (`TYPE_COLORS`), `WorkoutWizard.jsx` (`TYPE_ICON_MAP`) |
 | `cardio` | `#4ade80` | ídem |
 | `clase`  | `#60a5fa` | ídem |
-| `tabata` | `#f59e0b` | `ProgresoPage.jsx` (`TYPE_COLORS`) — `tabata` no tiene entrada en `TYPE_ICON_MAP` de WorkoutWizard porque el wizard no ofrece tabata como tipo inicial (se registra desde `TabataPage`) |
+| `tabata` | `#f59e0b` | `ProgresoPage.jsx` (`TYPE_COLORS`) — `tabata` no tiene entrada en `TYPE_ICON_MAP` de WorkoutWizard porque el wizard no ofrece tabata como tipo (la pestaña Tabata se eliminó, sección 30; solo quedan workouts tabata históricos de lectura) |
 
 ```js
 // src/components/progreso/ProgresoPage.jsx
@@ -827,7 +828,7 @@ Estos mismos valores hex se repiten (no están centralizados en un único archiv
 **Por qué es crítico**: usar `new Date().toISOString().split('T')[0]` en vez de `getTodayLocal()` produce bugs de timezone reales en dispositivos con UTC negativo (verificado en iOS UTC-3).
 
 ### `src/services/db.js`
-**Qué hace**: todas las operaciones de lectura/escritura a Firestore — `getWorkouts`, `saveWorkout`, `getCustomExercises`, `saveCustomExercise`, `getUserProfileSnapshot` (perfil + `fromCache`), `getSettings`, `getFavorites`/`toggleFavorite`, `getNeverList`/`toggleNever`, `getCustomRoutines` y CRUD relacionado, `saveTabataRecord`/`getTabataRecordCount`, etc.
+**Qué hace**: todas las operaciones de lectura/escritura a Firestore — `getWorkouts`, `saveWorkout`, `getCustomExercises`, `saveCustomExercise`, `getUserProfileSnapshot` (perfil + `fromCache`), `getSettings`, `getFavorites`/`toggleFavorite`, `getNeverList`/`toggleNever`, `getCustomRoutines` y CRUD relacionado, etc. (las funciones de `tabataRecords`/`tabataSettings` se eliminaron, sección 30)
 **Por qué es crítico**: `getWorkouts`/`getWorkoutsSnapshot` traen **todos** los workouts del usuario por defecto (`limitN = null`; desde noviembre 2026, antes se llamaba con 100) y **propagan** los errores de lectura; pasar un número limita a los N más recientes (hoy nadie lo usa). Agregar campos nuevos a los documentos puede requerir índices compuestos nuevos en Firestore si se combinan con `where`/`orderBy` adicionales.
 
 ### `src/utils/achievements.js`
@@ -1728,7 +1729,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **9. ✅ RESUELTO (noviembre 2026, sección 22) — `useWorkouts.load` podía pisar datos nuevos con una respuesta vieja.** *(Descripción original:)* `useWorkouts.js:28-45,68`: varios `load()` concurrentes (el de `saveWorkout`, el de `visibilitychange` y el intervalo de `Inicio.jsx:725-731`, el `online`) sin token de orden. Si una carga empezó antes de que `addDoc` confirmara y termina después de la actualización optimista de `saveWorkout`, `setWorkouts(data)` y `writeCache` reemplazan el estado sin el workout recién guardado hasta la próxima recarga (racha, calendario y precarga lo "pierden" un rato).
 
-**10. El logro "Tabata master" es inalcanzable.** `achievements.js:408-413` cuenta `getTabataRecordCount` (colección `tabataRecords`), pero `saveTabataRecord` (`db.js`) no tiene ningún llamador, y ninguna pantalla guarda workouts de `type: 'tabata'` (el Tabata es un temporizador; `'tabata'` solo existe en `REAL_WORKOUT_TYPES` y en lecturas). Las sesiones nuevas de Tabata no cuentan para racha, logros ni historial.
+**10. ✅ RESUELTO (noviembre 2026, sección 30) — el logro "Tabata master" era inalcanzable: se eliminó junto con la pestaña Tabata.** *(Descripción original:)* `achievements.js:408-413` cuenta `getTabataRecordCount` (colección `tabataRecords`), pero `saveTabataRecord` (`db.js`) no tiene ningún llamador, y ninguna pantalla guarda workouts de `type: 'tabata'` (el Tabata es un temporizador; `'tabata'` solo existe en `REAL_WORKOUT_TYPES` y en lecturas). Las sesiones nuevas de Tabata no cuentan para racha, logros ni historial.
 
 **11. Borrado automático de ejercicios custom + `getCustomExercises` sin `catch`.** `FuerzaFlow.jsx:522-527` borra de Firestore, cada vez que se monta el flujo de fuerza, los custom llamados "Reverse Frog" o "Abducción con pausa" (migración vieja que quedó permanente; ya en `AUDITORIA.md` A3), aunque esos dos ejercicios siguen en el catálogo (`glut_reverse_frog`, `glut_abd_pausa`, también en `routines.js`). Escenario: la usuaria crea un custom con ese nombre y desaparece. Además `.then(...)` no tiene `.catch`: offline sin caché es un rechazo sin capturar.
 
@@ -1750,7 +1751,7 @@ Aplicación (`reduceWeight`, `FuerzaFlow.applyReturnReduction`): parte de los pe
 
 **19. `getTrainedMusclesRecovery` mide "horas" con fechas de día.** `useWorkouts.js:153-163` calcula un corte en horas (48/72) pero compara con `w.date >= cutoffStr` (solo día): un entrenamiento de hace 72–95 h puede contar como "reciente" según la hora del día.
 
-**20. Archivos sin referencia que se dejaron.** `src/assets/valencia-portada.jpg`, `public/logo-full.png.png` y `public/logo-icon.png.png` (nombre con doble extensión) no están referenciados por ningún archivo (`public/` se despliega igual). `getFavorites`, `toggleFavorite`, `toggleNever` y `saveTabataRecord` (`db.js`) tampoco tienen llamadores; se conservaron a propósito (decisión de producto de la sección 9 y hallazgo 10).
+**20. Archivos sin referencia que se dejaron.** `src/assets/valencia-portada.jpg`, `public/logo-full.png.png` y `public/logo-icon.png.png` (nombre con doble extensión) no están referenciados por ningún archivo (`public/` se despliega igual). `getFavorites`, `toggleFavorite`, y `toggleNever` (`db.js`) tampoco tienen llamadores; se conservaron a propósito (decisión de producto de la sección 9).
 
 ### Limpieza de noviembre 2026 (sin cambios de comportamiento)
 
@@ -1908,7 +1909,7 @@ Ahora solo aparece si hay sugerencia (`advice.suggest`) **y** el usuario ya la r
 
 - **Progreso, `detectPRs`, logros** y los cálculos de "mayor progreso" siguen basados solo en **peso** (se revisan en el próximo paso). `ProgresoPage` y `ExerciseProgress` todavía rotulan "reps"/"×N" sin distinguir segundos.
 - **`routines.js` y los generadores de rutina** no leen `unit`; Plancha con Arrastre de Mancuerna (`'reps'`, está en `rutina-empuje-vertical` y `rutina-fuerza-accesoria`) sigue funcionando: se verificó el catálogo, `buildEntry` y la progresión con ese ejercicio.
-- **La sección Tabata es solo de referencia y no tiene temporizador**; este cambio no la toca.
+- **La sección Tabata era solo de referencia y no tenía temporizador**; este cambio no la tocó (la pestaña se eliminó después, sección 30).
 
 ### Historial anterior: no se migró
 
@@ -2012,7 +2013,7 @@ Módulo único, de **funciones puras** (sin React ni Firestore), que reúne los 
 | Lugar | Regla que usa |
 |---|---|
 | `ProgresoPage.jsx` — `computeAll` (`avgFatigaHistorica`) y el color/subtítulo de la tarjeta de fatiga | Promedio de **todo el historial** con fatiga (mínimo 3 registros); umbrales ≤ 5 / ≤ 7 / > 7 ("al límite") |
-| `ProgresoPage.jsx` — `UltimasSesiones` | Etiqueta por sesión: ≤ 3 "liviana", ≤ 6 "moderada", > 6 "alta" |
+| `SessionList.jsx` (pestaña Historial; antes `UltimasSesiones` en Progreso) | Etiqueta por sesión: ≤ 3 "liviana", ≤ 6 "moderada", > 6 "alta" |
 | `Logros.jsx` (medalla semanal, ~línea 139) | Promedio de la fatiga de la semana en curso |
 | `Inicio.jsx` (resumen semanal, ~línea 155) | Promedio de la fatiga de la semana pasada |
 | `achievements.js` — `checkEnergiaAlza` | Promedio semanal; baja de ≥ 2 puntos entre semanas consecutivas |
@@ -2142,7 +2143,7 @@ Todas las funciones redondean internamente (mitad hacia afuera, absorbiendo el e
 
 Valores nulos o no numéricos devuelven `"—"` (`formatDeltaKg` devuelve `null`). Los formateadores con unidad (`kg`, `%`, `km`) usan U+00A0, por eso no hace falta `whitespace-nowrap`. Al comparar textos en tests hay que escribir ese espacio como `\u00A0`.
 
-Aplicado en: `components/progreso/*` (ProgresoPage, ExerciseProgress, WeeklyStreakCard, MonthCalendar), `WorkoutSummary`, `FuerzaFlow`, `Inicio`, `ConfigPage`, `WeekCalendar`, y los textos de `progressStats.js` (dato clave), `achievements.js` (detalle de logros nuevos), `exerciseUnit.js` (`formatSetText`) y `cardio.js` (`computeSpeedKmh`). Los detalles de logros ya guardados en Firestore no se reescriben.
+Aplicado en: `components/progreso/*` (ProgresoPage, ExerciseProgress, WeeklyStreakCard) y `components/historial/*` (MonthCalendar, SessionList), `WorkoutSummary`, `FuerzaFlow`, `Inicio`, `ConfigPage`, `WeekCalendar`, y los textos de `progressStats.js` (dato clave), `achievements.js` (detalle de logros nuevos), `exerciseUnit.js` (`formatSetText`) y `cardio.js` (`computeSpeedKmh`). Los detalles de logros ya guardados en Firestore no se reescriben.
 
 Pruebas: `src/utils/format.test.js`.
 
@@ -2153,7 +2154,7 @@ Pruebas: `src/utils/format.test.js`.
 Cálculos puros en `src/utils/progressView.js` (pruebas: `progressView.test.js`). Convenciones: solo `REAL_WORKOUT_TYPES`, nunca fechas futuras, semanas de lunes a domingo, fechas `YYYY-MM-DD`, y "sin dato" (fatiga ausente / null / '') nunca cuenta como 0.
 
 ### Período seleccionado (`resolveViewPeriod`)
-Selector "4 semanas" (`4w`) · "3 meses" (`13w`) · "Todo" (`all`), por defecto `4w`. N semanas = las N semanas lunes-domingo que terminan en la semana en curso (la última es parcial y llega hasta hoy). El **período anterior** empieza N semanas antes y dura lo mismo en días (la comparación es pareja aunque la semana en curso esté a medias). `all` = desde el lunes del primer entrenamiento real hasta hoy, sin período anterior. El período afecta la tarjeta de Constancia (su contenido y el gráfico), "Más fuerte que antes" y "Cómo está tu cuerpo"; **no** el calendario ni las últimas sesiones. (`progressStats.resolvePeriod` con `4w/12w` sigue existiendo para su propio módulo; la pantalla usa `13w`.)
+Selector "4 semanas" (`4w`) · "3 meses" (`13w`) · "Todo" (`all`), por defecto `4w`. N semanas = las N semanas lunes-domingo que terminan en la semana en curso (la última es parcial y llega hasta hoy). El **período anterior** empieza N semanas antes y dura lo mismo en días (la comparación es pareja aunque la semana en curso esté a medias). `all` = desde el lunes del primer entrenamiento real hasta hoy, sin período anterior. El período afecta la tarjeta de Constancia (su contenido y el gráfico), "Más fuerte que antes" y "Cómo está tu cuerpo"; **no** el calendario ni la lista de sesiones, que viven en la pestaña Historial (sección 30). (`progressStats.resolvePeriod` con `4w/12w` sigue existiendo para su propio módulo; la pantalla usa `13w`.)
 
 ### Encabezado (`computeHistorySummary`)
 `total` = entrenamientos reales de todo el historial; `months` = meses calendario desde el primero hasta el actual (mínimo 1; 0 sin entrenamientos).
@@ -2192,14 +2193,44 @@ Por ejercicio de fuerza (clave = `exerciseId`, la misma que usa `ExerciseProgres
 
 ### Cómo está tu cuerpo (`computeBodySummary`, `getFatigueLevel`)
 - Esfuerzo percibido = campo `fatigue` (1-10) de los workouts reales del período. **Promedio** (1 decimal) solo con **≥ 3 registros** (`BODY_MIN_RECORDS`); si no, estado vacío.
-- **Umbrales** sobre el promedio redondeado: `< 5` Liviano (verde-light) · `5 a < 7` Moderado (violeta claro) · `≥ 7` Alto (ámbar). El corte en 7 es el mismo de `getFatigueStatus` (descarga). Nunca rojo ni 🔥. `UltimasSesiones` usa la misma escala por sesión.
+- **Umbrales** sobre el promedio redondeado: `< 5` Liviano (verde-light) · `5 a < 7` Moderado (violeta claro) · `≥ 7` Alto (ámbar). El corte en 7 es el mismo de `getFatigueStatus` (descarga). Nunca rojo ni 🔥. `SessionList` (pestaña Historial) usa la misma escala por sesión.
 - **Tendencia**: promedio del período anterior equivalente (también con ≥ 3 registros) comparado con el actual, ambos a 1 decimal: `↑ subió desde 6,2` · `↓ bajó desde 7,8` · `= igual que antes`. Sin tendencia en "Todo" ni con pocos registros previos.
 - **Línea de descarga**: "Podría ser buen momento para una semana más liviana" solo si el nivel es Alto, `useDeload().shouldSuggestDeload()` es verdadero (`getFatigueStatus(...).high`: últimas 2 semanas completas ≥ 7) y no hay una descarga activa.
 - **`FatigueChart`**: línea del promedio semanal (`weekly`, una entrada por semana del período; `avg` null si la semana no tiene registros y se une con `connectNulls`), eje Y 1-10 con marcas en 1, 5 y 10 y banda sutil en 5 o menos. Con menos de 2 semanas con datos muestra un texto en lugar del gráfico. Usa recharts (ya instalado).
 
 ### Otros
 - `timeAgoText(fecha, hoy)`: "hoy", "hace 3 días", "hace 5 sem.", "hace 4 meses" (desde 90 días).
-- `UltimasSesiones`: 5 más recientes; "Ver todo el historial" muestra todas; las notas ocupan hasta 2 líneas (`line-clamp-2`).
+- La lista de sesiones y el calendario ya no están en Progreso: pasaron a la pestaña Historial (sección 30).
+
+
+---
+
+## 30. HISTORIAL / PROGRESO Y ELIMINACIÓN DE TABATA (noviembre 2026)
+
+### Qué se eliminó (solo UI y código muerto; ningún dato de Firestore)
+- Ruta `/tabata` (queda el `<Route path="*">` que redirige a `/`), `pages/Tabata.jsx`, `components/tabata/` (`TabataPage`, `TabataCard`, `TabataDetail`) y `data/tabatas.js`.
+- De `db.js`: `saveTabataRecord`, `getTabataRecordCount`, `getTabataSettings`, `saveTabataSettings`. `achievements.js` ya no lee `tabataRecords` (una lectura menos a Firestore en cada chequeo de logros).
+- El logro `tabataMaster` ("Tabata master"): entrada de `ACHIEVEMENTS_META` (quedan **34**), chequeo en `runAchievementCheck` e ícono en `Logros.jsx`.
+- La opción "Tabata" de `tiposPreferidos` en el onboarding. Nada lee `profile.tiposPreferidos` fuera del onboarding, así que un perfil que ya la tenga guardada simplemente la ignora, sin error.
+- "HIIT/Tabata" pasó a "HIIT" en el texto de `ConfigPage`.
+- **Siguen en Firestore, sin uso**: `users/{uid}/tabataRecords`, `users/{uid}/tabataSettings` y la clave `tabataMaster` dentro de `data/achievements` (si estaba desbloqueada). Ningún código los lee ni escribe.
+
+### Qué se mantiene: `'tabata'` como tipo de lectura histórica
+Se conserva en `REAL_WORKOUT_TYPES` (`utils/streak.js`), `BAR_TYPES` y `DAY_TYPE_PRIORITY` de `progressView.js` (fuerza > clase > tabata > cardio), `progressStats.js` (`byType`), `workoutTypes.js` (color `#f59e0b` y etiqueta "Tabata"), `TabataIcon` en `WorkoutIcons.jsx` (lo usa `WorkoutIcon type="tabata"`; sin él un tabata histórico se vería con el ícono de fuerza), `MonthCalendar`, `SessionList`, `WeekCalendar` e Inicio. Cualquier workout `type: 'tabata'` guardado antes sigue visible y suma a racha, constancia y barras. La app ya no puede crear workouts de ese tipo (el wizard solo ofrece fuerza, cardio y clase). Los tests de `progressStats` y `progressView` con workouts tabata se mantienen.
+
+### Vitrina de logros y claves que ya no existen
+`Logros.jsx` arma las listas **desde `ACHIEVEMENTS_META`** (`ACHIEVEMENTS`, `PERMANENT_ACHIEVEMENTS`, `RECURRENT_ACHIEVEMENTS`) y solo consulta `achieved[key]` para las claves de esa lista. Una clave guardada en Firestore que ya no esté en la metadata (como `tabataMaster`) nunca se recorre: no se dibuja, no suma al contador "N/34 trofeos desbloqueados" y no rompe nada. `runAchievementCheck` tampoco la toca.
+
+### Estructura Historial / Progreso
+- **Progreso** (`/progreso`) queda enfocada en análisis: encabezado, selector de período, Constancia, Más fuerte que antes y Cómo está tu cuerpo (sección 29). Ya no tiene calendario ni lista de sesiones, y ningún texto ni link de la app apunta a un historial dentro de Progreso (el resumen semanal de Inicio navega a `/progreso`, que sigue siendo correcto).
+- **Historial** (`/historial`, `pages/Historial.jsx` → `components/historial/HistorialPage.jsx`): título, `MonthCalendar` y `SessionList`, con las mismas tarjetas, espaciados y títulos de sección que Progreso (`ProgressCard`/`SectionTitle` de `components/progreso/ProgressUI.jsx`). No tiene selector de período: muestra todo el historial.
+- **Barra inferior** (`BottomNav.jsx`): Inicio · Biblioteca · [+] · Historial · Progreso. Siguen siendo 2 ítems a cada lado del "+", así que el centrado (`justify-around`) no cambió. El ícono de Historial es un calendario (mismo trazo de 1,8 que los demás).
+- Se movieron con `git mv`: `MonthCalendar.jsx` y `UltimasSesiones.jsx` → `components/historial/` (esta última pasó a llamarse `SessionList.jsx`). Las menciones anteriores a `MonthCalendar.jsx` en este documento se refieren al mismo componente en su nueva ubicación.
+
+### Lógica de Historial (`src/utils/historyView.js`, pruebas: `historyView.test.js`)
+- **`computeSessionList(workouts)`**: solo `REAL_WORKOUT_TYPES` con `date` (incluye tabata histórico), de la más reciente a la más antigua; a igual fecha respeta el orden de entrada (no hay filtro de fechas futuras, igual que antes). Devuelve `[{ workout, hasPR }]`.
+- **`groupSessionsByMonth(workouts)`**: agrupa por mes calendario (`YYYY-MM`) del más reciente al más antiguo: `{ key, label: 'Noviembre 2026', count, sessions }`. El mismo mes de años distintos son grupos distintos. Sin sesiones reales no hay grupos y la lista muestra "Sin sesiones registradas aún".
+- **`findPRWorkouts(workouts)`**: marca de 🏆 PR. **Misma regla que `detectPRs`** (sección 4): una sesión de fuerza es PR si en algún ejercicio superó el máximo de las sesiones de fuerza con fecha **estrictamente anterior**, y solo si ese máximo previo era > 0 (la primera vez no es PR); dos sesiones del mismo día no se comparan entre sí. Se calcula en **una sola pasada cronológica** (O(n)) en vez de volver a filtrar todo el historial por cada sesión (necesario ahora que se renderiza la lista completa). Una prueba compara el resultado con `detectPRs` sobre un historial inventado de 80 sesiones.
 
 ---
 

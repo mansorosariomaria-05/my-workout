@@ -84,7 +84,7 @@ describe('comparación mensual a la misma altura del mes', () => {
   })
 })
 
-describe('barras de constancia', () => {
+describe('barras de constancia (días distintos)', () => {
   const ws = [
     wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-11'), wk('clase', '2026-11-03'),
     wk('fuerza', '2026-10-27'), wk('tabata', '2026-08-26'), { type: 'pausa', date: '2026-11-05' },
@@ -111,6 +111,40 @@ describe('barras de constancia', () => {
     expect(bars.map(b => b.total)).toEqual([1, 0, 1, 3])
     expect(bars[3].current).toBe(true)
     expect(goal).toBeNull()
+  })
+  it('día doble: fuerza + cardio el mismo día cuenta 1 día, pintado como fuerza', () => {
+    const doble = [wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-10')]
+    const { bars } = computeConstanciaBars(doble, '4w', TODAY, 4)
+    expect(bars[3]).toMatchObject({ total: 1, fuerza: 1, cardio: 0 })
+  })
+  it('prioridad de tipos en un día: fuerza > clase > tabata > cardio', () => {
+    const tipo = (...types) => {
+      const { bars } = computeConstanciaBars(types.map(t => wk(t, '2026-11-10')), '4w', TODAY, 4)
+      return BAR_TYPES.find(t => bars[3][t] === 1)
+    }
+    const BAR_TYPES = ['fuerza', 'clase', 'tabata', 'cardio']
+    expect(tipo('cardio', 'fuerza', 'clase')).toBe('fuerza')
+    expect(tipo('cardio', 'clase')).toBe('clase')
+    expect(tipo('cardio', 'tabata')).toBe('tabata')
+    expect(tipo('tabata', 'clase')).toBe('clase')
+    expect(tipo('cardio', 'cardio')).toBe('cardio')
+  })
+  it('una semana de 3 días con un día doble tiene 3 y NO alcanza una meta de 4', () => {
+    const semana = [wk('fuerza', '2026-11-09'), wk('cardio', '2026-11-09'), wk('clase', '2026-11-10'), wk('cardio', '2026-11-11')]
+    const { bars, goal } = computeConstanciaBars(semana, '4w', TODAY, 4)
+    expect(bars[3].total).toBe(3)             // 4 workouts, 3 días
+    expect(bars[3].total >= goal).toBe(false)
+    expect(bars[3]).toMatchObject({ fuerza: 1, clase: 1, cardio: 1 })
+  })
+  it('vista mensual (todo): días distintos por mes, no workouts', () => {
+    const ws = [wk('fuerza', '2026-10-05'), wk('cardio', '2026-10-05'), wk('clase', '2026-10-07'), wk('cardio', '2026-11-03')]
+    const { bars } = computeConstanciaBars(ws, 'all', TODAY, 4)
+    expect(bars.map(b => [b.key, b.total])).toEqual([['2026-10', 2], ['2026-11', 1]])
+    expect(bars[0]).toMatchObject({ fuerza: 1, clase: 1, cardio: 0 })
+  })
+  it('el título mensual sigue contando workouts (no días)', () => {
+    const ws = [wk('fuerza', '2026-11-10'), wk('cardio', '2026-11-10')]
+    expect(computeMonthComparison(ws, TODAY).current).toBe(2)
   })
   it('todo sin entrenamientos: sin barras', () => {
     expect(computeConstanciaBars([], 'all', TODAY, 3).bars).toEqual([])

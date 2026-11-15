@@ -107,11 +107,25 @@ const BAR_TYPES = ['fuerza', 'cardio', 'clase', 'tabata']
 const emptyCounts = () => ({ total: 0, fuerza: 0, cardio: 0, clase: 0, tabata: 0 })
 const addTo = (bar, type) => { bar.total += 1; if (BAR_TYPES.includes(type)) bar[type] += 1 }
 
-// Barras de "entrenamientos por semana" según el período.
+// Prioridad para asignar el tipo de un día con más de un workout (primero = gana).
+export const DAY_TYPE_PRIORITY = ['fuerza', 'clase', 'tabata', 'cardio']
+
+// Un día distinto = una entrada: [fecha, tipo]. Si el día tiene varios workouts, gana el tipo de mayor prioridad.
+function distinctDays(real) {
+  const byDate = new Map()
+  for (const w of real) {
+    const cur = byDate.get(w.date)
+    if (cur == null || DAY_TYPE_PRIORITY.indexOf(w.type) < DAY_TYPE_PRIORITY.indexOf(cur)) byDate.set(w.date, w.type)
+  }
+  return [...byDate.entries()]
+}
+
+// Barras de "días entrenados" según el período (días DISTINTOS, no workouts: misma unidad que el objetivo semanal y la racha).
 //   '4w' / '13w' → una barra por semana (lunes a domingo), `current` marca la semana en curso.
 //   'all'        → una barra por mes calendario, desde el primer entrenamiento hasta el mes en curso (meses sin
 //                  entrenar incluidos, en cero); `current` marca el mes en curso. Sin línea de objetivo.
-// Cada barra: { key, label, title, total, fuerza, cardio, clase, tabata, current }. `goal` solo en vista semanal.
+// Cada día cuenta una sola vez y se pinta con un único tipo (DAY_TYPE_PRIORITY: fuerza > clase > tabata > cardio).
+// Cada barra: { key, label, title, total (días), fuerza, cardio, clase, tabata, current }. `goal` solo en vista semanal.
 export function computeConstanciaBars(workouts, periodKey, today, goal = null) {
   const range = resolveViewPeriod(periodKey, today, workouts)
   const real = workoutsInRange(workouts, range, today)
@@ -129,7 +143,7 @@ export function computeConstanciaBars(workouts, periodKey, today, goal = null) {
       if (++m > 12) { m = 1; y += 1 }
     }
     const byKey = new Map(bars.map(b => [b.key, b]))
-    real.forEach(w => { const b = byKey.get(monthOf(w.date)); if (b) addTo(b, w.type) })
+    distinctDays(real).forEach(([date, type]) => { const b = byKey.get(monthOf(date)); if (b) addTo(b, type) })
     return { kind: 'month', bars, goal: null }
   }
 
@@ -140,7 +154,7 @@ export function computeConstanciaBars(workouts, periodKey, today, goal = null) {
     return { key: ws, label: `${Number(dd)}/${Number(mm)}`, title: `Semana del ${Number(dd)}/${Number(mm)}`, ...emptyCounts(), current: ws === thisMonday }
   })
   const byKey = new Map(bars.map(b => [b.key, b]))
-  real.forEach(w => { const b = byKey.get(mondayOf(w.date)); if (b) addTo(b, w.type) })
+  distinctDays(real).forEach(([date, type]) => { const b = byKey.get(mondayOf(date)); if (b) addTo(b, type) })
   return { kind: 'week', bars, goal }
 }
 

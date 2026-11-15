@@ -15,7 +15,7 @@ function BarTooltip({ active, payload }) {
   return (
     <div className="bg-app-elevated border border-white/10 rounded-xl px-3 py-2 text-xs">
       <p className="text-app-muted capitalize">{bar.title}</p>
-      <p className="text-app-text font-medium">{plural(bar.total, 'entrenamiento', 'entrenamientos')}</p>
+      <p className="text-app-text font-medium">{plural(bar.total, 'día entrenado', 'días entrenados')}</p>
       {TYPES.filter(t => bar[t] > 0).map(t => (
         <p key={t} style={{ color: TYPE_COLORS[t] }}>{TYPE_LABELS[t]}: {formatNumber(bar[t])}</p>
       ))}
@@ -23,7 +23,7 @@ function BarTooltip({ active, payload }) {
   )
 }
 
-// Entrenamientos por semana (o por mes en "Todo"), apilados por tipo. La semana/mes en curso va con menos opacidad
+// Días entrenados por semana (o por mes en "Todo"), apilados por tipo (un día = un tipo). La semana/mes en curso va con menos opacidad
 // y, en la vista semanal, una línea punteada marca el objetivo de días por semana.
 function ConstanciaChart({ chart }) {
   const { bars, goal, kind } = chart

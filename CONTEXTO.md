@@ -51,10 +51,17 @@ src/
       Logros.jsx               # Sistema de logros (compact en home, vitrina completa)
       WeekCalendar.jsx         # Calendario semanal — tocar un día con check abre el detalle (solo lectura) de ese día
 
-    progreso/
-      ProgresoPage.jsx         # Contenedor de tabs de progreso
-      ExerciseProgress.jsx     # Progresión de peso por ejercicio
-      WorkoutHistorial.jsx     # Historial de sesiones
+    progreso/                  # Pantalla Progreso (ver sección "Pantalla Progreso")
+      ProgresoPage.jsx         # Una sola pantalla con scroll: encabezado, selector de período y los bloques
+      ProgressUI.jsx           # ProgressCard (Card + borde) y SectionTitle compartidos por todos los bloques
+      ConstanciaBlock.jsx      # Bloque protagonista: mes vs. mes anterior, racha, gráfico de barras por período
+      StrengthBlock.jsx        # "Más fuerte que antes": ranking de progreso de peso; abre ExerciseProgress en un Modal
+      BodyBlock.jsx            # "Cómo está tu cuerpo": esfuerzo percibido promedio, nivel y tendencia
+      FatigueChart.jsx         # Gráfico de línea del promedio semanal de esfuerzo (lo usa BodyBlock)
+      MonthCalendar.jsx        # Calendario mensual por tipo de entrenamiento + detalle del día (modal)
+      UltimasSesiones.jsx      # Últimas 5 sesiones (o todas con "Ver todo el historial"); notas hasta 2 líneas
+      ExerciseProgress.jsx     # Progresión de peso por ejercicio (buscador + gráfico); acepta initialExerciseId
+      WeeklyStreakCard.jsx     # Tarjeta "Racha semanal 3+" con dorso: SOLO la usa Inicio
 
     tabata/                    # Solo referencia (protocolos): no tiene temporizador
       TabataPage.jsx / TabataCard.jsx / TabataDetail.jsx
@@ -100,6 +107,8 @@ src/
     cardio.js                  # Tiempo/ritmo de cardio: toSeconds, formatDuration, computePace, etc.
     streak.js                  # Tipos reales (REAL_WORKOUT_TYPES) y umbral de la "Racha semanal 3+" (STREAK_MIN_DAYS = 3)
     weeks.js                   # Aritmética pura de fechas YYYY-MM-DD y semanas lunes-domingo (addDays, mondayOf, ...)
+    progressView.js            # Cálculos de la pantalla Progreso: período seleccionado, comparación mensual, barras de constancia, ranking de progreso de peso, esfuerzo percibido. Puro; con pruebas en progressView.test.js
+    format.js                  # Formato de números (es-AR): formatKg, formatDeltaKg, formatPct, formatPercent, formatScore, formatNumber, formatKm, diffKg. Todo número visible pasa por acá
     progressStats.js           # MÓDULO ÚNICO de cálculos de Progreso (períodos 4w/12w/all, indicadores, récords, mayor progreso, más trabajado, totales, cansancio, dato clave). Puro; con pruebas en progressStats.test.js
     sessionDuration.js         # Duración real de la sesión de fuerza: precarga del cronómetro, conversión y lectura segura
     progressSet.js             # Serie de progreso (fila verde) del registro: opciones [+ peso | + reps], precarga por cantidad base (isExtra) y limpieza al guardar. Pura, con pruebas
@@ -416,11 +425,30 @@ Display: modo `compact` (4 más recientes en home) y modo vitrina (modal con gri
 
 **Racha semanal 3+** (`utils/progressStats.js` → `computeWeeklyStreak3Plus`, desde noviembre 2026): la cantidad **TOTAL** de semanas (lunes a domingo) de todo el historial con **3 o más días distintos** de entrenamiento real (fuerza/cardio/clase/tabata — `REAL_WORKOUT_TYPES`). **No requiere semanas consecutivas y nunca baja**; la semana en curso suma apenas llega a 3 días. Reemplaza a la racha de semanas consecutivas (se eliminaron `computeStreak`, `computeStreakStats` y `getCurrentStreak`; ya no hay "récord de racha"). Inicio y Progreso usan la misma tarjeta (`WeeklyStreakCard`) y las mismas funciones de `useWorkouts` (`getWeeklyStreak3Plus()`, `getMonthSummary()`, memoizadas). Los logros `rachaFuego` y `rachaElite` ("semanas seguidas") ahora leen `computeMaxStreak(workouts, 3)` de `achievements.js` (mismo resultado que antes). Ver `LOGICA_TECNICA.md` secciones 1 y 26.
 
-**Módulo de cálculos de Progreso** (`utils/progressStats.js`, `LOGICA_TECNICA.md` sección 26): fuente única de la racha, de los **récords** (métrica principal por ejercicio: kg, seg o reps; los usan "PRs históricos" y el logro "Superaste 3 PRs") y del **estado de cansancio** (`getFatigueStatus`: promedio de las últimas 2 semanas completas ≥ 7 con ≥ 3 registros; lo usa la sugerencia de descarga). Los ejercicios se agrupan por id del catálogo o por nombre normalizado (las alternativas `alt-…` no fragmentan el historial). Las pruebas automáticas (`npm test`, vitest) cubren el módulo.
+**Módulo de cálculos de Progreso** (`utils/progressStats.js`, `LOGICA_TECNICA.md` sección 26): fuente única de la racha, de los **récords** (métrica principal por ejercicio: kg, seg o reps; los usa el logro "Superaste 3 PRs") y del **estado de cansancio** (`getFatigueStatus`: promedio de las últimas 2 semanas completas ≥ 7 con ≥ 3 registros; lo usa la sugerencia de descarga). Los ejercicios se agrupan por id del catálogo o por nombre normalizado (las alternativas `alt-…` no fragmentan el historial). Las pruebas automáticas (`npm test`, vitest) cubren el módulo.
 
 **Objetivo semanal:** `profile.diasSemana` (2 a 6, valor inicial 4 en el onboarding, respaldo 3). El anillo de Inicio se llena con ese objetivo.
 
-**Tarjeta "Racha semanal 3+"** (Inicio, `StatsCards`, y Progreso, bloque "Tu camino"; componente compartido `components/progreso/WeeklyStreakCard.jsx` sobre `FlipCard.jsx`): se da vuelta al tocarla, con altura fija de 108 px (la de la card de días de al lado). **Frente**: título "Racha semanal 3+" (solo en Progreso; Inicio lo oculta con `showTitle={false}`), `🔥 {total}` y "semanas con 3+ días". **Dorso**: "Este mes" (chico), "X,X días por semana" (= días distintos entrenados en el mes / (días transcurridos / 7), un decimal) y una barra segmentada con el % de fuerza, cardio y clase sobre los entrenamientos reales del mes (suman 100; "otros" solo si existen), cada uno con su color de `TYPE_COLORS` (`utils/workoutTypes.js`); sin entrenamientos en el mes: "Todavía no entrenaste este mes". La card de días muestra "Esta semana" arriba a la izquierda y se llena con `profile.diasSemana`.
+**Tarjeta "Racha semanal 3+"** (solo Inicio, `StatsCards`; Progreso muestra la racha dentro del bloque Constancia; componente `components/progreso/WeeklyStreakCard.jsx` sobre `FlipCard.jsx`): se da vuelta al tocarla, con altura fija de 108 px (la de la card de días de al lado). **Frente**: `🔥 {total}` y "semanas con 3+ días". **Dorso**: "Este mes" (chico), "X,X días por semana" (= días distintos entrenados en el mes / (días transcurridos / 7), un decimal) y una barra segmentada con el % de fuerza, cardio y clase sobre los entrenamientos reales del mes (suman 100; "otros" solo si existen), cada uno con su color de `TYPE_COLORS` (`utils/workoutTypes.js`); sin entrenamientos en el mes: "Todavía no entrenaste este mes". La card de días muestra "Esta semana" arriba a la izquierda y se llena con `profile.diasSemana`.
+
+---
+
+## Pantalla Progreso
+
+Una sola pantalla con scroll (`pages/Progreso.jsx` → `components/progreso/ProgresoPage.jsx`), sin tabs. Los cálculos viven en `utils/progressView.js` (puro) y todo número pasa por `utils/format.js`. Detalle de cada fórmula en `LOGICA_TECNICA.md`, sección 29.
+
+Orden de arriba hacia abajo:
+1. **Encabezado**: "Tu progreso", línea muted con el histórico ("77 entrenamientos · 7 meses entrenando") y la frase motivacional (solo si es corta).
+2. **Selector de período** (segmented control): "4 semanas" · "3 meses" · "Todo" (por defecto 4 semanas). Afecta el gráfico de Constancia y los bloques "Más fuerte que antes" y "Cómo está tu cuerpo". No afecta el calendario ni las sesiones.
+3. **Constancia** (`ConstanciaBlock`, la tarjeta grande): "Noviembre: 9 entrenamientos", comparación con el mes anterior a la misma altura del mes, chip 🔥 con la racha semanal 3+, estado de la semana ("3 de 4 días esta semana") y gráfico de barras apiladas por tipo con línea punteada en `profile.diasSemana`.
+4. **Más fuerte que antes** (`StrengthBlock`): hasta 5 ejercicios con mayor progreso de peso en el período; tocar una fila abre `ExerciseProgress` en un Modal; "Ver todos los ejercicios" abre el buscador.
+5. **Cómo está tu cuerpo** (`BodyBlock` + `FatigueChart`): esfuerzo percibido promedio (campo `fatigue`), nivel (Liviano / Moderado / Alto), tendencia vs. el período anterior y gráfico semanal. Nunca rojo ni 🔥.
+6. **Calendario** (`MonthCalendar`): mes navegable con color por tipo; tocar un día abre el detalle.
+7. **Últimas sesiones** (`UltimasSesiones`): las 5 más recientes; "Ver todo el historial" las muestra todas.
+
+Reglas visuales de la pantalla: todas las tarjetas son `Card` (`ProgressCard`) con fondo surface, mismo borde y radio (la de Constancia es más grande, `p-5`); títulos de sección en mayúsculas pequeñas muted; un solo número protagonista por bloque; verde-light = mejora, ámbar = alerta, violeta = acento; sin coral; emojis solo 🔥 (racha) y 🏆 (récords).
+
+Eliminados en este rediseño: las tarjetas "Tu camino" y "Tus victorias" (`CaminoCard`, `VictoriaCard`), "Esta semana" (`WeekRow`), "Principales progresiones", y los indicadores de días únicos, % de mayor progreso, ejercicio más trabajado, PRs históricos y fatiga como "victoria". `WorkoutHistorial.jsx` (calendario + historial) pasó a llamarse `MonthCalendar.jsx`.
 
 ---
 

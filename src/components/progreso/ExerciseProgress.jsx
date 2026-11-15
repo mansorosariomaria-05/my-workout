@@ -15,9 +15,17 @@ const CustomTooltip = ({ active, payload }) => {
   )
 }
 
-export default function ExerciseProgress({ workouts }) {
-  const [selected, setSelected]       = useState('')
-  const [query, setQuery]             = useState('')
+// `initialExerciseId`: abre directo la progresión de ese ejercicio (desde "Más fuerte que antes").
+export default function ExerciseProgress({ workouts, initialExerciseId = '' }) {
+  const [selected, setSelected]       = useState(initialExerciseId)
+  const [query, setQuery]             = useState(() => {
+    if (!initialExerciseId) return ''
+    for (const w of workouts) {
+      const e = w.exercises?.find(x => x.exerciseId === initialExerciseId)
+      if (e) return e.name || initialExerciseId
+    }
+    return ''
+  })
   const [showResults, setShowResults] = useState(false)
 
   const exercisesWithHistory = useMemo(() => {

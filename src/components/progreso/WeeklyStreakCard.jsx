@@ -7,20 +7,17 @@ const PURPLE = '#9B7FD4'
 const CARD_BG = '#1a1625'
 const BAR_ORDER = ['fuerza', 'cardio', 'clase', 'otros']
 
-// Tarjeta "Racha semanal 3+" (Inicio y Progreso comparten esta misma tarjeta).
+// Tarjeta "Racha semanal 3+" de Inicio (Progreso muestra la racha dentro del bloque Constancia).
 //   Frente: cantidad TOTAL de semanas con 3+ días distintos de entrenamiento (nunca baja).
 //   Dorso (al tocarla): resumen del mes calendario en curso — días por semana y % de fuerza / cardio / clase
 //   (y "otros" solo si existen), con una barra segmentada. Sin entrenamientos en el mes: estado vacío.
 // total: número (computeWeeklyStreak3Plus().total) · month: computeMonthSummary().
-// showTitle: muestra el título "Racha semanal 3+" arriba del número (Progreso). Inicio lo oculta porque el texto
-// "semanas con 3+ días" de abajo ya dice lo mismo.
-export default function WeeklyStreakCard({ total, month, height = '108px', showTitle = true }) {
+export default function WeeklyStreakCard({ total, month, height = '108px' }) {
   const face = 'w-full h-full rounded-2xl border border-white/[0.06]'
 
   const front = (
     <div className={`${face} py-3 px-3 flex flex-col items-center justify-center`} style={{ backgroundColor: CARD_BG }}>
-      {showTitle && <p className="text-[11px] font-medium text-app-text text-center leading-tight">Racha semanal 3+</p>}
-      <span className={`text-4xl font-bold leading-none flex items-center gap-1.5 ${showTitle ? 'mt-1.5' : ''}`} style={{ color: PURPLE }}>
+      <span className={`text-4xl font-bold leading-none flex items-center gap-1.5`} style={{ color: PURPLE }}>
         <span className="text-3xl">🔥</span>{total}
       </span>
       <p className="text-[10px] text-app-muted text-center mt-1 leading-tight">semanas con 3+ días</p>

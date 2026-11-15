@@ -42,9 +42,6 @@ export function pctChange(current, previous) {
   return Math.round(((current - previous) / previous) * 100)
 }
 
-// Número con coma decimal (es-AR), hasta 2 decimales, sin ceros de más.
-export const fmtNum = (n) => String(round2(n)).replace('.', ',')
-
 // Objetivo semanal (días): profile.diasSemana, o 3 si no existe.
 export function getWeeklyGoal(profile) {
   const n = Number(profile?.diasSemana)
@@ -336,7 +333,7 @@ export function computeMonthSummary(workouts, today = getTodayLocal()) {
 
 // ─── Cansancio (fuente única del estado) ─────────────────────────────────────
 
-const finiteFatigue = (w) => {
+export const finiteFatigue = (w) => {
   if (w.fatigue == null || w.fatigue === '') return null
   const n = Number(w.fatigue)
   return Number.isFinite(n) ? n : null
@@ -503,7 +500,7 @@ function evaluateRules({ workouts, groups, records, range, cur, prev, goal, toda
     if (delta != null && Math.abs(delta) >= 10) {
       const inP = cur.inWin.filter(w => w.type === 'fuerza')
       const suffix = inP.some(w => w.deload === true) ? ' (incluye semana de descarga)' : inP.some(w => w.regreso === true) ? ' (incluye una sesión de regreso)' : ''
-      const amount = delta > 200 ? 'más de un 200 %' : `un ${formatPercent(Math.abs(delta))}`
+      const amount = delta > 200 ? `más de un ${formatPercent(200)}` : `un ${formatPercent(Math.abs(delta))}`
       out.push({ rule: 'R4', text: `Tu volumen de fuerza ${delta > 0 ? 'subió' : 'bajó'} ${amount} frente a las ${range.weeks} semanas anteriores${suffix}.` })
     }
   }

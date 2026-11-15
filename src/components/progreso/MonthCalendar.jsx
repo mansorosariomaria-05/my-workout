@@ -16,7 +16,7 @@ const TYPE_DOT = {
   tabata: 'bg-app-amber',
 }
 
-export default function WorkoutHistorial({ workouts }) {
+export default function MonthCalendar({ workouts }) {
   const [month, setMonth] = useState(new Date())
   const [selected, setSelected] = useState(null)
   const days = getMonthDays(month)

@@ -26,7 +26,7 @@ Documentación técnica permanente para que cualquier instancia de Claude pueda 
 
 ### La tarjeta
 
-- **Frente**: título **"Racha semanal 3+"** (solo en Progreso: en Inicio se oculta con `showTitle={false}` porque el texto de abajo ya dice lo mismo), `🔥 {total}` y el texto **"semanas con 3+ días"**.
+- **Frente**: `🔥 {total}` y el texto **"semanas con 3+ días"** (la tarjeta solo se usa en Inicio; Progreso muestra la racha en el bloque Constancia, ver sección 29).
 - **Dorso** (se toca para darla vuelta; `FlipCard.jsx`, con `aria-pressed`/`aria-label` y respeto por `prefers-reduced-motion`): arriba, chico, **"Este mes"**; luego **"X,X días por semana"**; una barra segmentada y los tres porcentajes de **fuerza, cardio y clase**, cada uno con su color de `TYPE_COLORS` (`utils/workoutTypes.js`: fuerza `#9B7FD4`, cardio `#4ade80`, clase `#60a5fa`, otros `#94A3B8`). Sin entrenamientos en el mes: **"Todavía no entrenaste este mes"**. Reemplaza al dorso anterior (las últimas 12 semanas).
 - Altura fija de 108 px (la de la tarjeta de días de al lado).
 
@@ -64,7 +64,7 @@ Se eliminaron `computeStreak()` (racha estricta de semanas consecutivas, con ré
 ### Qué existía y ya no existe
 
 - **Registro**: `WorkoutWizard.jsx` ya no ofrece "Semana de pausa" como tipo de registro. Se eliminaron `PausaFlow`, `handleSavePausa`, el selector de motivos (🤒 enfermedad / 🤕 lesión / 🧘 descanso) y el componente `InlineRangePicker` (calendario inline con `date-fns` que solo usaba `PausaFlow` — no tenía otros consumidores, se eliminó entero).
-- **Calendarios**: `WeekCalendar.jsx` y el `WeekRow` de `ProgresoPage.jsx` ya no tienen las 3 pasadas de prioridad (real > descanso > pausa) ni la expansión de rango `pausaInicio`–`pausaFin`. Ahora solo pintan días con `REAL_WORKOUT_TYPES.includes(w.type)` — un día sin entrenamiento real queda vacío, sin importar si hay un documento `pausa`/`descanso` viejo en esa fecha. `MonthCalendar.jsx` (Progreso, calendario mensual) tenía el mismo problema; ese componente ya no existe (se eliminó en noviembre 2026 por no tener ninguna referencia — no estaba montado en ninguna pantalla). El historial mensual vive en `WorkoutHistorial.jsx`, que filtra `byDate` por `REAL_WORKOUT_TYPES`.
+- **Calendarios**: `WeekCalendar.jsx` y el `WeekRow` de `ProgresoPage.jsx` (hoy eliminado, ver sección 29) ya no tenían las 3 pasadas de prioridad (real > descanso > pausa) ni la expansión de rango `pausaInicio`–`pausaFin`. Ahora solo pintan días con `REAL_WORKOUT_TYPES.includes(w.type)` — un día sin entrenamiento real queda vacío, sin importar si hay un documento `pausa`/`descanso` viejo en esa fecha. El calendario mensual de Progreso es `MonthCalendar.jsx` (antes `MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`); el `MonthCalendar` original sin uso se había eliminado antes), que filtra `byDate` por `REAL_WORKOUT_TYPES`.
 - **`WorkoutSummary.jsx`**: se eliminó la rama `if (workout.type === 'pausa')` y su pantalla alternativa (🧊/⏸, "Que te mejores pronto. Tu racha está a salvo.") — ya no puede crearse un workout de tipo pausa, así que esa rama era inalcanzable.
 - **`ProgresoPage.jsx`**: se eliminaron `pausaThisWeek`, `pausaMotivo` y la lógica condicional de `semanaAsideText`/`semanaAsideColor` ("Descansá · La próxima semana volvés 💙" / "Semana de descanso · Volvés más fuerte"). El aside de "Esta semana" ahora siempre muestra el texto normal (`{thisDays} de {diasSemana} días · {semanaMsg}`).
 - **`ConfigPage.jsx`**: se eliminó el selector de UI "¿Volvés después de una pausa?" (`profile.pausa`, `PAUSA_OPTIONS`) — el campo no se usaba en ningún cálculo (confirmado por búsqueda). **El campo `pausa` no se borra de los documentos de perfil ya existentes en Firestore**, solo se removió la UI. *(Actualización noviembre 2026: verificado por búsqueda — `Onboarding.jsx` tampoco pregunta ni guarda `profile.pausa`; el campo solo puede existir en perfiles viejos de Firestore, sin ninguna lectura en el código.)*
@@ -83,7 +83,7 @@ Varios filtros a lo largo del código excluían `'descanso'` pero no `'pausa'` (
 | `achievements.js` | chequeo de `cienDias` | Una pausa contaba como uno de los "100 días únicos entrenados" |
 | `achievements.js` | chequeo de `semanaPerfecta` | Una pausa contaba como día cumplido del objetivo semanal |
 | `achievements.js` | `computeMaxStreak()`, chequeo de `dosSemanas` | Ya corregidos en el cambio anterior (sección 1) |
-| `WorkoutHistorial.jsx` | `byDate` | Tenía su propio `REAL = Set([...])` local duplicado — reemplazado por el import compartido |
+| `MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`) | `byDate` | Tenía su propio `REAL = Set([...])` local duplicado — reemplazado por el import compartido |
 
 Ninguno de estos requirió tocar datos en Firestore — todos son filtros de lectura, así que el fix aplica retroactivamente a cualquier documento viejo apenas se despliega.
 
@@ -352,7 +352,7 @@ parseLocalDate(str)    // 'YYYY-MM-DD' → new Date(y, m-1, d) → medianoche LO
 toDateStr(date)        // → format(date, 'yyyy-MM-dd') — wrapper directo de date-fns
 todayStr               // alias/export usado en formularios (WorkoutWizard) para el valor default del date picker
 weekKey(date)          // → lunes de la semana del Date dado (para agrupar workouts por semana)
-getMonthDays(date)     // → array de Dates del mes del date dado (para `WorkoutHistorial.jsx`)
+getMonthDays(date)     // → array de Dates del mes del date dado (para `MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`))
 ```
 
 ---
@@ -430,7 +430,7 @@ useEffect(() => {
 Reescrito en noviembre 2026: ver **sección 22** (IDs fijos con `setDoc`, guardado con tope de 8 s que cae a borrador, sincronización al abrir/al volver la conexión con candado, lectura que conserva el caché ante errores y contador de lecturas). Lo que sigue sigue vigente:
 
 - **Cola local** (`src/utils/draftQueue.js`, `localStorage` `workout_draft_{uid}`): workouts ya completados que todavía no se confirmaron en Firestore. Campos de metadata: `_draftId` (= el ID definitivo del workout en Firestore), `_pendingSync: true`, `_draftCreatedAt`.
-- **Indicador visual** de workout pendiente de sync: `<CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />` cuando `workout._pendingSync === true` (12px, `#94A3B8`), en las vistas que listan workouts (`WorkoutHistorial.jsx`, `Inicio.jsx`, `ProgresoPage.jsx`).
+- **Indicador visual** de workout pendiente de sync: `<CloudUpload size={12} color="#94A3B8" title="Pendiente de sincronizar" />` cuando `workout._pendingSync === true` (12px, `#94A3B8`), en las vistas que listan workouts (`MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`), `Inicio.jsx`, `ProgresoPage.jsx`).
 - Al terminar de guardar con la cola, `WorkoutSummary` muestra "Guardado en tu dispositivo. Se va a subir solo cuando haya conexión." en vez de "Guardado correctamente".
 
 ---
@@ -1529,7 +1529,7 @@ getEffectiveDurationSeconds(workout) // usa durationSeconds si existe; si no, wo
 getEffectivePaceSecondsPerKm(workout) // usa paceSecondsPerKm si existe; si no, lo deriva de duración + distancia
 ```
 
-Todos los lugares que muestran un cardio (`WeekCalendar.jsx`, `WorkoutHistorial.jsx`, `ProgresoPage.jsx`, `Inicio.jsx` → `LastWorkoutModal`, `WorkoutSummary.jsx`) pasan por estos dos helpers en vez de leer `durationSeconds`/`tiempo` directamente — así un workout de antes de este cambio se muestra igual de bien que uno nuevo, sin ninguna migración de datos.
+Todos los lugares que muestran un cardio (`WeekCalendar.jsx`, `MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`), `ProgresoPage.jsx`, `Inicio.jsx` → `LastWorkoutModal`, `WorkoutSummary.jsx`) pasan por estos dos helpers en vez de leer `durationSeconds`/`tiempo` directamente — así un workout de antes de este cambio se muestra igual de bien que uno nuevo, sin ninguna migración de datos.
 
 ### 1. Input de tiempo — tres campos numéricos
 
@@ -1856,7 +1856,7 @@ Simulación con jsdom y el `AuthProvider` real (Auth y Firestore simulados), 21 
 
 ## 24. UNIDAD POR EJERCICIO (reps o segundos) Y FIN DEL TEMPORIZADOR ▶ (noviembre 2026)
 
-Implementa la opción "a + unidad por ejercicio" del informe `INFORME_EJERCICIOS_TIEMPO.md`. Archivos: `src/data/exercises.js`, `src/utils/exerciseUnit.js` (nuevo), `src/utils/progression.js`, `src/utils/prUtils.js`, `src/components/registro/FuerzaFlow.jsx`, `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `WeekCalendar.jsx`, `WorkoutHistorial.jsx`, `BibliotecaTab.jsx`.
+Implementa la opción "a + unidad por ejercicio" del informe `INFORME_EJERCICIOS_TIEMPO.md`. Archivos: `src/data/exercises.js`, `src/utils/exerciseUnit.js` (nuevo), `src/utils/progression.js`, `src/utils/prUtils.js`, `src/components/registro/FuerzaFlow.jsx`, `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `WeekCalendar.jsx`, `MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`), `BibliotecaTab.jsx`.
 
 ### El campo `unit`
 
@@ -2017,7 +2017,7 @@ Módulo único, de **funciones puras** (sin React ni Firestore), que reúne los 
 | `Inicio.jsx` (resumen semanal, ~línea 155) | Promedio de la fatiga de la semana pasada |
 | `achievements.js` — `checkEnergiaAlza` | Promedio semanal; baja de ≥ 2 puntos entre semanas consecutivas |
 | `useWorkouts.js` — `getLastFatigueForExercise` | `fatigue ?? 5` de las últimas 2 sesiones del ejercicio |
-| `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `WorkoutHistorial.jsx` | Colores/niveles por sesión: ≤ 4 bajo, 5-7 intermedio, ≥ 8 alto (`WorkoutSummary` usa `fatigue ?? 5`) |
+| `WorkoutWizard.jsx`, `WorkoutSummary.jsx`, `MonthCalendar.jsx` (antes `WorkoutHistorial.jsx`) | Colores/niveles por sesión: ≤ 4 bajo, 5-7 intermedio, ≥ 8 alto (`WorkoutSummary` usa `fatigue ?? 5`) |
 
 ### Racha semanal 3+ y resumen del mes (`computeWeeklyStreak3Plus`, `computeMonthSummary`)
 
@@ -2125,14 +2125,14 @@ Qué hace `normalizeExerciseEntry` en cada ejercicio de un workout: `exerciseId`
 
 ## 28. FORMATO DE NÚMEROS (`src/utils/format.js`, noviembre 2026)
 
-**Convención: todo número visible pasa por `utils/format.js`.** Usa `Intl.NumberFormat('es-AR')` (coma decimal) y deja un espacio entre número y unidad. Motivo: restar pesos en JS da errores de punto flotante (`22.2 − 20 = 2.1999999999999993`) y se veían como "+2.200000000000001kg". Es solo presentación: no se tocan los valores guardados ni los cálculos.
+**Convención: todo número visible pasa por `utils/format.js`.** Usa `Intl.NumberFormat('es-AR')` (coma decimal) y deja un **espacio no separable** (U+00A0) entre número y unidad, así "24 kg" nunca se parte en dos líneas. Motivo: restar pesos en JS da errores de punto flotante (`22.2 − 20 = 2.1999999999999993`) y se veían como "+2.200000000000001kg". Es solo presentación: no se tocan los valores guardados ni los cálculos.
 
 Todas las funciones redondean internamente (mitad hacia afuera, absorbiendo el error binario), así que se les puede pasar directamente el resultado de una resta.
 
 | Función | Qué hace | Ejemplos |
 |---|---|---|
-| `formatKg(n)` | Peso, máx. 1 decimal, sin decimales si es entero, con unidad | `24` → "24 kg" · `11.25` → "11,3 kg" · `2.200000000000001` → "2,2 kg" |
-| `formatDeltaKg(n)` | Igual con signo (menos tipográfico `−`). **Devuelve `null` si el delta redondeado es 0** (el llamador no lo muestra) | `2.2` → "+2,2 kg" · `-1` → "−1 kg" · `0.04` → `null` |
+| `formatKg(n)` | Peso, **máx. 2 decimales** (hay discos de 1,25 kg: 22,25 no es 22,3), sin ceros sobrantes, con unidad | `24` → "24 kg" · `22.25` → "22,25 kg" · `2.200000000000001` → "2,2 kg" |
+| `formatDeltaKg(n)` | Igual con signo (menos tipográfico `−`). **Devuelve `null` si el delta redondeado es 0** (el llamador no lo muestra) | `2.2` → "+2,2 kg" · `1.25` → "+1,25 kg" · `-1` → "−1 kg" · `0.004` → `null` |
 | `formatPct(n)` | Variación porcentual entera con signo | `66.67` → "+67 %" · `-20` → "−20 %" · `0` → "0 %" |
 | `formatPercent(n)` | Porcentaje entero sin signo (proporciones, inclinación, reducción de regreso) | `25` → "25 %" |
 | `formatScore(n)` | 1 decimal fijo (fatiga, días por semana, km/h calculados) | `7.1` → "7,1" · `7` → "7,0" |
@@ -2140,13 +2140,47 @@ Todas las funciones redondean internamente (mitad hacia afuera, absorbiendo el e
 | `formatKm(n)` | Distancia, máx. 2 decimales, con unidad | `5.25` → "5,25 km" |
 | `diffKg(a, b)` | Resta de pesos ya redondeada a 2 decimales (número, no texto) | `diffKg(22.2, 20)` → `2.2` |
 
-Valores nulos o no numéricos devuelven `"—"` (`formatDeltaKg` devuelve `null`). El espacio entre número y unidad es un espacio común: en filas angostas poner `whitespace-nowrap` al contenedor.
+Valores nulos o no numéricos devuelven `"—"` (`formatDeltaKg` devuelve `null`). Los formateadores con unidad (`kg`, `%`, `km`) usan U+00A0, por eso no hace falta `whitespace-nowrap`. Al comparar textos en tests hay que escribir ese espacio como `\u00A0`.
 
-Aplicado en: `components/progreso/*` (ProgresoPage, ExerciseProgress, WeeklyStreakCard, WorkoutHistorial), `WorkoutSummary`, `FuerzaFlow`, `Inicio`, `ConfigPage`, `WeekCalendar`, y los textos de `progressStats.js` (dato clave), `achievements.js` (detalle de logros nuevos), `exerciseUnit.js` (`formatSetText`) y `cardio.js` (`computeSpeedKmh`). Los detalles de logros ya guardados en Firestore no se reescriben.
+Aplicado en: `components/progreso/*` (ProgresoPage, ExerciseProgress, WeeklyStreakCard, MonthCalendar), `WorkoutSummary`, `FuerzaFlow`, `Inicio`, `ConfigPage`, `WeekCalendar`, y los textos de `progressStats.js` (dato clave), `achievements.js` (detalle de logros nuevos), `exerciseUnit.js` (`formatSetText`) y `cardio.js` (`computeSpeedKmh`). Los detalles de logros ya guardados en Firestore no se reescriben.
 
 Pruebas: `src/utils/format.test.js`.
 
-**Principales progresiones (ProgresoPage):** cada fila tiene el nombre del ejercicio en su propia línea (`truncate`, nunca recortado a una letra) y debajo la línea de datos: `peso × reps · delta (verde) · tiempo`.
+---
+
+## 29. PANTALLA PROGRESO (rediseño, noviembre 2026)
+
+Cálculos puros en `src/utils/progressView.js` (pruebas: `progressView.test.js`). Convenciones: solo `REAL_WORKOUT_TYPES`, nunca fechas futuras, semanas de lunes a domingo, fechas `YYYY-MM-DD`, y "sin dato" (fatiga ausente / null / '') nunca cuenta como 0.
+
+### Período seleccionado (`resolveViewPeriod`)
+Selector "4 semanas" (`4w`) · "3 meses" (`13w`) · "Todo" (`all`), por defecto `4w`. N semanas = las N semanas lunes-domingo que terminan en la semana en curso (la última es parcial y llega hasta hoy). El **período anterior** empieza N semanas antes y dura lo mismo en días (la comparación es pareja aunque la semana en curso esté a medias). `all` = desde el lunes del primer entrenamiento real hasta hoy, sin período anterior. El período afecta el gráfico de Constancia, "Más fuerte que antes" y "Cómo está tu cuerpo"; **no** el mes de la tarjeta de Constancia, el calendario ni las últimas sesiones. (`progressStats.resolvePeriod` con `4w/12w` sigue existiendo para su propio módulo; la pantalla usa `13w`.)
+
+### Encabezado (`computeHistorySummary`)
+`total` = entrenamientos reales de todo el historial; `months` = meses calendario desde el primero hasta el actual (mínimo 1; 0 sin entrenamientos).
+
+### Constancia
+- **Comparación mensual a la misma altura (`computeMonthComparison`)**: entrenamientos (workouts reales, no días) del mes en curso hasta hoy vs. los del mes anterior hasta el mismo día del mes; si el mes anterior es más corto (hoy es 31 y el anterior tiene 30), hasta su último día. Enero compara con diciembre del año anterior. Texto: `N más que en octubre` (verde, `tone: 'up'`) · `igual que en octubre` · `N menos que en octubre` (`'down'`, muted, nunca rojo).
+- **Racha**: sigue siendo `computeWeeklyStreak3Plus` (progressStats), la misma de Inicio: total de semanas con 3+ días distintos, **no necesariamente consecutivas** y nunca baja. Por eso el chip dice "🔥 N semanas con 3+ días" y no "seguidas". Estado de la semana: días distintos entrenados esta semana de `getWeeklyGoal(profile)` (`profile.diasSemana`).
+- **Barras (`computeConstanciaBars`)**: `4w` → 4 barras semanales, `13w` → 13, `all` → una por mes calendario desde el primer entrenamiento hasta el mes en curso (meses vacíos en cero). Cada barra cuenta **workouts** por tipo (fuerza, cardio, clase, tabata; apiladas con `TYPE_COLORS`). La semana o el mes en curso (`current`) se dibuja con menor opacidad. Línea punteada en el objetivo semanal solo en la vista semanal (en "Todo" no hay línea). Una semana con dos workouts el mismo día suma 2 aunque el objetivo se mida en días.
+
+### Más fuerte que antes (`computeStrengthRanking`)
+Por ejercicio de fuerza (clave = `exerciseId`, la misma que usa `ExerciseProgress`), con las sesiones que tienen peso > 0 dentro del período (peso de la sesión = máximo de sus series):
+- Entra solo con **≥ 2 sesiones** en el período y **delta > 0**, con `delta = diffKg(mejor peso, primer peso del período)` (la base es la primera sesión DEL período, no la anterior al período).
+- Mejor marca = mejor peso y, de las series con ese peso, el máximo de reps (o segundos si el ejercicio es en segundos).
+- Última mejora = fecha de la última sesión del período que superó el máximo anterior del período.
+- **"estable"**: la última mejora quedó a **más de 28 días** de hoy (`STABLE_AFTER_DAYS`; justo 28 todavía no). Chip gris neutro. Con `4w` nunca aparece (el período dura como máximo 27 días).
+- Orden: mayor delta en kg, luego mayor %, luego nombre; hasta 5 filas. Sin filas → estado vacío. Tocar una fila abre `ExerciseProgress` (`initialExerciseId`) en un Modal.
+
+### Cómo está tu cuerpo (`computeBodySummary`, `getFatigueLevel`)
+- Esfuerzo percibido = campo `fatigue` (1-10) de los workouts reales del período. **Promedio** (1 decimal) solo con **≥ 3 registros** (`BODY_MIN_RECORDS`); si no, estado vacío.
+- **Umbrales** sobre el promedio redondeado: `< 5` Liviano (verde-light) · `5 a < 7` Moderado (violeta claro) · `≥ 7` Alto (ámbar). El corte en 7 es el mismo de `getFatigueStatus` (descarga). Nunca rojo ni 🔥. `UltimasSesiones` usa la misma escala por sesión.
+- **Tendencia**: promedio del período anterior equivalente (también con ≥ 3 registros) comparado con el actual, ambos a 1 decimal: `↑ subió desde 6,2` · `↓ bajó desde 7,8` · `= igual que antes`. Sin tendencia en "Todo" ni con pocos registros previos.
+- **Línea de descarga**: "Podría ser buen momento para una semana más liviana" solo si el nivel es Alto, `useDeload().shouldSuggestDeload()` es verdadero (`getFatigueStatus(...).high`: últimas 2 semanas completas ≥ 7) y no hay una descarga activa.
+- **`FatigueChart`**: línea del promedio semanal (`weekly`, una entrada por semana del período; `avg` null si la semana no tiene registros y se une con `connectNulls`), eje Y 1-10 con marcas en 1, 5 y 10 y banda sutil en 5 o menos. Con menos de 2 semanas con datos muestra un texto en lugar del gráfico. Usa recharts (ya instalado).
+
+### Otros
+- `timeAgoText(fecha, hoy)`: "hoy", "hace 3 días", "hace 5 sem.", "hace 4 meses" (desde 90 días).
+- `UltimasSesiones`: 5 más recientes; "Ver todo el historial" muestra todas; las notas ocupan hasta 2 líneas (`line-clamp-2`).
 
 ---
 

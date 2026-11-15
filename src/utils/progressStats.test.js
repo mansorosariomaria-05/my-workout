@@ -617,18 +617,18 @@ describe('dato clave (5 reglas con prioridad)', () => {
   it('R2 récord de peso dentro del período', () => {
     const s = stats([hip('2026-10-05', 20), hip('2026-11-03', 25)])
     expect(s.keyInsightRule).toBe('R2')
-    expect(s.keyInsight).toBe('Récord nuevo en Hip Thrust: 25 kg (+5 kg sobre tu marca anterior de 20 kg).')
+    expect(s.keyInsight).toBe('Récord nuevo en Hip Thrust: 25 kg (+5 kg sobre tu marca anterior de 20 kg).')
   })
 
   it('R2 no dispara si el récord es anterior al período, y elige el más reciente si hay varios', () => {
     expect(stats([hip('2026-08-05', 20), hip('2026-08-12', 25)]).keyInsight).toBeNull()
     const dos = stats([hip('2026-10-05', 20), hip('2026-10-22', 25), F('2026-11-03', [ex('glut_03', 'Kettlebell swing', [[10, 10]])]), F('2026-11-09', [ex('glut_03', 'Kettlebell swing', [[10, 14]])])])
-    expect(dos.keyInsight).toBe('Récord nuevo en Kettlebell swing: 14 kg (+4 kg sobre tu marca anterior de 10 kg).')
+    expect(dos.keyInsight).toBe('Récord nuevo en Kettlebell swing: 14 kg (+4 kg sobre tu marca anterior de 10 kg).')
   })
 
   it('R2 usa coma decimal', () => {
     const s = stats([hip('2026-10-05', 20), hip('2026-11-03', 22.5)])
-    expect(s.keyInsight).toBe('Récord nuevo en Hip Thrust: 22,5 kg (+2,5 kg sobre tu marca anterior de 20 kg).')
+    expect(s.keyInsight).toBe('Récord nuevo en Hip Thrust: 22,5 kg (+2,5 kg sobre tu marca anterior de 20 kg).')
   })
 
   it('R3 mejor tiempo en un ejercicio en segundos (supera el máximo previo al período)', () => {
@@ -648,25 +648,25 @@ describe('dato clave (5 reglas con prioridad)', () => {
     expect(otroPeso.keyInsights.map(k => k.rule)).not.toContain('R3')
   })
 
-  it('R4 variación de volumen (≥ 10 %, al menos 2 sesiones con volumen en cada período)', () => {
+  it('R4 variación de volumen (≥ 10 %, al menos 2 sesiones con volumen en cada período)', () => {
     const prev = [hip('2026-10-01', 50, 8), hip('2026-10-08', 50, 8)]
     const cur = [hip('2026-10-22', 50, 10), hip('2026-10-29', 50, 10)]
     const s = stats([...prev, ...cur])
     expect(s.keyInsightRule).toBe('R4')
-    expect(s.keyInsight).toBe('Tu volumen de fuerza subió un 25 % frente a las 4 semanas anteriores.')
+    expect(s.keyInsight).toBe('Tu volumen de fuerza subió un 25 % frente a las 4 semanas anteriores.')
     const baja = stats([...[hip('2026-10-01', 50, 10), hip('2026-10-08', 50, 10)], ...[hip('2026-10-22', 50, 8), hip('2026-10-29', 50, 8)]])
-    expect(baja.keyInsight).toBe('Tu volumen de fuerza bajó un 20 % frente a las 4 semanas anteriores.')
+    expect(baja.keyInsight).toBe('Tu volumen de fuerza bajó un 20 % frente a las 4 semanas anteriores.')
   })
 
   it('R4 menciona la semana de descarga y no dispara con menos de 2 sesiones, con cambio chico o en "all"', () => {
     const prev = [hip('2026-10-01', 50, 8), hip('2026-10-08', 50, 8)]
     const conDescarga = stats([...prev, hip('2026-10-22', 50, 10, 3, { deload: true }), hip('2026-10-29', 50, 10)])
-    expect(conDescarga.keyInsight).toBe('Tu volumen de fuerza subió un 25 % frente a las 4 semanas anteriores (incluye semana de descarga).')
+    expect(conDescarga.keyInsight).toBe('Tu volumen de fuerza subió un 25 % frente a las 4 semanas anteriores (incluye semana de descarga).')
     expect(stats([...prev, hip('2026-10-29', 50, 10)]).keyInsight).toBeNull()
-    expect(stats([...prev, hip('2026-10-22', 50, 8, 3), hip('2026-10-29', 50, 8, 3)]).keyInsight).toBeNull() // 0 %
+    expect(stats([...prev, hip('2026-10-22', 50, 8, 3), hip('2026-10-29', 50, 8, 3)]).keyInsight).toBeNull() // 0 %
     expect(stats([...prev, hip('2026-10-22', 50, 10), hip('2026-10-29', 50, 10)], { period: 'all' }).keyInsights.map(k => k.rule)).not.toContain('R4')
     const enorme = stats([...prev, hip('2026-10-22', 50, 30), hip('2026-10-29', 50, 30)])
-    expect(enorme.keyInsight).toBe('Tu volumen de fuerza subió más de un 200 % frente a las 4 semanas anteriores.')
+    expect(enorme.keyInsight).toBe('Tu volumen de fuerza subió más de un 200 % frente a las 4 semanas anteriores.')
   })
 
   it('R5 constancia: semanas cumplidas del período (la semana en curso cuenta solo si ya se cumplió), con al menos 4 semanas', () => {
